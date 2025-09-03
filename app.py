@@ -37,7 +37,8 @@ def get_formula():
     rates = load_rates()
     if tier not in rates:
         return jsonify({"error": f"unknown type '{tier}'"}), 400
-    return jsonify({"type": tier, "unit": "per-hour", "rates": rates[tier], "currency": "THB"})
+    return jsonify({"type": tier, "unit": "per-hour",
+                    "rates": rates[tier], "currency": "THB"})
 
 
 @app.post("/formula")
@@ -54,12 +55,11 @@ def update_formula():
         mem = float(payload["mem"])
     except Exception:
         return jsonify({"error": "cpu, gpu, mem must be numeric"}), 400
-    if min(cpu, gpu, mem) < 0:
-        return jsonify({"error": "rates must be >= 0"}), 400
+
     rates = load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
-    return jsonify({"ok": True, "updated": {tier: rates[tier]}, "by": current_user.username})
+    return jsonify({"ok": True, "updated": {tier: rates[tier]}})
 
 
 # --- Playground UI as before (or redirect / -> /playground) ---
