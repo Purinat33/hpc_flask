@@ -6,7 +6,22 @@
     <title>MU AI Center</title>
 </head>
 <body>
-    <h1>Hello World!</h1>
-    <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Eligendi, possimus voluptatum. Labore?</p>
+    <h1>MU AI Center Pricing Calculation:</h1>
+    <!-- Calculate Price -->
+    <!-- Send the form to the endpoint for calculation -->
+    <form action="/calculate_price" method="post">
+        <label for="cpu">CPU</label>
+        <!-- Might need to GET max number of CPU, GPU etc. and render it here -->
+        <input type="number" name="cpu" id="cpu" min="1" max="100">
+
+        <label for="gpu">GPU</label>
+        <input type="number" name="gpu" id="gpu" min="0" max="100">
+
+        <label for="mem">Memory (GB)</label>
+        <input type="number" name="mem" id="mem" min="1" max="100">
+
+        
+
+    </form>
 </body>
 </html>
