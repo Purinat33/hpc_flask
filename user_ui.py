@@ -1,4 +1,5 @@
 # user_ui.py
+import pandas as pd
 from billing_store import list_receipts, get_receipt_with_items
 from flask import Blueprint, request, render_template_string, Response, url_for
 from flask_login import login_required, current_user
@@ -45,11 +46,15 @@ PAGE = """
 
 <div class="card">
   <h3>Filter</h3>
-  <form method="get" class="grid">
-    <div><label>Start date<input type="date" name="start" value="{{ start }}"></label></div>
-    <div><label>End date<input type="date" name="end" value="{{ end }}"></label></div>
-    <div><label>&nbsp;<button type="submit">Fetch</button></label></div>
-  </form>
+<form method="get" class="grid">
+  <div>
+    <label>Jobs completed before
+      <input type="date" name="before" value="{{ before }}">
+    </label>
+  </div>
+  <div><label>&nbsp;<button type="submit">Fetch</button></label></div>
+</form>
+
   {% if data_source %}
     <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</p>
   {% endif %}
@@ -59,24 +64,25 @@ PAGE = """
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <h3>Your Jobs</h3>
     <div>
-      <a href="{{ url_for('user.my_usage_csv', start=start, end=end) }}"><button type="button">Download CSV</button></a>
+<a href="{{ url_for('user.my_usage_csv', before=before) }}"><button type="button">Download CSV</button></a>
     </div>
   </div>
 
-  <form method="post" action="{{ url_for('user.create_receipt') }}" style="display:inline">
-    <input type="hidden" name="start" value="{{ start }}">
-    <input type="hidden" name="end" value="{{ end }}">
-    <button type="submit">Create Receipt</button>
-  </form>
+<form method="post" action="{{ url_for('user.create_receipt') }}" style="display:inline">
+  <input type="hidden" name="before" value="{{ before }}">
+  <button type="submit">Create Receipt</button>
+</form>
 
-  <div class="tabs">
-    <a class="{{ 'on' if view=='detail' else '' }}"
-       href="{{ url_for('user.my_usage', start=start, end=end, view='detail') }}">Detailed</a>
-    <a class="{{ 'on' if view=='aggregate' else '' }}"
-       href="{{ url_for('user.my_usage', start=start, end=end, view='aggregate') }}">Aggregate</a>
-    <a class="{{ 'on' if view=='billed' else '' }}"
-       href="{{ url_for('user.my_usage', start=start, end=end, view='billed') }}">Billed</a>
-  </div>
+
+<div class="tabs">
+  <a class="{{ 'on' if view=='detail' else '' }}"
+     href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
+  <a class="{{ 'on' if view=='aggregate' else '' }}"
+     href="{{ url_for('user.my_usage', before=before, view='aggregate') }}">Aggregate</a>
+  <a class="{{ 'on' if view=='billed' else '' }}"
+     href="{{ url_for('user.my_usage', before=before, view='billed') }}">Billed</a>
+</div>
+
 
   {% if view == 'detail' %}
     {% if rows and rows|length>0 %}
@@ -88,7 +94,8 @@ PAGE = """
         <thead>
           <tr>
             <th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
-            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
+            
+            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>State</th><th>Tier</th><th>Cost (฿)</th>
           </tr>
         </thead>
         <tbody>
@@ -101,6 +108,7 @@ PAGE = """
               <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
               <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
               <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+              <td>{{ r['State'] }}</td>
               <td>{{ r['tier']|upper }}</td>
               <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
             </tr>
@@ -287,9 +295,11 @@ def view_receipt(rid: int):
 @user_bp.get("/me")
 @login_required
 def my_usage():
-    end_d = request.args.get("end") or date.today().isoformat()
-    start_d = request.args.get("start") or (
-        date.today() - timedelta(days=7)).isoformat()
+    EPOCH_START = "1970-01-01"
+    before = request.args.get("before") or date.today().isoformat()
+    start_d = EPOCH_START
+    end_d = before
+
     view = (request.args.get("view") or "detail").lower()
     if view not in {"detail", "aggregate", "billed"}:
         view = "detail"
@@ -307,13 +317,20 @@ def my_usage():
                 start_d, end_d, username=current_user.username)
             df = compute_costs(df)
 
+            # Enforce End cutoff defensively
+            if "End" in df.columns:
+                df["End"] = pd.to_datetime(df["End"], errors="coerce")
+                cutoff = pd.to_datetime(
+                    end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
             # Hide jobs that are already billed/pending
             df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
             already = billed_job_ids()
             df = df[~df["JobKey"].isin(already)]
 
             # detailed rows
-            cols = ["JobID", "Elapsed", "TotalCPU", "ReqTRES",
+            cols = ["JobID", "Elapsed", "TotalCPU", "ReqTRES", "State",
                     "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
             for c in cols:
                 if c not in df.columns:
@@ -349,7 +366,7 @@ def my_usage():
         PAGE,
         NAV=render_nav("usage"),
         current_user=current_user,
-        start=start_d, end=end_d, view=view,
+        start=start_d, end=end_d, view=view, before=before,
         rows=rows,                 # detailed
         agg_rows=agg_rows,         # aggregate
         pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,  # billed
@@ -362,9 +379,15 @@ def my_usage():
 @user_bp.get("/me.csv")
 @login_required
 def my_usage_csv():
+
     end_d = request.args.get("end") or date.today().isoformat()
     start_d = request.args.get("start") or (
         date.today() - timedelta(days=7)).isoformat()
+
+    before = request.args.get("before") or date.today().isoformat()
+    start_d = "1970-01-01"
+    end_d = before
+    # fetch -> compute_costs -> output CSV (unchanged)
 
     df, _, _ = fetch_jobs_with_fallbacks(
         start_d, end_d, username=current_user.username)
@@ -384,11 +407,23 @@ def create_receipt():
     end_d = request.form.get("end") or date.today().isoformat()
     start_d = request.form.get("start") or (
         date.today() - timedelta(days=7)).isoformat()
+    before = request.form.get("before") or date.today().isoformat()
+    start_d = "1970-01-01"
+    end_d = before
+    # re-fetch -> compute_costs -> filter out billed -> create_receipt_from_rows(username, start_d, end_d, ...)
 
     # Re-fetch, recompute, hide billed (server-side safety)
     df, _, _ = fetch_jobs_with_fallbacks(
         start_d, end_d, username=current_user.username)
     df = compute_costs(df)
+
+    # Defensively enforce the "before" cutoff here too
+    if "End" in df.columns:
+        df["End"] = pd.to_datetime(df["End"], errors="coerce")
+        cutoff = pd.to_datetime(
+            end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
     df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
     df = df[~df["JobKey"].isin(billed_job_ids())]
 

@@ -1,6 +1,7 @@
 # admin_ui.py
 from flask import Blueprint, request, render_template_string, redirect, url_for, flash
 from flask_login import login_required, current_user
+import pandas as pd
 from auth import admin_required
 from rates_store import load_rates, save_rates
 from data_sources import fetch_jobs_with_fallbacks
@@ -104,21 +105,26 @@ PAGE = """
       <div class="card">
         <h3>Usage Preview (slurmrestd → sacct → test.csv)</h3>
         <form method="get">
-          <div class="grid2">
-            <div><label>Start date<input type="date" name="start" value="{{ start }}"></label></div>
-            <div><label>End date<input type="date" name="end" value="{{ end }}"></label></div>
-            <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
-          </div>
-          <input type="hidden" name="section" value="usage">
-          <input type="hidden" name="type" value="{{ tier }}">
-        </form>
+  <div class="grid2">
+    <div>
+      <label>Jobs completed before
+        <input type="date" name="before" value="{{ before }}">
+      </label>
+    </div>
+    <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
+  </div>
+  <input type="hidden" name="section" value="usage">
+  <input type="hidden" name="type" value="{{ tier }}">
+</form>
 
-        <div class="tabs">
-          <a class="{{ 'on' if view=='detail' else '' }}"
-             href="{{ url_for('admin.admin_form', section='usage', start=start, end=end, type=tier, view='detail') }}">Detailed</a>
-          <a class="{{ 'on' if view=='aggregate' else '' }}"
-             href="{{ url_for('admin.admin_form', section='usage', start=start, end=end, type=tier, view='aggregate') }}">Aggregate</a>
-        </div>
+
+<div class="tabs">
+  <a class="{{ 'on' if view=='detail' else '' }}"
+     href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">Detailed</a>
+  <a class="{{ 'on' if view=='aggregate' else '' }}"
+     href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">Aggregate</a>
+</div>
+
         <div class="right muted">Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</div>
         <div class="clear"></div>
 
@@ -128,7 +134,7 @@ PAGE = """
               <thead>
                 <tr>
                   <th>User</th><th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
-                  <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
+                  <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>State</th><th>Cost (฿)</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,6 +149,7 @@ PAGE = """
                     <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
                     <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
                     <td>{{ r['tier']|upper }}</td>
+                    <td>{{ r['State'] }}</td>
                     <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                   </tr>
                 {% endfor %}
@@ -252,9 +259,10 @@ def admin_form():
     if view not in {"detail", "aggregate"}:
         view = "detail"
 
-    end_d = request.args.get("end") or date.today().isoformat()
-    start_d = request.args.get("start") or (
-        date.today() - timedelta(days=7)).isoformat()
+    EPOCH_START = "1970-01-01"
+    before = request.args.get("before") or date.today().isoformat()
+    start_d = EPOCH_START
+    end_d = before
 
     # defaults
     rows, agg_rows = [], []
@@ -268,13 +276,21 @@ def admin_form():
         if section == "usage":
             df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
             df = compute_costs(df)
+
+            # Enforce End cutoff defensively
+            if "End" in df.columns:
+                df["End"] = pd.to_datetime(df["End"], errors="coerce")
+                cutoff = pd.to_datetime(
+                    end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
             if not df.empty:
                 tot_cpu = float(df["CPU_Core_Hours"].sum())
                 tot_gpu = float(df["GPU_Hours"].sum())
                 tot_mem = float(df["Mem_GB_Hours"].sum())
                 tot_elapsed = float(df.get("Elapsed_Hours", 0).sum())
 
-            cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES",
+            cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "State",
                     "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
             for c in cols:
                 if c not in df.columns:
@@ -310,7 +326,7 @@ def admin_form():
         section=section,
         all_rates=rates, current=rates.get(tier, {"cpu": 0, "gpu": 0, "mem": 0}), tier=tier, tiers=["mu", "gov", "private"],
         current_user=current_user,
-        start=start_d, end=end_d, view=view,
+        start=start_d, end=end_d, view=view, before=before,
         rows=rows, agg_rows=agg_rows, grand_total=grand_total,
         data_source=data_source, notes=notes,
         tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,

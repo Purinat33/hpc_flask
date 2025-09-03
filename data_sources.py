@@ -78,22 +78,37 @@ def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
 
 
 def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
-    # Build sacct command
+    """
+    Fetch jobs via sacct. We request End + State so we can implement
+    'completed before {end_date}' semantics correctly (filter by End).
+    """
+    # Build sacct command (use --parsable2 for ISO-like timestamps)
     cmd = [
         "sacct",
+        "--parsable2", "--noheader",
         "-S", start_date,
         "-E", end_date,
-        "--format=User,JobID,Elapsed,TotalCPU,ReqTRES",
-        "-P",
+        # Only finished/terminal states (exclude RUNNING/PENDING etc.)
+        "--state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE",
+        "--format=User,JobID,Elapsed,TotalCPU,ReqTRES,End,State",
     ]
     if username:
-        cmd.insert(1, "-u")
-        cmd.insert(2, username)
+        cmd += ["-u", username]
     else:
-        cmd.insert(1, "--allusers")
+        cmd += ["--allusers"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return pd.read_csv(StringIO(result.stdout), sep="|")
+    df = pd.read_csv(StringIO(result.stdout), sep="|")
+
+    # Keep only rows with a valid End time that finish on/before the cutoff day
+    if "End" in df.columns:
+        df["End"] = pd.to_datetime(df["End"], errors="coerce")
+        cutoff = pd.to_datetime(end_date) + \
+            pd.Timedelta(hours=23, minutes=59, seconds=59)
+        df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
+    # Return the same core columns you already consume; extra columns are OK too
+    return df
 
 
 def fetch_via_fallback() -> pd.DataFrame:
@@ -134,6 +149,14 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
         df = pd.read_csv(StringIO(raw), sep="|")
         if username:
             df = df[df["User"].str.lower() == username.lower()]
+
+        # Honor the "completed before" cutoff if End exists
+        if "End" in df.columns:
+            df["End"] = pd.to_datetime(df["End"], errors="coerce")
+            cutoff = pd.to_datetime(end_date) + \
+                pd.Timedelta(hours=23, minutes=59, seconds=59)
+            df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
         return df, "test.csv", notes
     except Exception as e:
         notes.append(f"test.csv: {e}")
