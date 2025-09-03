@@ -79,4 +79,5 @@ def playground():
 if __name__ == "__main__":
     # Example: set ADMIN_PASSWORD for the dummy admin user
     # set FLASK_SECRET_KEY, run with a real reverse proxy/HTTPS in prod
+    print("Started app.py")
     app.run(host="0.0.0.0", port=8000, debug=True)

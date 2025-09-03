@@ -58,9 +58,6 @@ PAGE = """
 <style>body{font-family:system-ui,Arial;margin:2rem}form{max-width:360px}input{width:100%;padding:.6rem;margin:.25rem 0;border:1px solid #bbb;border-radius:8px}button{padding:.6rem 1rem;border:0;border-radius:8px;background:#1f7aec;color:#fff}</style>
 {{ NAV|safe }}
 <h2>Sign in</h2>
-{% with msgs = get_flashed_messages() %}
-  {% if msgs %}{% for m in msgs %}<div>{{m}}</div>{% endfor %}{% endif %}
-{% endwith %}
 <form method="post">
   <input name="username" placeholder="username" required>
   <input name="password" type="password" placeholder="password" required>
