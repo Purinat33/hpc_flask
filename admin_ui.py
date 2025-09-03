@@ -154,6 +154,13 @@ PAGE = """
           {% endfor %}
         </tbody>
       </table>
+            <div class="muted" style="margin-top:.5rem">
+        <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
+        <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
+        <span class="chip">Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}</span>
+        <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
+      </div>
+
     {% else %}
       <p class="muted">No rows for the given range.</p>
     {% endif %}
@@ -181,6 +188,13 @@ PAGE = """
           {% endfor %}
         </tbody>
       </table>
+            <div class="muted" style="margin-top:.5rem">
+        <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
+        <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
+        <span class="chip">Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}</span>
+        <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
+      </div>
+
     {% else %}
       <p class="muted">No rows for the given range.</p>
     {% endif %}
@@ -215,6 +229,14 @@ def admin_form():
     try:
         df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
         df = compute_costs(df)
+        # --- totals for chips below the table ---
+        tot_cpu = tot_gpu = tot_mem = tot_elapsed = 0.0
+        if not df.empty:
+            tot_cpu = float(df["CPU_Core_Hours"].sum())
+            tot_gpu = float(df["GPU_Hours"].sum())
+            tot_mem = float(df["Mem_GB_Hours"].sum())
+            # compute_costs already creates Elapsed_Hours
+            tot_elapsed = float(df.get("Elapsed_Hours", 0).sum())
 
         # Detailed rows (existing)
         cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES",
@@ -258,6 +280,7 @@ def admin_form():
         agg_rows=agg_rows,       # aggregated
         grand_total=grand_total,
         data_source=data_source, notes=notes,
+        tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
         url_for=url_for
     )
 
