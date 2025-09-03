@@ -6,6 +6,8 @@ from rates_store import load_rates, save_rates
 from admin_ui import admin_bp
 from auth import auth_bp, login_manager, admin_required
 from playground import return_playground
+from user_ui import user_bp
+from ui_base import nav as render_nav
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
@@ -16,7 +18,7 @@ login_manager.init_app(app)
 # Register blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
-
+app.register_blueprint(user_bp)
 # --- API (GET remains public, POST now requires admin session) ---
 
 
@@ -62,7 +64,7 @@ def root():
 
 @app.get("/playground")
 def playground():
-    return render_template_string(PAGE)
+    return render_template_string(PAGE,  NAV=render_nav("home"))
 
 
 if __name__ == "__main__":

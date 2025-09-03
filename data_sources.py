@@ -77,17 +77,23 @@ def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_via_sacct(start_date: str, end_date: str) -> pd.DataFrame:
-    out = _run([
-        "sacct", "--allusers",
-        "-S", start_date, "-E", end_date,
+def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
+    # Build sacct command
+    cmd = [
+        "sacct",
+        "-S", start_date,
+        "-E", end_date,
         "--format=User,JobID,Elapsed,TotalCPU,ReqTRES",
-        "-P"
-    ])
-    df = pd.read_csv(StringIO(out), sep="|")
-    if df.empty:
-        raise RuntimeError("sacct returned no data")
-    return df
+        "-P",
+    ]
+    if username:
+        cmd.insert(1, "-u")
+        cmd.insert(2, username)
+    else:
+        cmd.insert(1, "--allusers")
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return pd.read_csv(StringIO(result.stdout), sep="|")
 
 
 def fetch_via_fallback() -> pd.DataFrame:
@@ -95,27 +101,40 @@ def fetch_via_fallback() -> pd.DataFrame:
     return pd.read_csv("test.csv", sep="|")
 
 
-def fetch_jobs_with_fallbacks(start_date: str, end_date: str):
+def fetch_from_slurmrestd(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
     """
-    Try slurmrestd → sacct → test.csv.
-    Returns (df, source, notes)
+    If your slurmrestd helper exists, query here; otherwise raise to trigger sacct fallback.
+    You can filter server-side if your endpoint supports it, otherwise filter locally.
     """
+    raise RuntimeError("slurmrestd not configured")  # or implement
+
+
+def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | None = None):
     notes = []
+    # 1) slurmrestd
     try:
-        df = fetch_via_rest(start_date, end_date)
+        df = fetch_from_slurmrestd(start_date, end_date, username=username)
+        if username:
+            df = df[df["User"].str.lower() == username.lower()]
         return df, "slurmrestd", notes
     except Exception as e:
-        notes.append(f"slurmrestd failed: {e}")
+        notes.append(f"slurmrestd: {e}")
 
+    # 2) sacct
     try:
-        df = fetch_via_sacct(start_date, end_date)
+        df = fetch_from_sacct(start_date, end_date, username=username)
         return df, "sacct", notes
     except Exception as e:
-        notes.append(f"sacct failed: {e}")
+        notes.append(f"sacct: {e}")
 
+    # 3) test.csv fallback (ship a sanitized test.csv with same columns)
     try:
-        df = fetch_via_fallback()
+        with open("test.csv", "r", encoding="utf-8") as f:
+            raw = f.read()
+        df = pd.read_csv(StringIO(raw), sep="|")
+        if username:
+            df = df[df["User"].str.lower() == username.lower()]
         return df, "test.csv", notes
     except Exception as e:
-        notes.append(f"fallback test.csv failed: {e}")
-        raise RuntimeError("; ".join(notes))
+        notes.append(f"test.csv: {e}")
+        raise

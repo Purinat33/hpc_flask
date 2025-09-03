@@ -6,6 +6,7 @@ from rates_store import load_rates, save_rates
 from data_sources import fetch_jobs_with_fallbacks
 from billing import compute_costs
 from datetime import date, timedelta
+from ui_base import nav as render_nav
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -29,7 +30,7 @@ PAGE = """
   .row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
   .grid2{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
 </style>
-
+{{ NAV|safe }}
 <h2>Update Rates</h2>
 <p class="muted">Signed in as <b>{{ current_user.username }}</b> (role: {{ current_user.role }}) — <a href="/logout">Logout</a></p>
 
@@ -175,6 +176,7 @@ def admin_form():
 
     return render_template_string(
         PAGE,
+        NAV=render_nav("usage"),
         all_rates=rates, current=rates[tier], tier=tier, tiers=[
             "mu", "gov", "private"],
         current_user=current_user,
