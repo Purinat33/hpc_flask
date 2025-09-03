@@ -15,6 +15,7 @@ USERS = {
     "alice": {"password": "alice", "role": "user"},
     "bob":   {"password": "bob",   "role": "user"},
     "akara.sup":   {"password": "12345",   "role": "user"},
+    "surapol.gits":   {"password": "12345",   "role": "user"},
 }
 
 
