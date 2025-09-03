@@ -8,9 +8,18 @@ from auth import auth_bp, login_manager, admin_required
 from playground import return_playground
 from user_ui import user_bp
 from ui_base import nav as render_nav
+from db import init_app as init_db_app, init_db
+
 
 app = Flask(__name__)
+
+init_db_app(app)
+with app.app_context():
+    init_db()
+
+
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
+
 
 # Init Flask-Login
 login_manager.init_app(app)

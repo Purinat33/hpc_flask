@@ -7,6 +7,9 @@ from data_sources import fetch_jobs_with_fallbacks
 from billing import compute_costs
 from datetime import date, timedelta
 from ui_base import nav as render_nav
+from billing_store import billed_job_ids, canonical_job_id
+from billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
+from flask import Response
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -15,25 +18,22 @@ PAGE = """
 <style>
   :root { --b:#1f7aec; --bg:#fff; --muted:#666; --bd:#e5e7eb; --hi:#eef4ff;}
   body{font-family:system-ui,Arial;margin:2rem;background:var(--bg)}
-  .layout{display:grid;grid-template-columns:240px 1fr;gap:1.25rem;align-items:start}
+  .layout{display:grid;grid-template-columns:220px 1fr;gap:1rem;align-items:start}
   .sidebar{border:1px solid var(--bd);border-radius:12px;padding:.75rem;background:#fff}
-  .side-title{font-weight:800;margin:.25rem .5rem .5rem;color:#111}
-  .side a{display:block;padding:.5rem .6rem;margin:.25rem .25rem;border-radius:8px;text-decoration:none;color:#111}
-  .side a.on{background:#eef4ff;color:#1f7aec;font-weight:700}
-  .card{max-width:1100px;padding:1rem 1.25rem;border:1px solid var(--bd);border-radius:12px;margin-bottom:1rem;background:#fff}
+  .slink{display:block;padding:.5rem .6rem;border-radius:8px;color:#111;text-decoration:none;margin:.15rem 0}
+  .slink.on{background:#eef4ff;color:#1f7aec;font-weight:700}
+  .card{padding:1rem 1.25rem;border:1px solid var(--bd);border-radius:12px;margin-bottom:1rem;background:#fff}
   label{display:block;margin-top:.5rem;font-weight:600}
   input,select{width:100%;padding:.6rem;border:1px solid #bbb;border-radius:8px}
-  button{margin-top:1rem;padding:.6rem 1rem;border:0;border-radius:8px;background:var(--b);color:#fff;cursor:pointer}
+  button{padding:.55rem .9rem;border:0;border-radius:8px;background:var(--b);color:#fff;cursor:pointer}
   .muted{color:var(--muted);font-size:.92rem}
   table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--bd);border-radius:10px;overflow:hidden}
   th,td{padding:.55rem .7rem;border-bottom:1px solid var(--bd);text-align:left;font-size:.94rem}
   thead th{background:#f8fafc;font-weight:700}
   tbody tr:last-child td{border-bottom:0}
-  .tier{font-weight:700}
-  tr.active{background:var(--hi)}
-  .chip{display:inline-block;background:#f3f4f6;border-radius:999px;padding:.25rem .6rem;margin:.25rem .35rem 0 0;font-size:.85rem}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
   .grid2{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+  .chip{display:inline-block;background:#f3f4f6;border-radius:999px;padding:.25rem .6rem;margin:.25rem .35rem 0 0;font-size:.85rem}
   .tabs{display:inline-flex;border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin:.75rem 0}
   .tabs a{padding:.4rem .7rem;text-decoration:none;color:#1f2937;border-right:1px solid var(--bd)}
   .tabs a:last-child{border-right:0}
@@ -42,65 +42,42 @@ PAGE = """
 </style>
 
 {{ NAV|safe }}
+<h2>Admin</h2>
+<p class="muted">Signed in as <b>{{ current_user.username }}</b> (role: {{ current_user.role }}) — <a href="/logout">Logout</a></p>
 
 <div class="layout">
-  <!-- Sidebar -->
   <aside class="sidebar">
-    <div class="side">
-      <div class="side-title">Admin</div>
-      <a class="{{ 'on' if panel=='rates' else '' }}"
-         href="{{ url_for('admin.admin_form', panel='rates', type=tier) }}">1) Change Rate</a>
-      <a class="{{ 'on' if panel=='usage' else '' }}"
-         href="{{ url_for('admin.admin_form', panel='usage', start=start, end=end, type=tier, view=view) }}">2) Usage Tables</a>
-      <a class="{{ 'on' if panel=='billing' else '' }}"
-         href="{{ url_for('admin.admin_form', panel='billing', type=tier) }}">3) Mark as Paid</a>
-    </div>
+    <a class="slink {{ 'on' if section=='rates' else '' }}" href="{{ url_for('admin.admin_form', section='rates', type=tier) }}">Change Rate</a>
+    <a class="slink {{ 'on' if section=='usage' else '' }}" href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">Usage Tables</a>
+    <a class="slink {{ 'on' if section=='billing' else '' }}" href="{{ url_for('admin.admin_form', section='billing') }}">Billing</a>
   </aside>
 
-  <!-- Main content -->
   <main>
-    <p class="muted">Signed in as <b>{{ current_user.username }}</b> (role: {{ current_user.role }}) — <a href="/logout">Logout</a></p>
-
-    {% if panel == 'rates' %}
-      <!-- ===== RATES PANEL ===== -->
+    {% if section == 'rates' %}
       <div class="card">
         {% with messages = get_flashed_messages() %}
           {% if messages %}{% for m in messages %}<div>{{ m }}</div>{% endfor %}{% endif %}
         {% endwith %}
 
+        <h3>Change Rate</h3>
         <form method="post">
-          <input type="hidden" name="panel" value="rates">
           <label>Tier</label>
           <select name="type">
             <option value="mu" {% if tier=='mu' %}selected{% endif %}>mu</option>
             <option value="gov" {% if tier=='gov' %}selected{% endif %}>gov</option>
             <option value="private" {% if tier=='private' %}selected{% endif %}>private</option>
           </select>
-
           <div class="row">
-            <div>
-              <label>CPU (฿/cpu-hour)
-                <input type="number" step="0.01" min="0" name="cpu" value="{{ '%.2f'|format(current['cpu']) }}">
-              </label>
-            </div>
-            <div>
-              <label>GPU (฿/gpu-hour)
-                <input type="number" step="0.01" min="0" name="gpu" value="{{ '%.2f'|format(current['gpu']) }}">
-              </label>
-            </div>
+            <div><label>CPU (฿/cpu-hour)<input type="number" step="0.01" min="0" name="cpu" value="{{ '%.2f'|format(current['cpu']) }}"></label></div>
+            <div><label>GPU (฿/gpu-hour)<input type="number" step="0.01" min="0" name="gpu" value="{{ '%.2f'|format(current['gpu']) }}"></label></div>
           </div>
-
-          <label>MEM (฿/GB-hour)
-            <input type="number" step="0.01" min="0" name="mem" value="{{ '%.2f'|format(current['mem']) }}">
-          </label>
-
+          <label>MEM (฿/GB-hour)<input type="number" step="0.01" min="0" name="mem" value="{{ '%.2f'|format(current['mem']) }}"></label>
           <div class="muted">
             <span class="chip">Selected: {{ tier|upper }}</span>
             <span class="chip">CPU: ฿{{ '%.2f'|format(current['cpu']) }}</span>
             <span class="chip">GPU: ฿{{ '%.2f'|format(current['gpu']) }}</span>
             <span class="chip">MEM: ฿{{ '%.2f'|format(current['mem']) }}</span>
           </div>
-
           <button type="submit">Update</button>
         </form>
       </div>
@@ -108,7 +85,7 @@ PAGE = """
       <div class="card">
         <h3>Current Rates (All Tiers)</h3>
         <table>
-          <thead><tr><th>Tier</th><th>CPU (฿/cpu-hour)</th><th>GPU (฿/gpu-hour)</th><th>MEM (฿/GB-hour)</th></tr></thead>
+          <thead><tr><th>Tier</th><th>CPU</th><th>GPU</th><th>MEM</th></tr></thead>
           <tbody>
             {% for name in tiers %}
               {% set r = all_rates.get(name, {'cpu':0,'gpu':0,'mem':0}) %}
@@ -121,31 +98,26 @@ PAGE = """
             {% endfor %}
           </tbody>
         </table>
-        <p class="muted" style="margin-top:.5rem">
-          Formula: <code>cost = (CPU_core_hours × cpu_rate) + (GPU_hours × gpu_rate) + (MemGB_hours × mem_rate)</code>
-        </p>
       </div>
 
-    {% elif panel == 'usage' %}
-      <!-- ===== USAGE PANEL ===== -->
+    {% elif section == 'usage' %}
       <div class="card">
-        <h3>Usage (slurmrestd → sacct → test.csv)</h3>
+        <h3>Usage Preview (slurmrestd → sacct → test.csv)</h3>
         <form method="get">
           <div class="grid2">
             <div><label>Start date<input type="date" name="start" value="{{ start }}"></label></div>
             <div><label>End date<input type="date" name="end" value="{{ end }}"></label></div>
             <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
           </div>
-          <input type="hidden" name="panel" value="usage">
+          <input type="hidden" name="section" value="usage">
           <input type="hidden" name="type" value="{{ tier }}">
-          <input type="hidden" name="view" value="{{ view }}">
         </form>
 
         <div class="tabs">
           <a class="{{ 'on' if view=='detail' else '' }}"
-             href="{{ url_for('admin.admin_form', panel='usage', start=start, end=end, type=tier, view='detail') }}">Detailed</a>
+             href="{{ url_for('admin.admin_form', section='usage', start=start, end=end, type=tier, view='detail') }}">Detailed</a>
           <a class="{{ 'on' if view=='aggregate' else '' }}"
-             href="{{ url_for('admin.admin_form', panel='usage', start=start, end=end, type=tier, view='aggregate') }}">Aggregate</a>
+             href="{{ url_for('admin.admin_form', section='usage', start=start, end=end, type=tier, view='aggregate') }}">Aggregate</a>
         </div>
         <div class="right muted">Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</div>
         <div class="clear"></div>
@@ -221,14 +193,42 @@ PAGE = """
         {% endif %}
       </div>
 
-    {% elif panel == 'billing' %}
-      <!-- ===== BILLING PANEL (coming soon) ===== -->
+    {% elif section == 'billing' %}
       <div class="card">
-        <h3>Mark as Paid (Coming Soon)</h3>
-        <p class="muted">This panel will let you select users and mark displayed jobs as paid, write to <code>billed_jobs.csv</code>, and filter future views by unpaid only.</p>
+        <h3>Pending Receipts</h3>
+        {% if pending and pending|length>0 %}
+          <table>
+            <thead>
+              <tr><th>ID</th><th>User</th><th>Period</th><th>Total (฿)</th><th>Created</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {% for r in pending %}
+                <tr>
+                  <td>#{{ r['id'] }}</td>
+                  <td>{{ r['username'] }}</td>
+                  <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                  <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                  <td>{{ r['created_at'] }}</td>
+                  <td>
+                    <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}" style="display:inline">
+                      <button type="submit">Mark as paid</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">Nothing pending 🎉</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3>Download Payment History</h3>
+        <p class="muted">Exports all <b>paid</b> receipts.</p>
+        <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
       </div>
     {% endif %}
-
   </main>
 </div>
 """
@@ -239,16 +239,15 @@ PAGE = """
 @admin_required
 def admin_form():
     rates = load_rates()
+
+    section = (request.args.get("section") or "usage").lower()
+    if section not in {"rates", "usage", "billing"}:
+        section = "usage"
+
     tier = (request.args.get("type") or "mu").lower()
     if tier not in rates:
         tier = "mu"
 
-    # NEW: which sidebar panel?
-    panel = (request.args.get("panel") or "rates").lower()
-    if panel not in {"rates", "usage", "billing"}:
-        panel = "rates"
-
-    # Keep view toggle only for Usage
     view = (request.args.get("view") or "detail").lower()
     if view not in {"detail", "aggregate"}:
         view = "detail"
@@ -257,18 +256,18 @@ def admin_form():
     start_d = request.args.get("start") or (
         date.today() - timedelta(days=7)).isoformat()
 
-    # Defaults so template variables always exist
+    # defaults
     rows, agg_rows = [], []
     grand_total = 0.0
-    tot_cpu = tot_gpu = tot_mem = tot_elapsed = 0.0
     data_source = None
     notes = []
+    tot_cpu = tot_gpu = tot_mem = tot_elapsed = 0.0
+    pending = paid = []
 
-    if panel == "usage":
-        try:
+    try:
+        if section == "usage":
             df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
             df = compute_costs(df)
-
             if not df.empty:
                 tot_cpu = float(df["CPU_Core_Hours"].sum())
                 tot_gpu = float(df["GPU_Hours"].sum())
@@ -291,27 +290,31 @@ def admin_form():
                         GPU_Hours=("GPU_Hours", "sum"),
                         Mem_GB_Hours=("Mem_GB_Hours", "sum"),
                         Cost=("Cost (฿)", "sum"),
-                    )
-                    .reset_index()
+                    ).reset_index()
                 )
                 agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
                 agg_rows = agg[["User", "tier", "jobs", "CPU_Core_Hours",
                                 "GPU_Hours", "Mem_GB_Hours", "Cost (฿)"]].to_dict(orient="records")
                 grand_total = float(agg["Cost (฿)"].sum())
-        except Exception as e:
-            notes.append(str(e))
+
+        elif section == "billing":
+            pending = admin_list_receipts(status="pending")
+            paid = admin_list_receipts(status="paid")
+
+    except Exception as e:
+        notes.append(str(e))
 
     return render_template_string(
         PAGE,
         NAV=render_nav("usage"),
-        panel=panel, view=view,
-        all_rates=rates, current=rates[tier], tier=tier, tiers=[
-            "mu", "gov", "private"],
+        section=section,
+        all_rates=rates, current=rates.get(tier, {"cpu": 0, "gpu": 0, "mem": 0}), tier=tier, tiers=["mu", "gov", "private"],
         current_user=current_user,
-        start=start_d, end=end_d,
+        start=start_d, end=end_d, view=view,
         rows=rows, agg_rows=agg_rows, grand_total=grand_total,
         data_source=data_source, notes=notes,
         tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
+        pending=pending, paid=paid,
         url_for=url_for
     )
 
@@ -343,3 +346,24 @@ def admin_update():
 
     # stay on current panel; keep date range if you were on usage (not needed here)
     return redirect(url_for("admin.admin_form", panel=panel, type=tier))
+
+
+@admin_bp.post("/admin/receipts/<int:rid>/paid")
+@login_required
+@admin_required
+def mark_paid(rid: int):
+    ok = mark_receipt_paid(rid, current_user.username)
+    if not ok:
+        flash(f"Receipt #{rid} not found.")
+    else:
+        flash(f"Receipt #{rid} marked as paid.")
+    return redirect(url_for("admin.admin_form", section="billing"))
+
+
+@admin_bp.get("/admin/paid.csv")
+@login_required
+@admin_required
+def paid_csv():
+    fname, csv_text = paid_receipts_csv()
+    return Response(csv_text, mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
