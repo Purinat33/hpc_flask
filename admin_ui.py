@@ -3,26 +3,31 @@ from flask import Blueprint, request, render_template_string, redirect, url_for,
 from flask_login import login_required, current_user
 from auth import admin_required
 from rates_store import load_rates, save_rates
+from data_sources import fetch_jobs_with_fallbacks
+from billing import compute_costs
+from datetime import date, timedelta
 
 admin_bp = Blueprint("admin", __name__)
+
 PAGE = """
 <!doctype html><title>Rates Admin</title>
 <style>
   :root { --b:#1f7aec; --bg:#fff; --muted:#666; --bd:#e5e7eb; --hi:#eef4ff;}
   body{font-family:system-ui,Arial;margin:2rem;background:var(--bg)}
-  .card{max-width:820px;padding:1rem 1.25rem;border:1px solid var(--bd);border-radius:12px;margin-bottom:1rem;background:#fff}
+  .card{max-width:1100px;padding:1rem 1.25rem;border:1px solid var(--bd);border-radius:12px;margin-bottom:1rem;background:#fff}
   label{display:block;margin-top:.5rem;font-weight:600}
   input,select{width:100%;padding:.6rem;border:1px solid #bbb;border-radius:8px}
   button{margin-top:1rem;padding:.6rem 1rem;border:0;border-radius:8px;background:var(--b);color:#fff;cursor:pointer}
   .muted{color:var(--muted);font-size:.92rem}
   table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--bd);border-radius:10px;overflow:hidden}
-  th,td{padding:.65rem .8rem;border-bottom:1px solid var(--bd);text-align:left}
+  th,td{padding:.55rem .7rem;border-bottom:1px solid var(--bd);text-align:left;font-size:.94rem}
   thead th{background:#f8fafc;font-weight:700}
   tbody tr:last-child td{border-bottom:0}
   .tier{font-weight:700}
   tr.active{background:var(--hi)}
   .chip{display:inline-block;background:#f3f4f6;border-radius:999px;padding:.25rem .6rem;margin:.25rem .35rem 0 0;font-size:.85rem}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+  .grid2{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
 </style>
 
 <h2>Update Rates</h2>
@@ -30,9 +35,7 @@ PAGE = """
 
 <div class="card">
   {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      {% for m in messages %}<div>{{ m }}</div>{% endfor %}
-    {% endif %}
+    {% if messages %}{% for m in messages %}<div>{{ m }}</div>{% endfor %}{% endif %}
   {% endwith %}
 
   <form method="post">
@@ -75,12 +78,7 @@ PAGE = """
   <h3>Current Rates (All Tiers)</h3>
   <table>
     <thead>
-      <tr>
-        <th>Tier</th>
-        <th>CPU (฿/cpu-hour)</th>
-        <th>GPU (฿/gpu-hour)</th>
-        <th>MEM (฿/GB-hour)</th>
-      </tr>
+      <tr><th>Tier</th><th>CPU (฿/cpu-hour)</th><th>GPU (฿/gpu-hour)</th><th>MEM (฿/GB-hour)</th></tr>
     </thead>
     <tbody>
       {% for name in tiers %}
@@ -95,8 +93,51 @@ PAGE = """
     </tbody>
   </table>
   <p class="muted" style="margin-top:.5rem">
-    Formula: <code>cost = (CPU × hours × cpu_rate) + (GPU × hours × gpu_rate) + (MemGB × hours × mem_rate)</code>
+    Formula: <code>cost = (CPU_core_hours × cpu_rate) + (GPU_hours × gpu_rate) + (MemGB_hours × mem_rate)</code>
   </p>
+</div>
+
+<div class="card">
+  <h3>Usage Preview (slurmrestd → sacct → test.csv)</h3>
+  <form method="get">
+    <div class="grid2">
+      <div><label>Start date<input type="date" name="start" value="{{ start }}"></label></div>
+      <div><label>End date<input type="date" name="end" value="{{ end }}"></label></div>
+      <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
+    </div>
+  </form>
+  {% if data_source %}
+    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</p>
+  {% endif %}
+
+  {% if rows and rows|length>0 %}
+    <table>
+      <thead>
+        <tr>
+          <th>User</th><th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
+          <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>{{ r['User'] }}</td>
+            <td>{{ r['JobID'] }}</td>
+            <td>{{ r['Elapsed'] }}</td>
+            <td>{{ r['TotalCPU'] }}</td>
+            <td>{{ r['ReqTRES'] }}</td>
+            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+            <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+            <td>{{ r['tier']|upper }}</td>
+            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No rows for the given range.</p>
+  {% endif %}
 </div>
 """
 
@@ -105,17 +146,39 @@ PAGE = """
 @login_required
 @admin_required
 def admin_form():
+    # rates card
     rates = load_rates()
     tier = (request.args.get("type") or "mu").lower()
     if tier not in rates:
         tier = "mu"
+
+    # usage card (defaults = last 7 days)
+    end_d = request.args.get("end") or date.today().isoformat()
+    start_d = request.args.get("start") or (
+        date.today() - timedelta(days=7)).isoformat()
+
+    rows = []
+    data_source = None
+    notes = []
+    try:
+        df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
+        df = compute_costs(df)
+        # shrink for display
+        cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES",
+                "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+        rows = df[cols].to_dict(orient="records")
+    except Exception as e:
+        notes.append(str(e))
+
     return render_template_string(
         PAGE,
-        all_rates=rates,
-        current=rates[tier],
-        tier=tier,
-        tiers=['mu', 'gov', 'private'],
-        current_user=current_user
+        all_rates=rates, current=rates[tier], tier=tier, tiers=[
+            "mu", "gov", "private"],
+        current_user=current_user,
+        start=start_d, end=end_d, rows=rows, data_source=data_source, notes=notes
     )
 
 
@@ -131,11 +194,9 @@ def admin_update():
     except Exception:
         flash("Invalid numeric input")
         return redirect(url_for("admin.admin_form", type=tier or "mu"))
-
     if tier not in {"mu", "gov", "private"}:
         flash("Type must be one of mu|gov|private")
         return redirect(url_for("admin.admin_form"))
-
     if min(cpu, gpu, mem) < 0:
         flash("Rates must be ≥ 0")
         return redirect(url_for("admin.admin_form", type=tier))
@@ -144,4 +205,12 @@ def admin_update():
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
     flash(f"Updated {tier} → {rates[tier]}")
-    return redirect(url_for("admin.admin_form", type=tier))
+    # stay on same tier and same date range
+    start = request.args.get("start", "")
+    end = request.args.get("end", "")
+    q = {"type": tier}
+    if start:
+        q["start"] = start
+    if end:
+        q["end"] = end
+    return redirect(url_for("admin.admin_form", **q))
