@@ -98,6 +98,8 @@ PAGE = """
   </p>
 </div>
 
+{# admin_ui.py PAGE string: insert tabs + two tables #}
+
 <div class="card">
   <h3>Usage Preview (slurmrestd → sacct → test.csv)</h3>
   <form method="get">
@@ -106,40 +108,85 @@ PAGE = """
       <div><label>End date<input type="date" name="end" value="{{ end }}"></label></div>
       <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
     </div>
+    <input type="hidden" name="type" value="{{ tier }}">
   </form>
-  {% if data_source %}
-    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</p>
-  {% endif %}
 
-  {% if rows and rows|length>0 %}
-    <table>
-      <thead>
-        <tr>
-          <th>User</th><th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
-          <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
+  <style>
+    .tabs{display:inline-flex;border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin:.75rem 0}
+    .tabs a{padding:.4rem .7rem;text-decoration:none;color:#1f2937;border-right:1px solid var(--bd)}
+    .tabs a:last-child{border-right:0}
+    .tabs a.on{background:#eef4ff;color:#1f7aec;font-weight:700}
+    .right{float:right}
+    .clear{clear:both}
+  </style>
+  <div class="tabs">
+    <a class="{{ 'on' if view=='detail' else '' }}"
+       href="{{ url_for('admin.admin_form', start=start, end=end, type=tier, view='detail') }}">Detailed</a>
+    <a class="{{ 'on' if view=='aggregate' else '' }}"
+       href="{{ url_for('admin.admin_form', start=start, end=end, type=tier, view='aggregate') }}">Aggregate</a>
+  </div>
+  <div class="right muted">Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}</div>
+  <div class="clear"></div>
+
+  {% if view == 'detail' %}
+    {% if rows and rows|length>0 %}
+      <table>
+        <thead>
           <tr>
-            <td>{{ r['User'] }}</td>
-            <td>{{ r['JobID'] }}</td>
-            <td>{{ r['Elapsed'] }}</td>
-            <td>{{ r['TotalCPU'] }}</td>
-            <td>{{ r['ReqTRES'] }}</td>
-            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-            <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
-            <td>{{ r['tier']|upper }}</td>
-            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            <th>User</th><th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
+            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td>{{ r['User'] }}</td>
+              <td>{{ r['JobID'] }}</td>
+              <td>{{ r['Elapsed'] }}</td>
+              <td>{{ r['TotalCPU'] }}</td>
+              <td>{{ r['ReqTRES'] }}</td>
+              <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+              <td>{{ r['tier']|upper }}</td>
+              <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No rows for the given range.</p>
+    {% endif %}
   {% else %}
-    <p class="muted">No rows for the given range.</p>
+    {% if agg_rows and agg_rows|length>0 %}
+      <p class="muted"><span class="chip">Grand total: ฿{{ '%.2f'|format(grand_total) }}</span></p>
+      <table>
+        <thead>
+          <tr>
+            <th>User</th><th>Tier</th><th>Jobs</th>
+            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Total Cost (฿)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in agg_rows %}
+            <tr>
+              <td>{{ r['User'] }}</td>
+              <td>{{ r['tier']|upper }}</td>
+              <td>{{ r['jobs'] }}</td>
+              <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+              <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No rows for the given range.</p>
+    {% endif %}
   {% endif %}
 </div>
+
 """
 
 
@@ -147,30 +194,55 @@ PAGE = """
 @login_required
 @admin_required
 def admin_form():
-    # rates card
     rates = load_rates()
     tier = (request.args.get("type") or "mu").lower()
     if tier not in rates:
         tier = "mu"
 
-    # usage card (defaults = last 7 days)
+    # read toggle
+    view = (request.args.get("view") or "detail").lower()
+    if view not in {"detail", "aggregate"}:
+        view = "detail"
+
     end_d = request.args.get("end") or date.today().isoformat()
     start_d = request.args.get("start") or (
         date.today() - timedelta(days=7)).isoformat()
 
-    rows = []
+    rows, agg_rows = [], []
+    grand_total = 0.0
     data_source = None
     notes = []
     try:
         df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
         df = compute_costs(df)
-        # shrink for display
+
+        # Detailed rows (existing)
         cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES",
                 "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
         for c in cols:
             if c not in df.columns:
                 df[c] = ""
         rows = df[cols].to_dict(orient="records")
+
+        # Aggregate rows (new): one per user
+        if not df.empty:
+            agg = (
+                df.groupby(["User", "tier"], dropna=False)
+                .agg(
+                    jobs=("JobID", "count"),
+                    CPU_Core_Hours=("CPU_Core_Hours", "sum"),
+                    GPU_Hours=("GPU_Hours", "sum"),
+                    Mem_GB_Hours=("Mem_GB_Hours", "sum"),
+                    Cost=("Cost (฿)", "sum"),
+                )
+                .reset_index()
+            )
+            agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
+            agg_rows = agg[
+                ["User", "tier", "jobs", "CPU_Core_Hours",
+                    "GPU_Hours", "Mem_GB_Hours", "Cost (฿)"]
+            ].to_dict(orient="records")
+            grand_total = float(agg["Cost (฿)"].sum())
     except Exception as e:
         notes.append(str(e))
 
@@ -180,7 +252,13 @@ def admin_form():
         all_rates=rates, current=rates[tier], tier=tier, tiers=[
             "mu", "gov", "private"],
         current_user=current_user,
-        start=start_d, end=end_d, rows=rows, data_source=data_source, notes=notes
+        start=start_d, end=end_d,
+        view=view,
+        rows=rows,               # detailed
+        agg_rows=agg_rows,       # aggregated
+        grand_total=grand_total,
+        data_source=data_source, notes=notes,
+        url_for=url_for
     )
 
 

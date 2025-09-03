@@ -31,6 +31,8 @@ PAGE = """
 <h2>My Usage</h2>
 <p class="muted">Signed in as <b>{{ current_user.username }}</b> — <a href="/logout">Logout</a></p>
 
+{# user_ui.py PAGE string: insert tabs + either detailed or aggregate table #}
+
 <div class="card">
   <h3>Filter</h3>
   <form method="get" class="grid">
@@ -47,66 +49,106 @@ PAGE = """
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <h3>Your Jobs</h3>
     <div>
-      <a href="{{ url_for('user.my_usage_csv', start=start, end=end) }}">
-        <button type="button">Download CSV</button>
-      </a>
+      <a href="{{ url_for('user.my_usage_csv', start=start, end=end) }}"><button type="button">Download CSV</button></a>
     </div>
   </div>
 
-  {% if rows and rows|length>0 %}
-    <p class="muted">
-      <span class="chip">Jobs: {{ rows|length }}</span>
-      <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
-    </p>
-    <table>
-      <thead>
-        <tr>
-          <th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
-          <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
+  <style>
+    .tabs{display:inline-flex;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:.5rem 0}
+    .tabs a{padding:.4rem .7rem;text-decoration:none;color:#1f2937;border-right:1px solid #e5e7eb}
+    .tabs a:last-child{border-right:0}
+    .tabs a.on{background:#eef4ff;color:#1f7aec;font-weight:700}
+  </style>
+  <div class="tabs">
+    <a class="{{ 'on' if view=='detail' else '' }}"
+       href="{{ url_for('user.my_usage', start=start, end=end, view='detail') }}">Detailed</a>
+    <a class="{{ 'on' if view=='aggregate' else '' }}"
+       href="{{ url_for('user.my_usage', start=start, end=end, view='aggregate') }}">Aggregate</a>
+  </div>
+
+  {% if view == 'detail' %}
+    {% if rows and rows|length>0 %}
+      <p class="muted">
+        <span class="chip">Jobs: {{ rows|length }}</span>
+        <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
+      </p>
+      <table>
+        <thead>
           <tr>
-            <td>{{ r['JobID'] }}</td>
-            <td>{{ r['Elapsed'] }}</td>
-            <td>{{ r['TotalCPU'] }}</td>
-            <td>{{ r['ReqTRES'] }}</td>
-            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-            <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
-            <td>{{ r['tier']|upper }}</td>
-            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            <th>JobID</th><th>Elapsed</th><th>TotalCPU</th><th>ReqTRES</th>
+            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Tier</th><th>Cost (฿)</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td>{{ r['JobID'] }}</td>
+              <td>{{ r['Elapsed'] }}</td>
+              <td>{{ r['TotalCPU'] }}</td>
+              <td>{{ r['ReqTRES'] }}</td>
+              <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+              <td>{{ r['tier']|upper }}</td>
+              <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No jobs for the selected period.</p>
+    {% endif %}
   {% else %}
-    <p class="muted">No jobs for the selected period.</p>
+    {% if agg_rows and agg_rows|length>0 %}
+      <table>
+        <thead>
+          <tr>
+            <th>Jobs</th>
+            <th>CPU core-hrs</th><th>GPU hrs</th><th>Mem GB-hrs</th><th>Total Cost (฿)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in agg_rows %}
+            <tr>
+              <td>{{ r['jobs'] }}</td>
+              <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+              <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+              <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No jobs for the selected period.</p>
+    {% endif %}
   {% endif %}
 </div>
+
 """
 
 
 @user_bp.get("/me")
 @login_required
 def my_usage():
-    # default to last 7 days
     end_d = request.args.get("end") or date.today().isoformat()
     start_d = request.args.get("start") or (
         date.today() - timedelta(days=7)).isoformat()
+    view = (request.args.get("view") or "detail").lower()
+    if view not in {"detail", "aggregate"}:
+        view = "detail"
 
-    rows = []
+    rows, agg_rows = [], []
     data_source = None
     notes = []
     total_cost = 0.0
 
     try:
-        # 🔐 Server-side enforcement: always use current_user.username
         df, data_source, notes = fetch_jobs_with_fallbacks(
             start_d, end_d, username=current_user.username)
-        df = compute_costs(df)  # uses latest rates + adds Cost (฿)
+        df = compute_costs(df)
 
+        # detailed rows
         cols = ["JobID", "Elapsed", "TotalCPU", "ReqTRES",
                 "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
         for c in cols:
@@ -115,6 +157,18 @@ def my_usage():
         rows = df[cols].to_dict(orient="records")
         total_cost = float(df["Cost (฿)"].sum()) if not df.empty else 0.0
 
+        # aggregate (single row)
+        if not df.empty:
+            agg_row = {
+                "user": current_user.username,
+                "tier": (df["tier"].mode()[0] if not df["tier"].mode().empty else ""),
+                "jobs": int(len(df)),
+                "CPU_Core_Hours": float(df["CPU_Core_Hours"].sum()),
+                "GPU_Hours": float(df["GPU_Hours"].sum()),
+                "Mem_GB_Hours": float(df["Mem_GB_Hours"].sum()),
+                "Cost (฿)": float(df["Cost (฿)"].sum()),
+            }
+            agg_rows = [agg_row]
     except Exception as e:
         notes.append(str(e))
 
@@ -122,8 +176,10 @@ def my_usage():
         PAGE,
         NAV=render_nav("usage"),
         current_user=current_user,
-        start=start_d, end=end_d,
-        rows=rows, data_source=data_source, notes=notes,
+        start=start_d, end=end_d, view=view,
+        rows=rows,             # detailed
+        agg_rows=agg_rows,     # aggregated (single row)
+        data_source=data_source, notes=notes,
         total_cost=total_cost,
         url_for=url_for
     )
