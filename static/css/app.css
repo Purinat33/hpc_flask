@@ -23,40 +23,40 @@ body {
     background: var(--bg);
 }
 
-/* Blurred full-screen background image */
-body::before {
-    content: "";
+.bg-hue {
     position: fixed;
     inset: 0;
-    background-image: url("/static/img/bg.jpg");
-    /* add your image */
-    background-size: cover;
-    background-position: center;
-    filter: blur(12px) brightness(0.95);
-    transform: scale(1.08);
     z-index: -1;
-    /* behind all content */
+    /* sit behind content */
+    pointer-events: none;
+    background:
+        radial-gradient(800px 500px at -10% 20%, rgba(59, 130, 246, .16), transparent 60%),
+        radial-gradient(700px 420px at 110% 65%, rgba(99, 102, 241, .12), transparent 60%),
+        radial-gradient(600px 380px at 20% 120%, rgba(59, 130, 246, .10), transparent 60%);
 }
 
-/* Layout shell */
+/* Make the work area a white panel so the hue never overlaps it */
 .site {
     max-width: 1200px;
     margin: 2rem auto;
-    padding: 0 1rem;
+    padding: 0 1rem 1.25rem;
+    background: #fff;
+    border: 1px solid var(--bd);
+    border-radius: 16px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .04);
 }
 
-/* Header / Nav */
+/* Header keeps its bottom rule with spacing above it */
 .site-header {
     display: flex;
     align-items: center;
     gap: .75rem;
     margin-bottom: 1rem;
-
-    /* new */
     padding-bottom: .75rem;
+    padding-top: .75rem;
     /* space above the line */
     border-bottom: 1px solid rgba(0, 0, 0, .4);
-    /* thin black line */
+    /* thin, soft line */
 }
 
 .brand {
