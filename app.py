@@ -1,11 +1,10 @@
 # app.py
 import os
-from flask import Flask, request, jsonify, render_template_string, abort, redirect, url_for
+from flask import Flask, render_template, request, jsonify, render_template_string, abort, redirect, url_for
 from flask_login import login_required, current_user
 from rates_store import load_rates, save_rates
 from admin_ui import admin_bp
 from auth import auth_bp, login_manager, admin_required
-from playground import return_playground
 from user_ui import user_bp
 from ui_base import nav as render_nav
 from db import init_app as init_db_app, init_db
@@ -62,10 +61,6 @@ def update_formula():
     return jsonify({"ok": True, "updated": {tier: rates[tier]}})
 
 
-# --- Playground UI as before (or redirect / -> /playground) ---
-PAGE = return_playground()
-
-
 @app.get("/")
 def root():
     return redirect(url_for("playground"))
@@ -73,7 +68,7 @@ def root():
 
 @app.get("/playground")
 def playground():
-    return render_template_string(PAGE,  NAV=render_nav("home"))
+    return render_template('playground.html',  NAV=render_nav("home"))
 
 
 if __name__ == "__main__":
