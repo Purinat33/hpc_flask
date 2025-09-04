@@ -33,6 +33,7 @@ def app(tmp_instance, monkeypatch, sample_csv_text):
     app = create_app()
     app.config.update(
         TESTING=True,
+        WTF_CSRF_ENABLED=False,   # <- disable CSRF for tests
         SECRET_KEY="test-secret",
         BILLING_DB=str(tmp_instance / "billing.sqlite3"),
         FALLBACK_CSV=str(tmp_instance / "test.csv"),

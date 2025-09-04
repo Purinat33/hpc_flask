@@ -149,6 +149,7 @@
     </div>
 
     <form method="post" action="{{ url_for('user.create_receipt') }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="before" value="{{ before }}">
         <button type="submit">Create Receipt</button>
     </form>

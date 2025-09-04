@@ -14,7 +14,13 @@ def nav(active: str = "home") -> str:
         usage_href = url_for("admin.admin_form") if getattr(
             current_user, "is_admin", False) else url_for("user.my_usage")
         usage = item("Usage", usage_href, "usage")
-        auth = f'<a href="{url_for("auth.logout")}">Logout ({current_user.username})</a>'
+        # auth = f'<a href="{url_for("auth.logout")}">Logout ({current_user.username})</a>'
+        auth = f'''
+        <form method="post" action="{url_for("auth.logout")}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{{{ csrf_token() }}}}">
+          <button style="all:unset;cursor:pointer">Logout ({current_user.username})</button>
+        </form>
+      '''
     else:
         usage = item("Usage", url_for("auth.login"), "usage")
         auth = f'<a href="{url_for("auth.login")}">Login</a>'

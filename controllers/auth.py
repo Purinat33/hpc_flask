@@ -51,6 +51,7 @@ PAGE = """
 {{ NAV|safe }}
 <h2>Sign in</h2>
 <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input name="username" placeholder="username" required>
   <input name="password" type="password" placeholder="password" required>
   <button type="submit">Login</button>
@@ -74,7 +75,7 @@ def login_post():
     return redirect(request.args.get("next") or url_for("playground"))
 
 
-@auth_bp.get("/logout")
+@auth_bp.post("/logout")
 @login_required
 def logout():
     logout_user()

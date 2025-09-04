@@ -186,6 +186,7 @@
 
             <h3>Change Rate</h3>
             <form method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>Tier</label>
                 <select name="type">
                     <option value="mu" {% if tier=='mu' %}selected{% endif %}>mu</option>
@@ -375,6 +376,7 @@
                         <td>
                             <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
                                 style="display:inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit">Mark as paid</button>
                             </form>
                         </td>

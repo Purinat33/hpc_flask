@@ -15,10 +15,25 @@ import logging
 from logging.handlers import RotatingFileHandler
 from flask import g, request
 from time import time
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
+    # CSRF Setup
+    csrf = CSRFProtect()
+
+    csrf.init_app(app)
+
+    # Make {{ csrf_token() }} available in all Jinja templates
+    app.jinja_env.globals["csrf_token"] = generate_csrf
+
+    # Optional: nicer error if token missing/invalid
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        app.logger.warning("CSRF failed: %s", getattr(e, "description", ""))
+        return render_template("errors/csrf.html", reason=getattr(e, "description", "")), 400
 
     # --- Logging setup ---
     log_dir = os.path.join(os.path.dirname(__file__),
