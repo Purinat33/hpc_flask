@@ -11,6 +11,7 @@ from services.ui_base import nav as render_nav
 from models.billing_store import billed_job_ids, canonical_job_id
 from models.billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
 from flask import Response
+from models import rates_store
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -19,7 +20,7 @@ admin_bp = Blueprint("admin", __name__)
 @login_required
 @admin_required
 def admin_form():
-    rates = load_rates()
+    rates = rates_store.load_rates()
 
     section = (request.args.get("section") or "usage").lower()
     if section not in {"rates", "usage", "billing"}:
@@ -129,7 +130,7 @@ def admin_update():
         # flash("Rates must be ≥ 0")
         return redirect(url_for("admin.admin_form", panel=panel, type=tier))
 
-    rates = load_rates()
+    rates = rates_store.load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
     # flash(f"Updated {tier} → {rates[tier]}")

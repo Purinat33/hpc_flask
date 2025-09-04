@@ -9,7 +9,7 @@ from controllers.user import user_bp
 from services.ui_base import nav as render_nav
 from models.db import init_app as init_db_app, init_db
 from controllers.api import api_bp
-
+from models import rates_store
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True)

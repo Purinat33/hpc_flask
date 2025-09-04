@@ -4,6 +4,7 @@ import os
 import pandas as pd
 from models.rates_store import load_rates
 from datetime import datetime
+from models import rates_store
 
 # ---------- parsing helpers ----------
 
@@ -101,7 +102,8 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
     df["tier"] = df["User"].map(classify_user_type)
 
     # latest rates
-    rates = load_rates()  # {'mu':{'cpu':...,'gpu':...,'mem':...}, ...}
+    # {'mu':{'cpu':...,'gpu':...,'mem':...}, ...}
+    rates = rates_store.load_rates()
 
     def row_cost(r):
         t = r["tier"]

@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 from io import StringIO
 from datetime import datetime, timedelta
-from flask import current_app
+from flask import current_app, has_app_context
 
 # ---------- utilities ----------
 
@@ -112,12 +112,15 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
     return df
 
 
+def _fallback_csv_path():
+    if has_app_context():
+        return current_app.config.get("FALLBACK_CSV", os.path.join(current_app.instance_path, "test.csv"))
+    # allow CLI / pure unit tests
+    return os.environ.get("FALLBACK_CSV", os.path.join(os.getcwd(), "instance", "test.csv"))
+
+
 def fetch_via_fallback() -> pd.DataFrame:
-    path = current_app.config.get(
-        "FALLBACK_CSV",
-        os.path.join(current_app.instance_path, "test.csv")
-    )
-    return pd.read_csv(path, sep="|")
+    return pd.read_csv(_fallback_csv_path(), sep="|")
 
 
 def fetch_from_slurmrestd(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:

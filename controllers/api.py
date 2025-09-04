@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required
 from controllers.auth import admin_required
 from models.rates_store import load_rates, save_rates
+from models import rates_store
 
 api_bp = Blueprint("api", __name__) 
 
@@ -10,7 +11,7 @@ api_bp = Blueprint("api", __name__)
 @api_bp.get("/formula")
 def get_formula():
     tier = (request.args.get("type") or "mu").lower()
-    rates = load_rates()
+    rates = rates_store.load_rates()
     if tier not in rates:
         return jsonify({"error": f"unknown type '{tier}'"}), 400
     return jsonify({
@@ -36,7 +37,7 @@ def update_formula():
     except Exception:
         return jsonify({"error": "cpu, gpu, mem must be numeric"}), 400
 
-    rates = load_rates()
+    rates = rates_store.load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
     return jsonify({"ok": True, "updated": {tier: rates[tier]}})
