@@ -13,8 +13,8 @@ from models import rates_store
 from models.users_db import init_app as init_users_app, init_users_db, get_user, create_user
 import logging
 from logging.handlers import RotatingFileHandler
-
-logging.basicConfig(level=logging.INFO)
+from flask import g, request
+from time import time
 
 
 def create_app():
@@ -95,6 +95,24 @@ def create_app():
     @app.get("/playground")
     def playground():
         return render_template("playground.html", NAV=render_nav("home"))
+
+    @app.before_request
+    def _start_timer():
+        g._t0 = time()
+
+    @app.after_request
+    def _log_request(resp):
+        try:
+            ms = (time() - getattr(g, "_t0", time())) * 1000
+            app.logger.info("%s %s %s %s %.1fms",
+                            request.remote_addr,
+                            request.method,
+                            request.full_path,
+                            resp.status_code,
+                            ms)
+        except Exception:
+            app.logger.exception("Failed to log request")
+        return resp
 
     return app
 
