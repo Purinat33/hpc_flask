@@ -14,10 +14,6 @@ from flask import Response
 
 admin_bp = Blueprint("admin", __name__)
 
-PAGE = """
-
-"""
-
 
 @admin_bp.get("/admin")
 @login_required
@@ -124,19 +120,19 @@ def admin_update():
         gpu = float(request.form.get("gpu", "0"))
         mem = float(request.form.get("mem", "0"))
     except Exception:
-        flash("Invalid numeric input")
+        # flash("Invalid numeric input")
         return redirect(url_for("admin.admin_form", panel=panel, type=tier or "mu"))
     if tier not in {"mu", "gov", "private"}:
-        flash("Type must be one of mu|gov|private")
+        # flash("Type must be one of mu|gov|private")
         return redirect(url_for("admin.admin_form", panel=panel))
     if min(cpu, gpu, mem) < 0:
-        flash("Rates must be ≥ 0")
+        # flash("Rates must be ≥ 0")
         return redirect(url_for("admin.admin_form", panel=panel, type=tier))
 
     rates = load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
-    flash(f"Updated {tier} → {rates[tier]}")
+    # flash(f"Updated {tier} → {rates[tier]}")
 
     # stay on current panel; keep date range if you were on usage (not needed here)
     return redirect(url_for("admin.admin_form", panel=panel, type=tier))
@@ -148,9 +144,12 @@ def admin_update():
 def mark_paid(rid: int):
     ok = mark_receipt_paid(rid, current_user.username)
     if not ok:
-        flash(f"Receipt #{rid} not found.")
+        # flash(f"Receipt #{rid} not found.")
+        print("Receipt not found")
     else:
-        flash(f"Receipt #{rid} marked as paid.")
+        # flash(f"Receipt #{rid} marked as paid.")
+        print("Receipt found and marked as paid")
+
     return redirect(url_for("admin.admin_form", section="billing"))
 
 

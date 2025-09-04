@@ -176,7 +176,7 @@ def create_receipt():
     df = df[~df["JobKey"].isin(billed_job_ids())]
 
     if df.empty:
-        flash("No unbilled jobs to create a receipt from.")
+        # flash("No unbilled jobs to create a receipt from.")
         return redirect(url_for("user.my_usage", start=start_d, end=end_d))
 
     rid, total, skipped = create_receipt_from_rows(
@@ -184,5 +184,5 @@ def create_receipt():
     msg = f"Created receipt #{rid} for ฿{total:.2f}"
     if skipped:
         msg += f" (skipped {len(skipped)} already billed job(s))"
-    flash(msg)
+    # flash(msg)
     return redirect(url_for("user.my_receipts"))

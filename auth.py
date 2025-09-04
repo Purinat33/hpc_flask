@@ -46,7 +46,7 @@ def admin_required(f):
         if not current_user.is_authenticated:
             return login_manager.unauthorized()
         if not getattr(current_user, "is_admin", False):
-            flash("You need admin permissions to access that page.")
+            # flash("You need admin permissions to access that page.")
             # or url_for("user.my_usage")
             return redirect(url_for("playground"))
         return f(*args, **kwargs)
@@ -77,10 +77,10 @@ def login_post():
     p = request.form.get("password", "")
     row = USERS.get(u)
     if not row or row["password"] != p:
-        flash("Invalid username or password")
+        # flash("Invalid username or password")
         return redirect(url_for("auth.login"))
     login_user(User(u, row["role"]))  # starts a session cookie
-    flash(f"Welcome, {u}!")
+    # flash(f"Welcome, {u}!")
     return redirect(request.args.get("next") or url_for("playground"))
 
 
@@ -88,5 +88,5 @@ def login_post():
 @login_required
 def logout():
     logout_user()
-    flash("Signed out")
+    # flash("Signed out")
     return redirect(url_for("auth.login"))
