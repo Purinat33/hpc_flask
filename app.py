@@ -111,6 +111,14 @@ def create_app():
                                NAV=render_nav("home"),
                                path=request.path), 404
 
+    @app.errorhandler(405)
+    def not_found(e):
+        # Just gonna reuse the same thing
+        app.logger.warning("405 %s %s", request.method, request.path)
+        return render_template("errors/404.html",
+                               NAV=render_nav("home"),
+                               path=request.path), 405
+
     # Routes that render templates
     @app.get("/")
     def root():
