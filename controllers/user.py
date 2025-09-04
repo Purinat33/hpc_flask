@@ -5,10 +5,10 @@ from flask import Blueprint, render_template, request, render_template_string, R
 from flask_login import login_required, current_user
 from datetime import date, timedelta
 import io
-from ui_base import nav as render_nav
-from data_sources import fetch_jobs_with_fallbacks
+from services.ui_base import nav as render_nav
+from services.data_sources import fetch_jobs_with_fallbacks
 # your existing function that adds CPU_Core_Hours, GPU_Hours, Mem_GB_Hours, tier, Cost (฿)
-from billing import compute_costs
+from services.billing import compute_costs
 from models.billing_store import billed_job_ids, canonical_job_id
 from flask import flash, redirect
 from models.billing_store import create_receipt_from_rows

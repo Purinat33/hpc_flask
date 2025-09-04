@@ -6,7 +6,7 @@ from models.rates_store import load_rates, save_rates
 from controllers.admin import admin_bp
 from controllers.auth import auth_bp, login_manager, admin_required
 from controllers.user import user_bp
-from ui_base import nav as render_nav
+from services.ui_base import nav as render_nav
 from models.db import init_app as init_db_app, init_db
 
 

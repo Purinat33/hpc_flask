@@ -3,7 +3,7 @@ from functools import wraps
 from flask import Blueprint, render_template_string, request, redirect, url_for, flash, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import os
-from ui_base import nav as render_nav
+from services.ui_base import nav as render_nav
 auth_bp = Blueprint("auth", __name__)
 login_manager = LoginManager()
 login_manager.login_view = "auth.login"
