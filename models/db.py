@@ -1,7 +1,7 @@
 # db.py
 import os
 import sqlite3
-from flask import g
+from flask import g, current_app
 
 DB_PATH = os.environ.get(
     "BILLING_DB",
@@ -11,7 +11,8 @@ DB_PATH = os.environ.get(
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
+        db_path = current_app.config.get("BILLING_DB")
+        g.db = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
         g.db.execute("PRAGMA journal_mode = WAL")

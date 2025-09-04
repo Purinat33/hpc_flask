@@ -8,71 +8,48 @@ from controllers.auth import auth_bp, login_manager, admin_required
 from controllers.user import user_bp
 from services.ui_base import nav as render_nav
 from models.db import init_app as init_db_app, init_db
+from controllers.api import api_bp
 
 
-app = Flask(__name__)
+def create_app():
+    app = Flask(__name__, instance_relative_config=True)
+    os.makedirs(app.instance_path, exist_ok=True)
 
-init_db_app(app)
-with app.app_context():
-    init_db()
+    # Set config (env overrides, else defaults)
+    app.config.from_mapping(
+        SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or "dev-secret",
+        BILLING_DB=os.environ.get("BILLING_DB")
+        or os.path.join(app.instance_path, "billing.sqlite3"),
+        FALLBACK_CSV=os.environ.get("FALLBACK_CSV")
+        or os.path.join(app.instance_path, "test.csv"),
+    )
 
+    # DB & login
+    init_db_app(app)
+    with app.app_context():
+        init_db()
+    login_manager.init_app(app)
 
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
+    # Blueprints
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
+    app.register_blueprint(user_bp)
+    app.register_blueprint(api_bp)
 
+    # Routes that render templates
+    @app.get("/")
+    def root():
+        return redirect(url_for("playground"))
 
-# Init Flask-Login
-login_manager.init_app(app)
+    @app.get("/playground")
+    def playground():
+        return render_template("playground.html", NAV=render_nav("home"))
 
-# Register blueprints
-app.register_blueprint(auth_bp)
-app.register_blueprint(admin_bp)
-app.register_blueprint(user_bp)
-# --- API (GET remains public, POST now requires admin session) ---
-
-
-@app.get("/formula")
-def get_formula():
-    tier = (request.args.get("type") or "mu").lower()
-    rates = load_rates()
-    if tier not in rates:
-        return jsonify({"error": f"unknown type '{tier}'"}), 400
-    return jsonify({"type": tier, "unit": "per-hour",
-                    "rates": rates[tier], "currency": "THB"})
-
-
-@app.post("/formula")
-@login_required
-@admin_required
-def update_formula():
-    payload = request.get_json(force=True, silent=True) or {}
-    tier = (payload.get("type") or "").lower()
-    if tier not in {"mu", "gov", "private"}:
-        return jsonify({"error": "type must be one of mu|gov|private"}), 400
-    try:
-        cpu = float(payload["cpu"])
-        gpu = float(payload["gpu"])
-        mem = float(payload["mem"])
-    except Exception:
-        return jsonify({"error": "cpu, gpu, mem must be numeric"}), 400
-
-    rates = load_rates()
-    rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
-    save_rates(rates)
-    return jsonify({"ok": True, "updated": {tier: rates[tier]}})
+    return app
 
 
-@app.get("/")
-def root():
-    return redirect(url_for("playground"))
-
-
-@app.get("/playground")
-def playground():
-    return render_template('playground.html',  NAV=render_nav("home"))
-
+# Keep a module-level `app` so `flask --app app run` works
+app = create_app()
 
 if __name__ == "__main__":
-    # Example: set ADMIN_PASSWORD for the dummy admin user
-    # set FLASK_SECRET_KEY, run with a real reverse proxy/HTTPS in prod
-    print("Started app.py")
     app.run(host="0.0.0.0", port=8000, debug=True)

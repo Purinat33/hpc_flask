@@ -5,6 +5,7 @@ import pandas as pd
 import requests
 from io import StringIO
 from datetime import datetime, timedelta
+from flask import current_app
 
 # ---------- utilities ----------
 
@@ -112,8 +113,11 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
 
 
 def fetch_via_fallback() -> pd.DataFrame:
-    # test.csv should be pipe-delimited with the same columns
-    return pd.read_csv("test.csv", sep="|")
+    path = current_app.config.get(
+        "FALLBACK_CSV",
+        os.path.join(current_app.instance_path, "test.csv")
+    )
+    return pd.read_csv(path, sep="|")
 
 
 def fetch_from_slurmrestd(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
@@ -142,15 +146,13 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
     except Exception as e:
         notes.append(f"sacct: {e}")
 
-    # 3) test.csv fallback (ship a sanitized test.csv with same columns)
+    # 3) test.csv fallback
     try:
-        with open("test.csv", "r", encoding="utf-8") as f:
-            raw = f.read()
-        df = pd.read_csv(StringIO(raw), sep="|")
+        path = current_app.config.get("FALLBACK_CSV")
+        df = pd.read_csv(path, sep="|")
         if username:
             df = df[df["User"].str.lower() == username.lower()]
 
-        # Honor the "completed before" cutoff if End exists
         if "End" in df.columns:
             df["End"] = pd.to_datetime(df["End"], errors="coerce")
             cutoff = pd.to_datetime(end_date) + \
