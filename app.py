@@ -84,15 +84,16 @@ def create_app():
             create_user("admin", admin_pwd, role="admin")
 
         # (Optional) seed a few demo users; remove in prod
-        demo = {
-            "alice": ("alice", "user"),
-            "bob": ("bob", "user"),
-            "akara.sup": ("12345", "user"),
-            "surapol.gits": ("12345", "user"),
-        }
-        for u, (pwd, role) in demo.items():
-            if not get_user(u):
-                create_user(u, pwd, role)
+        if os.environ.get("SEED_DEMO_USERS") == "1":
+            demo = {
+                "alice": ("alice", "user"),
+                "bob": ("bob", "user"),
+                "akara.sup": ("12345", "user"),
+                "surapol.gits": ("12345", "user"),
+            }
+            for u, (pwd, role) in demo.items():
+                if not get_user(u):
+                    create_user(u, pwd, role)
 
     login_manager.init_app(app)
 
