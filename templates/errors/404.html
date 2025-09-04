@@ -1,0 +1,50 @@
+<!doctype html>
+<title>Page Not Found (404)</title>
+<style>
+    :root {
+        --b: #1f7aec;
+        --bd: #e5e7eb;
+        --muted: #666
+    }
+
+    body {
+        font-family: system-ui, Arial;
+        margin: 2rem;
+        background: #fff
+    }
+
+    .card {
+        max-width: 800px;
+        padding: 1rem 1.25rem;
+        border: 1px solid var(--bd);
+        border-radius: 12px;
+        background: #fff
+    }
+
+    .muted {
+        color: var(--muted)
+    }
+
+    .btn {
+        display: inline-block;
+        margin-top: .75rem;
+        padding: .6rem 1rem;
+        border-radius: 8px;
+        background: var(--b);
+        color: #fff;
+        text-decoration: none
+    }
+
+    code {
+        background: #f3f4f6;
+        padding: .15rem .35rem;
+        border-radius: 4px
+    }
+</style>
+
+{{ NAV|safe }}
+<div class="card">
+    <h2>404 — Page not found</h2>
+    <p class="muted">We couldn’t find <code>{{ path }}</code>.</p>
+    <a class="btn" href="/">← Back to Home</a>
+</div>

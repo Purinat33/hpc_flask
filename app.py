@@ -102,6 +102,15 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
 
+    # Specifically error routes
+    @app.errorhandler(404)
+    def not_found(e):
+        # optional: log it
+        app.logger.warning("404 %s %s", request.method, request.path)
+        return render_template("errors/404.html",
+                               NAV=render_nav("home"),
+                               path=request.path), 404
+
     # Routes that render templates
     @app.get("/")
     def root():
