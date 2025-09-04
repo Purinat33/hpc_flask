@@ -123,51 +123,39 @@ def list_billed_items_for_user(username: str, status: str | None = None) -> list
     return [dict(row) for row in cur.fetchall()]
 
 
-# billing_store.py
-
-DB_PATH = os.environ.get("BILLING_DB", "billing.sqlite3")
-
-
-def _connect():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def admin_list_receipts(status: str | None = None):
     """
-    List all receipts. If status provided ('pending' or 'paid'), filter by it.
-    Returns list of dicts with keys: id, username, start, end, total, status, created_at, paid_at.
+    List all receipts (optionally filter by 'pending' or 'paid').
     """
+    db = get_db()
     q = "SELECT id, username, start, end, total, status, created_at, paid_at FROM receipts"
     params = []
     if status:
         q += " WHERE status = ?"
         params.append(status)
     q += " ORDER BY created_at DESC, id DESC"
-    with _connect() as cx:
-        rows = [dict(r) for r in cx.execute(q, params).fetchall()]
+    rows = [dict(r) for r in db.execute(q, params).fetchall()]
     return rows
 
 
 def mark_receipt_paid(receipt_id: int, admin_user: str):
     """
-    Set a receipt to paid (idempotent; if already paid, no error).
+    Mark paid using the same DB connection as everything else.
+    (Alternatively, delete this and reuse mark_paid() below.)
     """
-    with _connect() as cx:
-        cur = cx.execute(
-            "SELECT status FROM receipts WHERE id = ?", (receipt_id,))
-        row = cur.fetchone()
-        if not row:
-            return False  # not found
-        if row["status"] == "paid":
-            return True   # already paid
-        now = datetime.utcnow().isoformat(timespec="seconds")
-        cx.execute(
-            "UPDATE receipts SET status='paid', paid_at=? WHERE id=?",
-            (now, receipt_id)
+    db = get_db()
+    row = db.execute("SELECT status FROM receipts WHERE id = ?",
+                     (receipt_id,)).fetchone()
+    if not row:
+        return False
+    if row["status"] == "paid":
+        return True
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with db:
+        db.execute(
+            "UPDATE receipts SET status='paid', paid_at=?, method=?, tx_ref=? WHERE id=?",
+            (now, admin_user or "admin", None, receipt_id)
         )
-        cx.commit()
     return True
 
 

@@ -12,6 +12,7 @@ from models.billing_store import billed_job_ids, canonical_job_id
 from models.billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
 from flask import Response
 from models import rates_store
+from models.billing_store import mark_paid
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -161,3 +162,11 @@ def paid_csv():
     fname, csv_text = paid_receipts_csv()
     return Response(csv_text, mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@admin_bp.post("/admin/receipts/<int:rid>/paid")
+@login_required
+@admin_required
+def mark_paid_route(rid: int):
+    ok = mark_paid(rid, method=current_user.username)
+    return redirect(url_for("admin.admin_form", section="billing"))

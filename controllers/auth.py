@@ -4,19 +4,11 @@ from flask import Blueprint, render_template_string, request, redirect, url_for,
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import os
 from services.ui_base import nav as render_nav
+from models.users_db import get_user, verify_password
+
 auth_bp = Blueprint("auth", __name__)
 login_manager = LoginManager()
 login_manager.login_view = "auth.login"
-
-# --- Dummy user store (replace with real PAM/LDAP/OIDC) ---
-USERS = {
-    # username: {password, role}
-    "admin": {"password": os.environ.get("ADMIN_PASSWORD", "admin123"), "role": "admin"},
-    "alice": {"password": "alice", "role": "user"},
-    "bob":   {"password": "bob",   "role": "user"},
-    "akara.sup":   {"password": "12345",   "role": "user"},
-    "surapol.gits":   {"password": "12345",   "role": "user"},
-}
 
 
 class User(UserMixin):
@@ -32,10 +24,10 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    info = USERS.get(user_id)
-    if not info:
+    row = get_user(user_id)
+    if not row:
         return None
-    return User(user_id, info["role"])
+    return User(row["username"], row["role"])
 
 # Decorator for admin-only routes
 
@@ -75,12 +67,10 @@ def login():
 def login_post():
     u = request.form.get("username", "").strip()
     p = request.form.get("password", "")
-    row = USERS.get(u)
-    if not row or row["password"] != p:
-        # flash("Invalid username or password")
+    if not verify_password(u, p):
         return redirect(url_for("auth.login"))
-    login_user(User(u, row["role"]))  # starts a session cookie
-    # flash(f"Welcome, {u}!")
+    row = get_user(u)
+    login_user(User(row["username"], row["role"]))
     return redirect(request.args.get("next") or url_for("playground"))
 
 

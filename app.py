@@ -10,6 +10,8 @@ from services.ui_base import nav as render_nav
 from models.db import init_app as init_db_app, init_db
 from controllers.api import api_bp
 from models import rates_store
+from models.users_db import init_app as init_users_app, init_users_db, get_user, create_user
+
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
@@ -26,8 +28,26 @@ def create_app():
 
     # DB & login
     init_db_app(app)
+    init_users_app(app)
     with app.app_context():
         init_db()
+        init_users_db()
+        # Seed admin (idempotent)
+        admin_pwd = os.environ.get("ADMIN_PASSWORD", "admin123")
+        if not get_user("admin"):
+            create_user("admin", admin_pwd, role="admin")
+
+        # (Optional) seed a few demo users; remove in prod
+        demo = {
+            "alice": ("alice", "user"),
+            "bob": ("bob", "user"),
+            "akara.sup": ("12345", "user"),
+            "surapol.gits": ("12345", "user"),
+        }
+        for u, (pwd, role) in demo.items():
+            if not get_user(u):
+                create_user(u, pwd, role)
+
     login_manager.init_app(app)
 
     # Blueprints
