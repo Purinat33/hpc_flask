@@ -1,20 +1,24 @@
 <header class="site site-header">
     <a class="brand" href="{{ url_for('playground') }}">
         <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" />
-        <span>HPC Billing</span>
+        <!-- <span>HPC Billing</span> -->
     </a>
 
+    {% set bp = request.blueprint or '' %}
+
     <nav class="nav">
-        <a class="{% if request.endpoint=='playground' %}active{% endif %}" href="{{ url_for('playground') }}">Home</a>
-    
+        <a class="{% if request.endpoint == 'playground' %}active{% endif %}" href="{{ url_for('playground') }}"
+            aria-current="{% if request.endpoint == 'playground' %}page{% endif %}">Home</a>
+
         {% if current_user.is_authenticated %}
         {% if current_user.is_admin|default(false) %}
-        <a class="{% if request.endpoint and request.endpoint.startswith('admin.') %}active{% endif %}"
-            href="{{ url_for('admin.admin_form') }}">Admin</a>
+        <a class="{% if bp == 'admin' %}active{% endif %}" href="{{ url_for('admin.admin_form') }}"
+            aria-current="{% if bp == 'admin' %}page{% endif %}">Admin</a>
         {% else %}
-        <a class="{% if request.endpoint and request.endpoint.startswith('user.') %}active{% endif %}"
-            href="{{ url_for('user.my_usage') }}">My Usage</a>
+        <a class="{% if bp == 'user' %}active{% endif %}" href="{{ url_for('user.my_usage') }}"
+            aria-current="{% if bp == 'user' %}page{% endif %}">My Usage</a>
         {% endif %}
+
         <span class="sp"></span>
         <form method="post" action="{{ url_for('auth.logout') }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -22,8 +26,8 @@
         </form>
         {% else %}
         <span class="sp"></span>
-        <a href="{{ url_for('auth.login') }}">Login</a>
+        <a class="{% if bp == 'auth' %}active{% endif %}" href="{{ url_for('auth.login') }}"
+            aria-current="{% if bp == 'auth' %}page{% endif %}">Login</a>
         {% endif %}
     </nav>
-
 </header>
