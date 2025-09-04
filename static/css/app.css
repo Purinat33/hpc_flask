@@ -1,0 +1,264 @@
+:root {
+    --b: #1f7aec;
+    --bg: #ffffff;
+    /* page content background (cards/sections use white) */
+    --muted: #666;
+    --bd: #e5e7eb;
+    --hi: #eef4ff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    font-family: system-ui, Arial, sans-serif;
+    margin: 0;
+    color: #111;
+    background: var(--bg);
+}
+
+/* Blurred full-screen background image */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image: url("/static/img/bg.jpg");
+    /* add your image */
+    background-size: cover;
+    background-position: center;
+    filter: blur(12px) brightness(0.95);
+    transform: scale(1.08);
+    z-index: -1;
+    /* behind all content */
+}
+
+/* Layout shell */
+.site {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+/* Header / Nav */
+.site-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    text-decoration: none;
+    color: #1f2937;
+}
+
+.brand img {
+    height: 28px;
+    width: auto;
+    display: block;
+}
+
+.brand span {
+    font-weight: 800;
+    letter-spacing: .2px;
+}
+
+.nav {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    margin-left: .5rem;
+}
+
+.nav a,
+.nav .navbtn {
+    text-decoration: none;
+    color: #1f2937;
+    padding: .45rem .7rem;
+    border-radius: 8px;
+    border: 1px solid var(--bd);
+    background: #fff;
+    cursor: pointer;
+}
+
+.nav a.active {
+    background: #eef2ff;
+    color: #1f7aec;
+    border-color: #c7d2fe;
+}
+
+.nav .sp {
+    flex: 1;
+}
+
+/* Cards, tables, forms (global, reused by pages) */
+.card {
+    background: #fff;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--bd);
+    border-radius: 12px;
+    margin-bottom: 1rem;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: .92rem;
+}
+
+label {
+    display: block;
+    margin-top: .5rem;
+    font-weight: 600;
+}
+
+input,
+select {
+    width: 100%;
+    padding: .6rem;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    background: #fff;
+}
+
+button {
+    padding: .55rem .9rem;
+    border: 0;
+    border-radius: 8px;
+    background: var(--b);
+    color: #fff;
+    cursor: pointer;
+}
+
+table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+
+th,
+td {
+    padding: .55rem .7rem;
+    border-bottom: 1px solid var(--bd);
+    text-align: left;
+    font-size: .94rem;
+}
+
+thead th {
+    background: #f8fafc;
+    font-weight: 700;
+}
+
+tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .75rem;
+}
+
+.grid2 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .75rem;
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.sidebar {
+    border: 1px solid var(--bd);
+    border-radius: 12px;
+    padding: .75rem;
+    background: #fff;
+}
+
+.slink {
+    display: block;
+    padding: .5rem .6rem;
+    border-radius: 8px;
+    color: #111;
+    text-decoration: none;
+    margin: .15rem 0;
+}
+
+.slink.on {
+    background: var(--hi);
+    color: var(--b);
+    font-weight: 700;
+}
+
+.tabs {
+    display: inline-flex;
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: .75rem 0;
+}
+
+.tabs a {
+    padding: .4rem .7rem;
+    text-decoration: none;
+    color: #1f2937;
+    border-right: 1px solid var(--bd);
+}
+
+.tabs a:last-child {
+    border-right: 0;
+}
+
+.tabs a.on {
+    background: var(--hi);
+    color: var(--b);
+    font-weight: 700;
+}
+
+.chip {
+    display: inline-block;
+    background: #f3f4f6;
+    border-radius: 999px;
+    padding: .25rem .6rem;
+    margin: .25rem .35rem 0 0;
+    font-size: .85rem;
+}
+
+.total {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin-top: 1rem;
+}
+
+.pill {
+    display: inline-block;
+    margin-right: .5rem;
+    margin-top: .35rem;
+    padding: .25rem .5rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+}
+
+.right {
+    float: right
+}
+
+.clear {
+    clear: both
+}

@@ -7,7 +7,6 @@ from models.rates_store import load_rates, save_rates
 from services.data_sources import fetch_jobs_with_fallbacks
 from services.billing import compute_costs
 from datetime import date, timedelta
-from services.ui_base import nav as render_nav
 from models.billing_store import billed_job_ids, canonical_job_id
 from models.billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
 from flask import Response
@@ -98,7 +97,6 @@ def admin_form():
 
     return render_template(
         'admin/page.html',
-        NAV=render_nav("usage"),
         section=section,
         all_rates=rates, current=rates.get(tier, {"cpu": 0, "gpu": 0, "mem": 0}), tier=tier, tiers=["mu", "gov", "private"],
         current_user=current_user,

@@ -6,7 +6,6 @@ from models.rates_store import load_rates, save_rates
 from controllers.admin import admin_bp
 from controllers.auth import auth_bp, login_manager, admin_required
 from controllers.user import user_bp
-from services.ui_base import nav as render_nav
 from models.db import init_app as init_db_app, init_db
 from controllers.api import api_bp
 from models import rates_store
@@ -109,7 +108,6 @@ def create_app():
         # optional: log it
         app.logger.warning("404 %s %s", request.method, request.path)
         return render_template("errors/404.html",
-                               NAV=render_nav("home"),
                                path=request.path), 404
 
     @app.errorhandler(405)
@@ -117,7 +115,6 @@ def create_app():
         # Just gonna reuse the same thing
         app.logger.warning("405 %s %s", request.method, request.path)
         return render_template("errors/404.html",
-                               NAV=render_nav("home"),
                                path=request.path), 405
 
     # Routes that render templates
@@ -127,7 +124,7 @@ def create_app():
 
     @app.get("/playground")
     def playground():
-        return render_template("playground.html", NAV=render_nav("home"))
+        return render_template("playground.html")
 
     @app.before_request
     def _start_timer():

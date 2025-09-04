@@ -1,6 +1,7 @@
-<!doctype html><meta charset="utf-8"><title>HPC Cost Playground</title>
-<style>body{font-family:system-ui,Arial,sans-serif;margin:2rem}.card{max-width:760px;padding:1rem 1.25rem;border:1px solid #ddd;border-radius:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}label{display:block;font-weight:600;margin-bottom:.25rem}input,select{width:100%;padding:.6rem;border:1px solid #bbb;border-radius:8px}.muted{color:#666;font-size:.9rem}.total{font-size:1.25rem;font-weight:800;margin-top:1rem}.breakdown{margin-top:.5rem;color:#444}.pill{display:inline-block;margin-right:.5rem;margin-top:.35rem;padding:.25rem .5rem;border-radius:999px;background:#f3f4f6}</style>
-{{ NAV|safe }}
+{% extends "base.html" %}
+{% block title %}HPC Cost Playground{% endblock %}
+
+{% block content %}
 <h2>HPC Cost Playground</h2>
 <!-- <p class="muted">Rates come from <code>/formula?type=...</code>. Use the Admin page to edit them.</p> -->
 <div class="card">
@@ -65,3 +66,4 @@ function recalc(){
 });
 fetchRates();
 </script>
+{% endblock %}

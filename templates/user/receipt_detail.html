@@ -1,23 +1,7 @@
-<!doctype html>
-<title>Receipt #{{ r['id'] }}</title>
-<style>
-    body {
-        font-family: system-ui, Arial;
-        margin: 2rem
-    }
+{% extends "base.html" %}
+{% block title %}Receipt Detail{% endblock %}
 
-    table {
-        width: 100%;
-        border-collapse: collapse
-    }
-
-    th,
-    td {
-        border: 1px solid #ddd;
-        padding: .5rem
-    }
-</style>
-{{ NAV|safe }}
+{% block content %}
 <h2>Receipt #{{ r['id'] }} — {{ r['status'] }}</h2>
 <p>Period: {{ r['start'] }} → {{ r['end'] }}</p>
 <p>Total: ฿{{ '%.2f'|format(r['total']) }}</p>
@@ -43,3 +27,4 @@
         {% endfor %}
     </tbody>
 </table>
+{% endblock %}

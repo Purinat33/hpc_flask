@@ -5,7 +5,6 @@ from flask import Blueprint, render_template, request, render_template_string, R
 from flask_login import login_required, current_user
 from datetime import date, timedelta
 import io
-from services.ui_base import nav as render_nav
 from services.data_sources import fetch_jobs_with_fallbacks
 # your existing function that adds CPU_Core_Hours, GPU_Hours, Mem_GB_Hours, tier, Cost (฿)
 from services.billing import compute_costs
@@ -24,7 +23,6 @@ user_bp = Blueprint("user", __name__)
 def my_receipts():
     return render_template(
         "user/receipts.html",
-        NAV=render_nav("usage"),
         receipts=list_receipts(current_user.username)
     )
 
@@ -37,7 +35,7 @@ def view_receipt(rid: int):
         return redirect(url_for("user.my_receipts"))
     # very simple detail view
     rows = items
-    return render_template("user/receipt_detail.html", NAV=render_nav("usage"), r=rec, rows=rows)
+    return render_template("user/receipt_detail.html", r=rec, rows=rows)
 
 
 @user_bp.get("/me")
@@ -112,7 +110,6 @@ def my_usage():
 
     return render_template(
         "user/usage.html",
-        NAV=render_nav("usage"),
         current_user=current_user,
         start=start_d, end=end_d, view=view, before=before,
         rows=rows,                 # detailed
