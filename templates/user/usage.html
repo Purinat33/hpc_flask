@@ -1,0 +1,318 @@
+<!doctype html>
+<title>My Usage</title>
+<style>
+    :root {
+        --b: #1f7aec;
+        --bg: #fff;
+        --muted: #666;
+        --bd: #e5e7eb;
+        --hi: #eef4ff;
+    }
+
+    body {
+        font-family: system-ui, Arial;
+        margin: 2rem;
+        background: var(--bg)
+    }
+
+    .card {
+        max-width: 1100px;
+        padding: 1rem 1.25rem;
+        border: 1px solid var(--bd);
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        background: #fff
+    }
+
+    label {
+        display: block;
+        margin-top: .5rem;
+        font-weight: 600
+    }
+
+    input {
+        width: 100%;
+        padding: .6rem;
+        border: 1px solid #bbb;
+        border-radius: 8px
+    }
+
+    button {
+        margin-top: 1rem;
+        padding: .6rem 1rem;
+        border: 0;
+        border-radius: 8px;
+        background: var(--b);
+        color: #fff;
+        cursor: pointer
+    }
+
+    .muted {
+        color: var(--muted);
+        font-size: .92rem
+    }
+
+    table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        border: 1px solid var(--bd);
+        border-radius: 10px;
+        overflow: hidden
+    }
+
+    th,
+    td {
+        padding: .55rem .7rem;
+        border-bottom: 1px solid var(--bd);
+        text-align: left;
+        font-size: .94rem
+    }
+
+    thead th {
+        background: #f8fafc;
+        font-weight: 700
+    }
+
+    tbody tr:last-child td {
+        border-bottom: 0
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: .75rem
+    }
+
+    .chip {
+        display: inline-block;
+        background: #f3f4f6;
+        border-radius: 999px;
+        padding: .25rem .6rem;
+        margin: .25rem .35rem 0 0;
+        font-size: .85rem
+    }
+
+    .tabs {
+        display: inline-flex;
+        border: 1px solid var(--bd);
+        border-radius: 10px;
+        overflow: hidden;
+        margin: .5rem 0
+    }
+
+    .tabs a {
+        padding: .4rem .7rem;
+        text-decoration: none;
+        color: #1f2937;
+        border-right: 1px solid var(--bd)
+    }
+
+    .tabs a:last-child {
+        border-right: 0
+    }
+
+    .tabs a.on {
+        background: #eef4ff;
+        color: #1f7aec;
+        font-weight: 700
+    }
+</style>
+
+{{ NAV|safe }}
+<h2>My Usage</h2>
+<p class="muted">Signed in as <b>{{ current_user.username }}</b> — <a href="/logout">Logout</a></p>
+
+<div class="card">
+    <h3>Filter</h3>
+    <form method="get" class="grid">
+        <div>
+            <label>Jobs completed before
+                <input type="date" name="before" value="{{ before }}">
+            </label>
+        </div>
+        <div><label>&nbsp;<button type="submit">Fetch</button></label></div>
+    </form>
+
+    {% if data_source %}
+    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif
+        %}</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>Your Jobs</h3>
+        <div>
+            <a href="{{ url_for('user.my_usage_csv', before=before) }}"><button type="button">Download CSV</button></a>
+        </div>
+    </div>
+
+    <form method="post" action="{{ url_for('user.create_receipt') }}" style="display:inline">
+        <input type="hidden" name="before" value="{{ before }}">
+        <button type="submit">Create Receipt</button>
+    </form>
+
+
+    <div class="tabs">
+        <a class="{{ 'on' if view=='detail' else '' }}"
+            href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
+        <a class="{{ 'on' if view=='aggregate' else '' }}"
+            href="{{ url_for('user.my_usage', before=before, view='aggregate') }}">Aggregate</a>
+        <a class="{{ 'on' if view=='billed' else '' }}"
+            href="{{ url_for('user.my_usage', before=before, view='billed') }}">Billed</a>
+    </div>
+
+
+    {% if view == 'detail' %}
+    {% if rows and rows|length>0 %}
+    <p class="muted">
+        <span class="chip">Jobs: {{ rows|length }}</span>
+        <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>JobID</th>
+                <th>Elapsed</th>
+                <th>TotalCPU</th>
+                <th>ReqTRES</th>
+
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>State</th>
+                <th>Tier</th>
+                <th>Cost (฿)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>{{ r['JobID'] }}</td>
+                <td>{{ r['Elapsed'] }}</td>
+                <td>{{ r['TotalCPU'] }}</td>
+                <td>{{ r['ReqTRES'] }}</td>
+                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                <td>{{ r['State'] }}</td>
+                <td>{{ r['tier']|upper }}</td>
+                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No jobs for the selected period.</p>
+    {% endif %}
+
+    {% elif view == 'aggregate' %}
+    {% if agg_rows and agg_rows|length>0 %}
+    <table>
+        <thead>
+            <tr>
+                <th>Jobs</th>
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>Total Cost (฿)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in agg_rows %}
+            <tr>
+                <td>{{ r['jobs'] }}</td>
+                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No jobs for the selected period.</p>
+    {% endif %}
+
+    {% elif view == 'billed' %}
+    <h4>Pending (unpaid) jobs</h4>
+    {% if pending and pending|length>0 %}
+    <p class="muted">
+        <span class="chip">Jobs: {{ pending|length }}</span>
+        <span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span>
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Receipt</th>
+                <th>Period</th>
+                <th>Job</th>
+                <th>CPU hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>Cost (฿)</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for it in pending %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=it['receipt_id']) }}">#{{ it['receipt_id'] }}</a></td>
+                <td>{{ it['start'] }} → {{ it['end'] }}</td>
+                <td>{{ it['job_id_display'] }}</td>
+                <td>{{ '%.2f'|format(it['cpu_core_hours']) }}</td>
+                <td>{{ '%.2f'|format(it['gpu_hours']) }}</td>
+                <td>{{ '%.2f'|format(it['mem_gb_hours']) }}</td>
+                <td>฿{{ '%.2f'|format(it['cost']) }}</td>
+                <td>{{ it['created_at'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No pending jobs.</p>
+    {% endif %}
+
+    <h4 style="margin-top:1rem">Paid jobs</h4>
+    {% if paid and paid|length>0 %}
+    <p class="muted">
+        <span class="chip">Jobs: {{ paid|length }}</span>
+        <span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span>
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Receipt</th>
+                <th>Period</th>
+                <th>Job</th>
+                <th>CPU hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>Cost (฿)</th>
+                <th>Paid at</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for it in paid %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=it['receipt_id']) }}">#{{ it['receipt_id'] }}</a></td>
+                <td>{{ it['start'] }} → {{ it['end'] }}</td>
+                <td>{{ it['job_id_display'] }}</td>
+                <td>{{ '%.2f'|format(it['cpu_core_hours']) }}</td>
+                <td>{{ '%.2f'|format(it['gpu_hours']) }}</td>
+                <td>{{ '%.2f'|format(it['mem_gb_hours']) }}</td>
+                <td>฿{{ '%.2f'|format(it['cost']) }}</td>
+                <td>{{ it['paid_at'] or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No paid jobs yet.</p>
+    {% endif %}
+
+    {% else %}
+    <p class="muted">Unknown view.</p>
+    {% endif %}
+</div>

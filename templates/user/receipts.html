@@ -1,0 +1,78 @@
+<!doctype html>
+<title>My Receipts</title>
+<style>
+    body {
+        font-family: system-ui, Arial;
+        margin: 2rem
+    }
+
+    .card {
+        max-width: 1100px;
+        padding: 1rem 1.25rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        background: #fff
+    }
+
+    table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        overflow: hidden
+    }
+
+    th,
+    td {
+        padding: .55rem .7rem;
+        border-bottom: 1px solid #e5e7eb;
+        text-align: left;
+        font-size: .94rem
+    }
+
+    thead th {
+        background: #f8fafc;
+        font-weight: 700
+    }
+
+    .chip {
+        display: inline-block;
+        background: #f3f4f6;
+        border-radius: 999px;
+        padding: .25rem .6rem;
+        margin: .25rem .35rem 0 0;
+        font-size: .85rem
+    }
+</style>
+{{ NAV|safe }}
+<h2>My Receipts</h2>
+<div class="card">
+    {% if receipts %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Period</th>
+                <th>Status</th>
+                <th>Total (฿)</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in receipts %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                <td>{{ r['status'] }}</td>
+                <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                <td>{{ r['created_at'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No receipts yet.</p>
+    {% endif %}
+</div>

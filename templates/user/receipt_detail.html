@@ -1,0 +1,45 @@
+<!doctype html>
+<title>Receipt #{{ r['id'] }}</title>
+<style>
+    body {
+        font-family: system-ui, Arial;
+        margin: 2rem
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse
+    }
+
+    th,
+    td {
+        border: 1px solid #ddd;
+        padding: .5rem
+    }
+</style>
+{{ NAV|safe }}
+<h2>Receipt #{{ r['id'] }} — {{ r['status'] }}</h2>
+<p>Period: {{ r['start'] }} → {{ r['end'] }}</p>
+<p>Total: ฿{{ '%.2f'|format(r['total']) }}</p>
+<table>
+    <thead>
+        <tr>
+            <th>Job</th>
+            <th>CPU hrs</th>
+            <th>GPU hrs</th>
+            <th>Mem GB-hrs</th>
+            <th>Cost (฿)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for it in rows %}
+        <tr>
+            <td>{{ it['job_id_display'] }}</td>
+            <td>{{ '%.2f'|format(it['cpu_core_hours']) }}</td>
+            <td>{{ '%.2f'|format(it['gpu_hours']) }}</td>
+            <td>{{ '%.2f'|format(it['mem_gb_hours']) }}</td>
+            <td>{{ '%.2f'|format(it['cost']) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
