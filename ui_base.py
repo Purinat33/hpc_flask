@@ -34,4 +34,5 @@ def nav(active: str = "home") -> str:
         <span class="sp"></span>
         {auth}
       </nav>
+    </div>
     """
