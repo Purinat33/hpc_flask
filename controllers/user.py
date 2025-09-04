@@ -1,6 +1,6 @@
 # user_ui.py
 import pandas as pd
-from billing_store import list_receipts, get_receipt_with_items
+from models.billing_store import list_receipts, get_receipt_with_items
 from flask import Blueprint, render_template, request, render_template_string, Response, url_for
 from flask_login import login_required, current_user
 from datetime import date, timedelta
@@ -9,11 +9,11 @@ from ui_base import nav as render_nav
 from data_sources import fetch_jobs_with_fallbacks
 # your existing function that adds CPU_Core_Hours, GPU_Hours, Mem_GB_Hours, tier, Cost (฿)
 from billing import compute_costs
-from billing_store import billed_job_ids, canonical_job_id
+from models.billing_store import billed_job_ids, canonical_job_id
 from flask import flash, redirect
-from billing_store import create_receipt_from_rows
+from models.billing_store import create_receipt_from_rows
 # add to imports at top
-from billing_store import list_billed_items_for_user
+from models.billing_store import list_billed_items_for_user
 
 
 user_bp = Blueprint("user", __name__)

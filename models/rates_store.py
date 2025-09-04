@@ -1,7 +1,7 @@
 # rates_store.py  (DB-backed)
 import os
 import json
-from db import get_db
+from models.db import get_db
 
 DEFAULT_RATES = {
     "mu":      {"cpu": 1.0,  "gpu": 5.0,   "mem": 0.5},

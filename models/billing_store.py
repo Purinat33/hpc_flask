@@ -5,7 +5,7 @@ import os
 import sqlite3
 from datetime import datetime
 from typing import Iterable, Tuple, Dict, Any
-from db import get_db
+from models.db import get_db
 
 
 def canonical_job_id(s: str) -> str:

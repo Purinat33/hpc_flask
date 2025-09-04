@@ -2,7 +2,7 @@
 import re
 import os
 import pandas as pd
-from rates_store import load_rates
+from models.rates_store import load_rates
 from datetime import datetime
 
 # ---------- parsing helpers ----------

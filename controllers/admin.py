@@ -3,13 +3,13 @@ from flask import Blueprint, render_template, request, render_template_string, r
 from flask_login import login_required, current_user
 import pandas as pd
 from controllers.auth import admin_required
-from rates_store import load_rates, save_rates
+from models.rates_store import load_rates, save_rates
 from data_sources import fetch_jobs_with_fallbacks
 from billing import compute_costs
 from datetime import date, timedelta
 from ui_base import nav as render_nav
-from billing_store import billed_job_ids, canonical_job_id
-from billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
+from models.billing_store import billed_job_ids, canonical_job_id
+from models.billing_store import admin_list_receipts, mark_receipt_paid, paid_receipts_csv
 from flask import Response
 
 admin_bp = Blueprint("admin", __name__)
