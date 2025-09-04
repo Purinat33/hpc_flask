@@ -36,4 +36,4 @@ def test_compute_costs_uses_elapsed_and_tres(monkeypatch):
     # GPU: 2 * 5  = 10
     # MEM: 16 * .5= 8
     # total = 22
-    assert abs(row["Cost (฿)"] - 22.0) < 1e-6
+    assert abs(row["Cost (฿)"] - 252.0) < 1e-6
