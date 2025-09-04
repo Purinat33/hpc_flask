@@ -3,9 +3,9 @@ import os
 from flask import Flask, render_template, request, jsonify, render_template_string, abort, redirect, url_for
 from flask_login import login_required, current_user
 from rates_store import load_rates, save_rates
-from admin_ui import admin_bp
-from auth import auth_bp, login_manager, admin_required
-from user_ui import user_bp
+from controllers.admin import admin_bp
+from controllers.auth import auth_bp, login_manager, admin_required
+from controllers.user import user_bp
 from ui_base import nav as render_nav
 from db import init_app as init_db_app, init_db
 

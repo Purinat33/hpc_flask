@@ -2,7 +2,7 @@
 from flask import Blueprint, render_template, request, render_template_string, redirect, url_for, flash
 from flask_login import login_required, current_user
 import pandas as pd
-from auth import admin_required
+from controllers.auth import admin_required
 from rates_store import load_rates, save_rates
 from data_sources import fetch_jobs_with_fallbacks
 from billing import compute_costs
