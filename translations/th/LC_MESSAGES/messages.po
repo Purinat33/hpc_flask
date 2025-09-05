@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 15:14+0700\n"
+"POT-Creation-Date: 2025-09-05 17:05+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -18,24 +18,25 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
 
-#: templates/_nav.html:14
+#: templates/_nav.html:7
 msgid "Home"
 msgstr "หน้าแรก"
 
-#: templates/_nav.html:21 templates/admin/page.html:5
+#: templates/_nav.html:13 templates/admin/page.html:5
 msgid "Admin"
 msgstr "หน้าผู้ดูแลระบบ"
 
-#: templates/_nav.html:26 templates/user/usage.html:5
+#: templates/_nav.html:13 templates/admin/page.html:23
+#: templates/user/usage.html:5
 msgid "My Usage"
 msgstr "ประวัติการใช้งาน"
 
-#: templates/_nav.html:34
+#: templates/_nav.html:33
 #, python-format
 msgid "Logout (%(user)s)"
 msgstr "ออกจากระบบ (%(user)s)"
 
-#: templates/_nav.html:40 templates/auth/login.html:10
+#: templates/_nav.html:39 templates/auth/login.html:10
 msgid "Login"
 msgstr "เข้าสู่ระบบ"
 
@@ -51,40 +52,65 @@ msgstr "ประเภทผู้ใช้งาน"
 msgid "Duration amount"
 msgstr "ระยะเวลา"
 
-#: templates/admin/page.html:6
-#, python-format
-msgid "Signed in as <b>%(user)s</b> (role: %(role)s)"
+#: templates/admin/page.html:7
+#, fuzzy, python-format
+msgid ""
+"\n"
+"    Signed in as <b>%(user)s</b> (role: %(role)s)\n"
+"    "
 msgstr "<b>%(user)s</b> เข้าสู่ระบบ (มีฐานะ %(role)s)"
 
-#: templates/admin/page.html:12 templates/admin/page.html:26
+#: templates/admin/page.html:16 templates/admin/page.html:35
 msgid "Change Rate"
 msgstr "เปลี่ยนอัตราการเงิน"
 
-#: templates/admin/page.html:14
+#: templates/admin/page.html:20
 msgid "Usage Tables"
 msgstr "ตารางการใช้งาน"
 
-#: templates/admin/page.html:16
+#: templates/admin/page.html:27
 msgid "Billing"
 msgstr "ค่าใช้จ่าย"
 
-#: templates/admin/page.html:54
+#: templates/admin/page.html:76
 msgid "Current Rates (All Tiers)"
 msgstr "อัตราการเงินปัจจุบัน (ผู้ใช้ทุกประเภท)"
 
-#: templates/admin/page.html:80
+#: templates/admin/page.html:103 templates/admin/page.html:220
 msgid "Usage Preview"
 msgstr "ดูตารางการใช้งาน"
 
-#: templates/admin/page.html:194
-msgid "Pending Receipts"
-msgstr "ยังไม่ได้ชำระค่าบริการ"
+#: templates/admin/page.html:237
+msgid "Detailed"
+msgstr ""
 
-#: templates/admin/page.html:219
+#: templates/admin/page.html:240
+#, fuzzy
+msgid "Aggregate"
+msgstr "เปลี่ยนอัตราการเงิน"
+
+#: templates/admin/page.html:243
+#, fuzzy
+msgid "Billed"
+msgstr "ค่าใช้จ่าย"
+
+#: templates/admin/page.html:248
+msgid "Your Jobs"
+msgstr ""
+
+#: templates/admin/page.html:258 templates/user/usage.html:36
+msgid "Create Receipt"
+msgstr "ชำระค่าบริการ"
+
+#: templates/admin/page.html:358 templates/admin/page.html:426
 msgid "Mark as paid"
 msgstr "บันทึกว่าชำระค่าบริการแล้ว"
 
-#: templates/admin/page.html:232
+#: templates/admin/page.html:401
+msgid "Pending Receipts"
+msgstr "ยังไม่ได้ชำระค่าบริการ"
+
+#: templates/admin/page.html:439
 msgid "Download Payment History"
 msgstr "บันทึกประวัติการชำระค่าบริการลงเครื่อง"
 
@@ -96,10 +122,6 @@ msgstr "เข้าสู่ระบบ"
 #, python-format
 msgid "Signed in as <b>%(user)s</b>"
 msgstr "<b>%(user)s</b> เข้าสู่ระบบ"
-
-#: templates/user/usage.html:36
-msgid "Create Receipt"
-msgstr "ชำระค่าบริการ"
 
 #~ msgid "Total"
 #~ msgstr "ราคารวม"
