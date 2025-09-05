@@ -18,12 +18,12 @@ from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from flask_babel import Babel, gettext as _, get_locale
 from flask import redirect, request, url_for, abort, current_app, make_response
 from models.audit_store import init_audit_schema
+from models.security_throttle import init_throttle_schema  # ⭐ NEW
 
 babel = Babel()
 
 
 def select_locale():
-    # cookie beats Accept-Language; default to en
     from flask import request, current_app
     langs = current_app.config.get("LANGUAGES", ["en", "th"])
     cookie = request.cookies.get("lang")
@@ -44,18 +44,12 @@ def create_app():
     # make helpers available in Jinja
     app.jinja_env.globals["_"] = _
     app.jinja_env.globals["get_locale"] = get_locale
-    # app.py
     app.jinja_env.globals["locale_code"] = lambda: str(get_locale())
 
     # CSRF Setup
     csrf = CSRFProtect()
-
     csrf.init_app(app)
-
-    # Make {{ csrf_token() }} available in all Jinja templates
     app.jinja_env.globals["csrf_token"] = generate_csrf
-
-    # Optional: nicer error if token missing/invalid
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
@@ -63,8 +57,7 @@ def create_app():
         return render_template("errors/csrf.html", reason=getattr(e, "description", "")), 400
 
     # --- Logging setup ---
-    log_dir = os.path.join(os.path.dirname(__file__),
-                           "log")   # project-root/log
+    log_dir = os.path.join(os.path.dirname(__file__), "log")
     os.makedirs(log_dir, exist_ok=True)
 
     log_path = os.path.join(log_dir, "app.log")
@@ -72,31 +65,33 @@ def create_app():
         log_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
     )
     formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-    )
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
 
-    # Set levels and attach handler only once (avoid duplicates under reloader)
-    root_logger = logging.getLogger()          # captures everything
+    root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-
     if not any(isinstance(h, RotatingFileHandler) for h in root_logger.handlers):
         root_logger.addHandler(file_handler)
-
-    # Flask's app logger inherits root settings; ensure level is not lower
     app.logger.setLevel(logging.INFO)
-
     # --- / Logging Setup --- #
+
     os.makedirs(app.instance_path, exist_ok=True)
 
-    # Set config (env overrides, else defaults)
+    # Config (env overrides)
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or "dev-secret",
-        BILLING_DB=os.environ.get("BILLING_DB")
-        or os.path.join(app.instance_path, "billing.sqlite3"),
-        FALLBACK_CSV=os.environ.get("FALLBACK_CSV")
-        or os.path.join(app.instance_path, "test.csv"),
+        BILLING_DB=os.environ.get("BILLING_DB") or os.path.join(
+            app.instance_path, "billing.sqlite3"),
+        FALLBACK_CSV=os.environ.get("FALLBACK_CSV") or os.path.join(
+            app.instance_path, "test.csv"),
+        # throttle knobs (tweak via env vars)
+        AUTH_THROTTLE_MAX_FAILS=int(
+            os.environ.get("AUTH_THROTTLE_MAX_FAILS", "5")),
+        AUTH_THROTTLE_WINDOW_SEC=int(
+            os.environ.get("AUTH_THROTTLE_WINDOW_SEC", "60")),
+        AUTH_THROTTLE_LOCK_SEC=int(os.environ.get(
+            "AUTH_THROTTLE_LOCK_SEC", "300")),
     )
 
     # DB & login
@@ -106,12 +101,12 @@ def create_app():
         init_db()
         init_users_db()
         init_audit_schema()
+        init_throttle_schema()  #  NEW
         # Seed admin (idempotent)
         admin_pwd = os.environ.get("ADMIN_PASSWORD", "admin123")
         if not get_user("admin"):
             create_user("admin", admin_pwd, role="admin")
 
-        # (Optional) seed a few demo users; remove in prod
         if os.environ.get("SEED_DEMO_USERS") == "1":
             demo = {
                 "alice": ("alice", "user"),
@@ -131,22 +126,16 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
 
-    # Specifically error routes
     @app.errorhandler(404)
     def not_found(e):
-        # optional: log it
         app.logger.warning("404 %s %s", request.method, request.path)
-        return render_template("errors/404.html",
-                               path=request.path), 404
+        return render_template("errors/404.html", path=request.path), 404
 
     @app.errorhandler(405)
-    def not_found(e):
-        # Just gonna reuse the same thing
+    def not_allowed(e):
         app.logger.warning("405 %s %s", request.method, request.path)
-        return render_template("errors/404.html",
-                               path=request.path), 405
+        return render_template("errors/404.html", path=request.path), 405
 
-    # Routes that render templates
     @app.get("/")
     def root():
         return redirect(url_for("playground"))
@@ -154,6 +143,9 @@ def create_app():
     @app.get("/playground")
     def playground():
         return render_template("playground.html")
+
+    from flask import g
+    from time import time
 
     @app.before_request
     def _start_timer():
@@ -164,11 +156,7 @@ def create_app():
         try:
             ms = (time() - getattr(g, "_t0", time())) * 1000
             app.logger.info("%s %s %s %s %.1fms",
-                            request.remote_addr,
-                            request.method,
-                            request.full_path,
-                            resp.status_code,
-                            ms)
+                            request.remote_addr, request.method, request.full_path, resp.status_code, ms)
         except Exception:
             app.logger.exception("Failed to log request")
         return resp
@@ -180,14 +168,13 @@ def create_app():
             abort(400)
         resp = make_response(
             redirect(request.referrer or url_for("playground")))
-        # 1 year; adjust to your policy
-        resp.set_cookie("lang", lang, max_age=60*60*24*365, samesite="Lax")
+        resp.set_cookie("lang", lang, max_age=60 *
+                        60 * 24 * 365, samesite="Lax")
         return resp
 
     return app
 
 
-# Keep a module-level `app` so `flask --app app run` works
 app = create_app()
 
 if __name__ == "__main__":
