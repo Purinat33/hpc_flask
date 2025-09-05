@@ -23,7 +23,7 @@
         {% else %}
         <a class="{% if bp == 'user' %}active{% endif %}" href="{{ url_for('user.my_usage') }}"
             aria-current="{% if bp == 'user' %}page{% endif %}">
-            My Usage
+            {{ _("My Usage") }}
         </a>
         {% endif %}
 
