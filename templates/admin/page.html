@@ -2,8 +2,8 @@
 {% block title %}Admin{% endblock %}
 
 {% block content %}
-<h2>Admin</h2>
-<p class="muted">Signed in as <b>{{ current_user.username }}</b> (role: {{ current_user.role }})</p>
+<h2>{{ _("Admin") }}</h2>
+<p class="muted">{% trans user=current_user.username, role=current_user.role %}Signed in as <b>{{ user }}</b> (role: {{ role }}){% endtrans %}</p>
 
 
 <div class="layout">
