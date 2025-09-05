@@ -32,6 +32,9 @@ def my_receipts():
 def view_receipt(rid: int):
     rec, items = get_receipt_with_items(rid)
     if not rec or rec.get("username") != current_user.username:
+        audit(action="receipt.view.denied",
+              target=f"receipt={rid}", status=403,
+              extra={"actor": current_user.username})
         return redirect(url_for("user.my_receipts"))
     # very simple detail view
     rows = items

@@ -56,20 +56,27 @@ def login_post():
     u = request.form.get("username", "").strip()
     p = request.form.get("password", "")
     if not verify_password(u, p):
+        audit(action="auth.login.failure",
+              target=f"user={u or 'unknown'}",
+              status=401,
+              extra={"reason": "bad_credentials", "ip": request.remote_addr, "ua": request.headers.get("User-Agent")})
         return redirect(url_for("auth.login"))
 
     row = get_user(u)
     login_user(User(row["username"], row["role"]))
 
     # Always land on home; ignore ?next=
-    audit("auth.login.success", actor=u, status=200)
+    audit(action="auth.login.success",
+          target=f"user={row['username']}",
+          status=200,
+          extra={"role": row["role"], "ip": request.remote_addr, "ua": request.headers.get("User-Agent")})
     return redirect(url_for("playground"))
 
 
 @auth_bp.post("/logout")
 @login_required
 def logout():
+    audit("auth.logout", target=f"user={current_user.username}", status=200)
     logout_user()
     # flash("Signed out")
-    audit("auth.logout", status=200)
     return redirect(url_for("auth.login"))
