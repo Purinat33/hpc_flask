@@ -464,3 +464,40 @@ tbody tr:last-child td {
 .page-title+.auth-form {
     margin-top: .5rem;
 }
+
+/* Login button wide, message sits just outside the form box */
+.auth-actions {
+    position: relative;
+    /* anchor for the absolute message */
+    display: block;
+}
+
+.auth-login-btn {
+    width: 100%;
+    /* full width button */
+}
+
+/* message placed to the right, outside the 360px form box */
+#login-msg {
+    position: absolute;
+    left: calc(100% + 10px);
+    /* start just beyond the button edge */
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    /* keep on one line */
+    color: #b00020;
+    pointer-events: none;
+    /* purely informational */
+}
+
+/* On narrow screens, fall back to stacking under the button */
+@media (max-width: 700px) {
+    #login-msg {
+        position: static;
+        display: block;
+        margin-top: .4rem;
+        transform: none;
+        white-space: normal;
+    }
+}

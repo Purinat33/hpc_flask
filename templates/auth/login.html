@@ -8,10 +8,11 @@
     <input name="username" placeholder="username" value="{{ last_username or '' }}" required>
     <input name="password" type="password" placeholder="password" required>
 
-    <div style="display:flex; align-items:center; gap:.5rem;">
-        <button type="submit">{{ _("Login") }}</button>
+    <!-- Button fills the form width; message is positioned outside the box -->
+    <div class="auth-actions">
+        <button type="submit" class="auth-login-btn">{{ _("Login") }}</button>
         {% if message %}
-        <span id="login-msg" style="color:#b00020;">{{ message }}</span>
+        <span id="login-msg" aria-live="polite">{{ message }}</span>
         {% endif %}
     </div>
 </form>
