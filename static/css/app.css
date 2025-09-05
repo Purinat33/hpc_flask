@@ -269,21 +269,30 @@ tbody tr:last-child td {
     clear: both
 }
 
-/* make forms in the nav “invisible” wrappers */
-.nav form {
-    margin: 0;
-    /* either of these works; pick one */
-    display: contents;
-    /* best: flattens so the <button> is a flex item */
-    /* OR: display: inline-flex; */
-    /* alternative if you prefer not to use contents */
+.nav {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
 }
 
-/* unify <a> and <button.navbtn> visuals */
+.nav .sp {
+    flex: 1;
+}
+
+/* pushes right group to the edge */
+
+/* normalize forms so their buttons behave like links */
+.nav form {
+    margin: 0;
+    display: contents;
+}
+
+/* lets the button be a flex item */
+
+/* unify link & button appearance */
 .nav a,
 .nav button.navbtn {
     display: inline-flex;
-    /* consistent box model */
     align-items: center;
     gap: .25rem;
     text-decoration: none;
@@ -294,16 +303,11 @@ tbody tr:last-child td {
     background: #fff;
     cursor: pointer;
     font: inherit;
-    /* kill UA button fonts */
     line-height: 1.1;
-    /* kill UA button line-height */
-    box-sizing: border-box;
     appearance: none;
-    /* kill UA button chrome */
     -webkit-appearance: none;
 }
 
-/* keep your active state consistent for links (buttons don't use it) */
 .nav a.active {
     background: #eef2ff;
     color: #1f7aec;
