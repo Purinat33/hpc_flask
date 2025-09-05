@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Sign In") }}{% endblock %}
+
+{% block content %}
+<h2>{{ _("Sign In") }}</h2>
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="username" placeholder="username" required>
+    <input name="password" type="password" placeholder="password" required>
+    <button type="submit">{{ _("Login") }}</button>
+</form>
+{% endblock %}

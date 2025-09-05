@@ -9,12 +9,11 @@
 <div class="layout">
     <aside class="sidebar">
         <a class="slink {{ 'on' if section=='rates' else '' }}"
-            href="{{ url_for('admin.admin_form', section='rates', type=tier) }}">Change Rate</a>
+            href="{{ url_for('admin.admin_form', section='rates', type=tier) }}">{{_("Change Rate")}}</a>
         <a class="slink {{ 'on' if section=='usage' else '' }}"
-            href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">Usage
-            Tables</a>
+            href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">{{_("Usage Tables")}}</a>
         <a class="slink {{ 'on' if section=='billing' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing') }}">Billing</a>
+            href="{{ url_for('admin.admin_form', section='billing') }}">{{_("Billing")}}</a>
     </aside>
 
     <main>
@@ -24,7 +23,7 @@
             {% if messages %}{% for m in messages %}<div>{{ m }}</div>{% endfor %}{% endif %}
             {% endwith %}
 
-            <h3>Change Rate</h3>
+            <h3>{{ _("Change Rate") }}</h3>
             <form method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>Tier</label>
@@ -52,7 +51,7 @@
         </div>
 
         <div class="card">
-            <h3>Current Rates (All Tiers)</h3>
+            <h3>{{ _("Current Rates (All Tiers)")}}</h3>
             <table>
                 <thead>
                     <tr>
@@ -78,7 +77,7 @@
 
         {% elif section == 'usage' %}
         <div class="card">
-            <h3>Usage Preview (slurmrestd → sacct → test.csv)</h3>
+            <h3>{{ _("Usage Preview")}} (slurmrestd → sacct → test.csv)</h3>
             <form method="get">
                 <div class="grid2">
                     <div>
@@ -192,7 +191,7 @@
 
         {% elif section == 'billing' %}
         <div class="card">
-            <h3>Pending Receipts</h3>
+            <h3>{{ _("Pending Receipts")}}</h3>
             {% if pending and pending|length>0 %}
             <table>
                 <thead>
@@ -217,7 +216,7 @@
                             <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
                                 style="display:inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit">Mark as paid</button>
+                                <button type="submit">{{_("Mark as paid")}}</button>
                             </form>
                         </td>
                     </tr>
@@ -230,7 +229,7 @@
         </div>
 
         <div class="card">
-            <h3>Download Payment History</h3>
+            <h3>{{ _("Download Payment History")}}</h3>
             <p class="muted">Exports all <b>paid</b> receipts.</p>
             <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
         </div>

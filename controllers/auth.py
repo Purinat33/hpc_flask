@@ -1,6 +1,6 @@
 # auth.py
 from functools import wraps
-from flask import Blueprint, render_template_string, request, redirect, url_for, flash, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import os
 from models.users_db import get_user, verify_password
@@ -44,25 +44,9 @@ def admin_required(f):
     return wrapper
 
 
-PAGE = """
-{% extends "base.html" %}
-{% block title %}Sign In{% endblock %}
-
-{% block content %}
-<h2>Sign in</h2>
-<form method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input name="username" placeholder="username" required>
-  <input name="password" type="password" placeholder="password" required>
-  <button type="submit">Login</button>
-</form>
-{% endblock %}
-"""
-
-
 @auth_bp.get("/login")
 def login():
-    return render_template_string(PAGE)
+    return render_template("auth/login.html")
 
 
 @auth_bp.post("/login")

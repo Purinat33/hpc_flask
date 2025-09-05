@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 14:35+0700\n"
+"POT-Creation-Date: 2025-09-05 14:49+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -35,7 +35,7 @@ msgstr "ประวัติการใช้งาน"
 msgid "Logout (%(user)s)"
 msgstr "ออกจากระบบ (%(user)s)"
 
-#: templates/_nav.html:40
+#: templates/_nav.html:40 templates/auth/login.html:10
 msgid "Login"
 msgstr "เข้าสู่ระบบ"
 
@@ -43,4 +43,40 @@ msgstr "เข้าสู่ระบบ"
 #, python-format
 msgid "Signed in as <b>%(user)s</b> (role: %(role)s)"
 msgstr "<b>%(user)s</b> เข้าสู่ระบบ (มีฐานะ %(role)s)"
+
+#: templates/admin/page.html:12 templates/admin/page.html:26
+msgid "Change Rate"
+msgstr "เปลี่ยนอัตราการเงิน"
+
+#: templates/admin/page.html:14
+msgid "Usage Tables"
+msgstr "ตารางการใช้งาน"
+
+#: templates/admin/page.html:16
+msgid "Billing"
+msgstr "ค่าใช้จ่าย"
+
+#: templates/admin/page.html:54
+msgid "Current Rates (All Tiers)"
+msgstr "อัตราการเงินปัจจุบัน (ผู้ใช้ทุกประเภท)"
+
+#: templates/admin/page.html:80
+msgid "Usage Preview"
+msgstr "ดูตารางการใช้งาน"
+
+#: templates/admin/page.html:194
+msgid "Pending Receipts"
+msgstr "ยังไม่ได้ชำระค่าบริการ"
+
+#: templates/admin/page.html:219
+msgid "Mark as paid"
+msgstr "บันทึกว่าชำระค่าบริการแล้ว"
+
+#: templates/admin/page.html:232
+msgid "Download Payment History"
+msgstr "บันทึกประวัติการชำระค่าบริการลงเครื่อง"
+
+#: templates/auth/login.html:2 templates/auth/login.html:5
+msgid "Sign In"
+msgstr "เข้าสู่ระบบ"
 
