@@ -19,9 +19,6 @@
     <main>
         {% if section == 'rates' %}
         <div class="card">
-            {% with messages = get_flashed_messages() %}
-            {% if messages %}{% for m in messages %}<div>{{ m }}</div>{% endfor %}{% endif %}
-            {% endwith %}
 
             <h3>{{ _("Change Rate") }}</h3>
             <form method="post">
