@@ -5,8 +5,14 @@
 <h2 class="page-title">{{ _("Sign In") }}</h2>
 <form method="post" action="{{ url_for('auth.login') }}" class="auth-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="username" placeholder="username" required>
+    <input name="username" placeholder="username" value="{{ last_username or '' }}" required>
     <input name="password" type="password" placeholder="password" required>
-    <button type="submit">{{ _("Login") }}</button>
+
+    <div style="display:flex; align-items:center; gap:.5rem;">
+        <button type="submit">{{ _("Login") }}</button>
+        {% if message %}
+        <span id="login-msg" style="color:#b00020;">{{ message }}</span>
+        {% endif %}
+    </div>
 </form>
 {% endblock %}
