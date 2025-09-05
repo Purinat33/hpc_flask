@@ -1,6 +1,6 @@
 # app.py
 import os
-from flask import Flask, render_template, request, jsonify, render_template_string, abort, redirect, url_for
+from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
 from flask_login import login_required, current_user
 from models.rates_store import load_rates, save_rates
 from controllers.admin import admin_bp

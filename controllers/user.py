@@ -1,7 +1,7 @@
 # user_ui.py
 import pandas as pd
 from models.billing_store import list_receipts, get_receipt_with_items
-from flask import Blueprint, render_template, request, render_template_string, Response, url_for
+from flask import Blueprint, render_template, request, Response, url_for
 from flask_login import login_required, current_user
 from datetime import date, timedelta
 import io
