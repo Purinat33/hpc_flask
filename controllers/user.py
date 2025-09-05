@@ -41,6 +41,8 @@ def view_receipt(rid: int):
 @user_bp.get("/me")
 @login_required
 def my_usage():
+    if getattr(current_user, "is_admin", False):
+        return redirect(url_for("admin.admin_form"))
     EPOCH_START = "1970-01-01"
     before = request.args.get("before") or date.today().isoformat()
     start_d = EPOCH_START

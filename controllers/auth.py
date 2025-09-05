@@ -49,15 +49,19 @@ def login():
     return render_template("auth/login.html")
 
 
+# auth.py
 @auth_bp.post("/login")
 def login_post():
     u = request.form.get("username", "").strip()
     p = request.form.get("password", "")
     if not verify_password(u, p):
         return redirect(url_for("auth.login"))
+
     row = get_user(u)
     login_user(User(row["username"], row["role"]))
-    return redirect(request.args.get("next") or url_for("playground"))
+
+    # Always land on home; ignore ?next=
+    return redirect(url_for("playground"))
 
 
 @auth_bp.post("/logout")
