@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 14:49+0700\n"
+"POT-Creation-Date: 2025-09-05 15:00+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -38,6 +38,18 @@ msgstr "ออกจากระบบ (%(user)s)"
 #: templates/_nav.html:40 templates/auth/login.html:10
 msgid "Login"
 msgstr "เข้าสู่ระบบ"
+
+#: templates/playground.html:5
+msgid "HPC Cost Playground"
+msgstr "โปรแกรมคำนวณค่าใช้จ่ายเครื่องคอมพิวเตอร์สมรรถนะสูง"
+
+#: templates/playground.html:9
+msgid "Customer type"
+msgstr "ประเภทผู้ใช้งาน"
+
+#: templates/playground.html:13
+msgid "Duration amount"
+msgstr "ระยะเวลา"
 
 #: templates/admin/page.html:6
 #, python-format
@@ -79,4 +91,7 @@ msgstr "บันทึกประวัติการชำระค่าบ
 #: templates/auth/login.html:2 templates/auth/login.html:5
 msgid "Sign In"
 msgstr "เข้าสู่ระบบ"
+
+#~ msgid "Total"
+#~ msgstr "ราคารวม"
 

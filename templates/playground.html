@@ -2,15 +2,15 @@
 {% block title %}HPC Cost Playground{% endblock %}
 
 {% block content %}
-<h2>HPC Cost Playground</h2>
+<h2>{{ _("HPC Cost Playground")}}</h2>
 <!-- <p class="muted">Rates come from <code>/formula?type=...</code>. Use the Admin page to edit them.</p> -->
 <div class="card">
   <div class="row">
-    <div><label>Customer type</label>
+    <div><label>{{ _("Customer type")}}</label>
       <select id="tier">
         <option value="mu">MU</option><option value="gov">Gov</option><option value="private">Private</option>
       </select></div>
-    <div><label>Duration amount</label><input id="amount" type="number" min="1" step="1" value="1"></div>
+    <div><label>{{ _("Duration amount")}}</label><input id="amount" type="number" min="1" step="1" value="1"></div>
   </div>
   <div class="row">
     <div><label>Duration unit</label>
@@ -26,7 +26,6 @@
     <span class="pill" id="showGpuRate">gpu: —</span>
     <span class="pill" id="showMemRate">mem: —</span>
     <span class="pill" id="showUnit">unit: per-hour</span>
-    <a class="pill" href="/admin">🔐 admin</a>
   </div>
   <div class="total" id="total">Total: ฿0.00</div>
   <div class="breakdown" id="breakdown"></div>
