@@ -15,10 +15,37 @@ from logging.handlers import RotatingFileHandler
 from flask import g, request
 from time import time
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
+from flask_babel import Babel, gettext as _, get_locale
+from flask import redirect, request, url_for, abort, current_app, make_response
+
+babel = Babel()
+
+
+def select_locale():
+    # cookie beats Accept-Language; default to en
+    from flask import request, current_app
+    langs = current_app.config.get("LANGUAGES", ["en", "th"])
+    cookie = request.cookies.get("lang")
+    if cookie in langs:
+        return cookie
+    return request.accept_languages.best_match(langs) or "en"
 
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
+    # Babel Setup
+    app.config.setdefault("BABEL_DEFAULT_LOCALE", "en")
+    app.config.setdefault("BABEL_TRANSLATION_DIRECTORIES", "translations")
+    app.config.setdefault("LANGUAGES", ["en", "th"])
+
+    babel.init_app(app, locale_selector=select_locale)
+
+    # make helpers available in Jinja
+    app.jinja_env.globals["_"] = _
+    app.jinja_env.globals["get_locale"] = get_locale
+    # app.py
+    app.jinja_env.globals["locale_code"] = lambda: str(get_locale())
+
     # CSRF Setup
     csrf = CSRFProtect()
 
@@ -142,6 +169,17 @@ def create_app():
                             ms)
         except Exception:
             app.logger.exception("Failed to log request")
+        return resp
+
+    @app.post("/i18n/set")
+    def set_locale():
+        lang = request.form.get("lang", "en")
+        if lang not in current_app.config["LANGUAGES"]:
+            abort(400)
+        resp = make_response(
+            redirect(request.referrer or url_for("playground")))
+        # 1 year; adjust to your policy
+        resp.set_cookie("lang", lang, max_age=60*60*24*365, samesite="Lax")
         return resp
 
     return app
