@@ -2,8 +2,8 @@
 {% block title %}{{ _("Sign In") }}{% endblock %}
 
 {% block content %}
-<h2>{{ _("Sign In") }}</h2>
-<form method="post">
+<h2 class="page-title">{{ _("Sign In") }}</h2>
+<form method="post" class="auth-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input name="username" placeholder="username" required>
     <input name="password" type="password" placeholder="password" required>

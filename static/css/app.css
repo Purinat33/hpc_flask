@@ -363,3 +363,17 @@ tbody tr:last-child td {
     color: #1f7aec;
     border-color: #c7d2fe;
 }
+
+/* Auth / simple vertical forms */
+.auth-form {
+    display: grid;
+    gap: .75rem;
+    /* space between inputs/buttons */
+    max-width: 360px;
+    /* optional: keeps it neat */
+}
+
+/* optional: add a little space under the page title */
+.page-title+.auth-form {
+    margin-top: .5rem;
+}
