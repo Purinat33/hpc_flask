@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 15:00+0700\n"
+"POT-Creation-Date: 2025-09-05 15:12+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -26,7 +26,7 @@ msgstr "หน้าแรก"
 msgid "Admin"
 msgstr "หน้าผู้ดูแลระบบ"
 
-#: templates/_nav.html:26
+#: templates/_nav.html:26 templates/user/usage.html:5
 msgid "My Usage"
 msgstr "ประวัติการใช้งาน"
 
@@ -91,6 +91,11 @@ msgstr "บันทึกประวัติการชำระค่าบ
 #: templates/auth/login.html:2 templates/auth/login.html:5
 msgid "Sign In"
 msgstr "เข้าสู่ระบบ"
+
+#: templates/user/usage.html:6
+#, python-format
+msgid "Signed in as <b>%(user)s</b>"
+msgstr "<b>%(user)s</b> เข้าสู่ระบบ"
 
 #~ msgid "Total"
 #~ msgstr "ราคารวม"

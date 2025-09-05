@@ -2,8 +2,8 @@
 {% block title %}My Usage{% endblock %}
 
 {% block content %}
-<h2>My Usage</h2>
-<p class="muted">Signed in as <b>{{ current_user.username }}</b></p>
+<h2>{{_("My Usage")}}</h2>
+<p class="muted">{% trans user=current_user.username %}Signed in as <b>{{ user }}</b>{% endtrans %}</p>
 
 <div class="card">
     <h3>Filter</h3>
