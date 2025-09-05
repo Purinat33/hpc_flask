@@ -26,43 +26,82 @@
     <span class="pill" id="showGpuRate">gpu: —</span>
     <span class="pill" id="showMemRate">mem: —</span>
     <span class="pill" id="showUnit">unit: per-hour</span>
+      <a style="margin-left:.5rem; font-size:.9rem; cursor:pointer" onclick="fetchRates(true)">↻ Refresh rates</a>
   </div>
   <div class="total" id="total">Total: ฿0.00</div>
   <div class="breakdown" id="breakdown"></div>
   <div id="error" style="color:#b00020;margin-top:.5rem"></div>
 </div>
 <script>
-const $=id=>document.getElementById(id);
-const tierEl=$('tier'), amountEl=$('amount'), unitEl=$('unit'), cpuEl=$('cpu'), gpuEl=$('gpu'), memEl=$('mem');
-let rates={cpu:0,gpu:0,mem:0};
-function hoursFrom(n,u){n=Number(n)||0;return u==='day'?n*24:u==='month'?n*720:n;}
-async function fetchRates(){
-  $('error').textContent="";
-  try{
-    const t=tierEl.value;
-    const res=await fetch('/formula?type='+encodeURIComponent(t));
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const d=await res.json(); rates=d.rates||{cpu:0,gpu:0,mem:0};
-    $('showCpuRate').textContent=`cpu: ฿${rates.cpu}/cpu-hour`;
-    $('showGpuRate').textContent=`gpu: ฿${rates.gpu}/gpu-hour`;
-    $('showMemRate').textContent=`mem: ฿${rates.mem}/GB-hour`;
-    $('showUnit').textContent='unit: per-hour';
-    recalc();
-  }catch(e){ $('error').textContent='Failed to fetch rates: '+e; rates={cpu:0,gpu:0,mem:0}; recalc(); }
-}
-function recalc(){
-  const hrs=hoursFrom(amountEl.value, unitEl.value);
-  const cpuCost=(Number(cpuEl.value)||0)*hrs*rates.cpu;
-  const gpuCost=(Number(gpuEl.value)||0)*hrs*rates.gpu;
-  const memCost=(Number(memEl.value)||0)*hrs*rates.mem;
-  const total=cpuCost+gpuCost+memCost;
-  $('total').textContent=`Total: ฿${total.toFixed(2)}`;
-  $('breakdown').textContent=`CPU: ฿${cpuCost.toFixed(2)} | GPU: ฿${gpuCost.toFixed(2)} | MEM: ฿${memCost.toFixed(2)} (duration: ${hrs} h)`;
-}
-[tierEl, amountEl, unitEl, cpuEl, gpuEl, memEl].forEach(el=>{
-  el.addEventListener('input', ()=>{ if(el===tierEl) fetchRates(); else recalc(); });
-  el.addEventListener('change', ()=>{ if(el===tierEl) fetchRates(); else recalc(); });
-});
-fetchRates();
+  const $ = id => document.getElementById(id);
+  const tierEl = $('tier'), amountEl = $('amount'), unitEl = $('unit'), cpuEl = $('cpu'), gpuEl = $('gpu'), memEl = $('mem');
+
+  let rates = { cpu: 0, gpu: 0, mem: 0 };
+  const etags = new Map(); // tier -> ETag string
+
+  function hoursFrom(n, u) { n = Number(n) || 0; return u === 'day' ? n * 24 : u === 'month' ? n * 720 : n; }
+
+  async function fetchRates(force = false) {
+    $('error').textContent = "";
+    const t = tierEl.value;
+    try {
+      const headers = {};
+      const prev = etags.get(t);
+      if (prev && !force) headers['If-None-Match'] = prev;
+
+      const res = await fetch('/formula?type=' + encodeURIComponent(t), { headers });
+
+      if (res.status === 304) {
+        // unchanged — nothing to do
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+
+      const etag = res.headers.get('ETag');
+      if (etag) etags.set(t, etag);
+
+      const d = await res.json();
+      rates = d.rates || { cpu: 0, gpu: 0, mem: 0 };
+
+      $('showCpuRate').textContent = `cpu: ฿${rates.cpu}/cpu-hour`;
+      $('showGpuRate').textContent = `gpu: ฿${rates.gpu}/gpu-hour`;
+      $('showMemRate').textContent = `mem: ฿${rates.mem}/GB-hour`;
+      $('showUnit').textContent = 'unit: per-hour';
+      recalc();
+    } catch (e) {
+      $('error').textContent = 'Failed to fetch rates: ' + e;
+      rates = { cpu: 0, gpu: 0, mem: 0 };
+      recalc();
+    }
+  }
+
+  function recalc() {
+    const hrs = hoursFrom(amountEl.value, unitEl.value);
+    const cpuCost = (Number(cpuEl.value) || 0) * hrs * rates.cpu;
+    const gpuCost = (Number(gpuEl.value) || 0) * hrs * rates.gpu;
+    const memCost = (Number(memEl.value) || 0) * hrs * rates.mem;
+    const total = cpuCost + gpuCost + memCost;
+    $('total').textContent = `Total: ฿${total.toFixed(2)}`;
+    $('breakdown').textContent = `CPU: ฿${cpuCost.toFixed(2)} | GPU: ฿${gpuCost.toFixed(2)} | MEM: ฿${memCost.toFixed(2)} (duration: ${hrs} h)`;
+  }
+
+  // Recalc on input; re-fetch rates when tier changes
+  [tierEl, amountEl, unitEl, cpuEl, gpuEl, memEl].forEach(el => {
+    el.addEventListener('input', () => { if (el === tierEl) fetchRates(true); else recalc(); });
+    el.addEventListener('change', () => { if (el === tierEl) fetchRates(true); else recalc(); });
+  });
+
+  // Gentle polling (60s) using conditional GET (304 when unchanged)
+  const POLL_MS = 60000;
+  let pollTimer = setInterval(() => fetchRates(false), POLL_MS);
+
+  // Refresh when tab gains focus (cheap & instant after admin updates)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) fetchRates(false);
+  });
+
+  // First load
+  fetchRates(true);
 </script>
+
 {% endblock %}

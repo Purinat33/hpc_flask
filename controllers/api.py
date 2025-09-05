@@ -1,11 +1,13 @@
 # controllers/api.py
-from flask import Blueprint, request, jsonify
+import hashlib
+import json
+from flask import Blueprint, request, jsonify, Response
 from flask_login import login_required
 from controllers.auth import admin_required
 from models.rates_store import load_rates, save_rates
 from models import rates_store
 
-api_bp = Blueprint("api", __name__) 
+api_bp = Blueprint("api", __name__)
 
 
 @api_bp.get("/formula")
@@ -14,12 +16,30 @@ def get_formula():
     rates = rates_store.load_rates()
     if tier not in rates:
         return jsonify({"error": f"unknown type '{tier}'"}), 400
-    return jsonify({
+
+    payload = {
         "type": tier,
         "unit": "per-hour",
         "rates": rates[tier],
         "currency": "THB",
-    })
+    }
+
+    # Strong/weak ETag both fine; use a hash of the payload
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    etag = 'W/"' + hashlib.sha256(body).hexdigest() + '"'
+
+    # If client sends prior ETag and nothing changed → 304
+    inm = request.headers.get("If-None-Match")
+    if inm == etag:
+        resp = Response(status=304)
+        resp.headers["ETag"] = etag
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    resp = jsonify(payload)
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @api_bp.post("/formula")
