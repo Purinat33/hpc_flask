@@ -219,3 +219,4 @@ __marimo__/
 .vscode/
 log/*
 !log/.gitkeep
+babel_note.md

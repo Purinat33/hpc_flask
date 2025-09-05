@@ -31,13 +31,13 @@
 
         <form method="post" action="{{ url_for('auth.logout') }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="navbtn" type="submit">Logout ({{ current_user.username }})</button>
+            <button class="navbtn" type="submit">{% trans user=current_user.username %}Logout ({{ user }}){% endtrans %}</button>
         </form>
         {% else %}
         <span class="sp"></span>
         <a class="{% if bp == 'auth' %}active{% endif %}" href="{{ url_for('auth.login') }}"
             aria-current="{% if bp == 'auth' %}page{% endif %}">
-            Login
+            {{ _("Login") }}
         </a>
         {% endif %}
 
