@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 17:05+0700\n"
+"POT-Creation-Date: 2025-09-05 20:49+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -41,7 +41,8 @@ msgid "Login"
 msgstr "เข้าสู่ระบบ"
 
 #: templates/playground.html:5
-msgid "HPC Cost Playground"
+#, fuzzy
+msgid "MU AI Center Cost Calculator"
 msgstr "โปรแกรมคำนวณค่าใช้จ่ายเครื่องคอมพิวเตอร์สมรรถนะสูง"
 
 #: templates/playground.html:9
