@@ -42,7 +42,7 @@
         {% endif %}
 
         <!-- Language toggle -->
-        <form method="post" action="{{ url_for('set_locale') }}" style="display:inline; margin-left:.5rem">
+        <form class="lang-toggle" method="post" action="{{ url_for('set_locale') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="lang" value="{{ 'th' if is_en else 'en' }}">
             <button class="navbtn" type="submit">{{ 'ไทย' if is_en else 'EN' }}</button>
