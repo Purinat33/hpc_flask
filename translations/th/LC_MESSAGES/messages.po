@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-05 15:12+0700\n"
+"POT-Creation-Date: 2025-09-05 15:14+0700\n"
 "PO-Revision-Date: 2025-09-05 12:20+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: th\n"
@@ -96,6 +96,10 @@ msgstr "เข้าสู่ระบบ"
 #, python-format
 msgid "Signed in as <b>%(user)s</b>"
 msgstr "<b>%(user)s</b> เข้าสู่ระบบ"
+
+#: templates/user/usage.html:36
+msgid "Create Receipt"
+msgstr "ชำระค่าบริการ"
 
 #~ msgid "Total"
 #~ msgstr "ราคารวม"
