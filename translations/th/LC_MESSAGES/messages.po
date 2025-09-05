@@ -41,7 +41,6 @@ msgid "Login"
 msgstr "เข้าสู่ระบบ"
 
 #: templates/playground.html:5
-#, fuzzy
 msgid "MU AI Center Cost Calculator"
 msgstr "โปรแกรมคำนวณค่าใช้จ่ายเครื่องคอมพิวเตอร์สมรรถนะสูง"
 
