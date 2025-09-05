@@ -15,7 +15,7 @@ from models.billing_store import (
     list_billed_items_for_user, list_receipts, create_receipt_from_rows,
 )
 from models.audit_store import audit
-from models.audit_store import list_audit, export_csv 
+from models.audit_store import list_audit, export_csv
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -306,7 +306,7 @@ def create_self_receipt():
 @login_required
 @admin_required
 def audit_page():
-    rows = list_audit(limit=500)
+    rows = list_audit(limit=100)
     return render_template("admin/audit.html", rows=rows)
 
 
