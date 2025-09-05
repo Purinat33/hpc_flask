@@ -23,16 +23,103 @@ body {
     background: var(--bg);
 }
 
+/* --- Animated blue/purple hue background (pronounced + wavy) --- */
 .bg-hue {
     position: fixed;
     inset: 0;
-    z-index: -1;
-    /* sit behind content */
+    z-index: -2;
+    /* ensure it's under the site panel */
     pointer-events: none;
+    overflow: hidden;
+
+    /* Base static glows (slightly stronger than before) */
     background:
-        radial-gradient(800px 500px at -10% 20%, rgba(59, 130, 246, .16), transparent 60%),
-        radial-gradient(700px 420px at 110% 65%, rgba(99, 102, 241, .12), transparent 60%),
-        radial-gradient(600px 380px at 20% 120%, rgba(59, 130, 246, .10), transparent 60%);
+        radial-gradient(900px 520px at -10% 15%, rgba(59, 130, 246, .22), transparent 60%),
+        radial-gradient(820px 480px at 110% 70%, rgba(99, 102, 241, .18), transparent 60%),
+        radial-gradient(700px 460px at 25% 115%, rgba(59, 130, 246, .14), transparent 60%);
+
+    filter: saturate(1.15);
+}
+
+/* Blob #1 — wide, elliptical, slow wavy drift */
+.bg-hue::before {
+    content: "";
+    position: absolute;
+    left: -20%;
+    top: -25%;
+    width: 140%;
+    height: 140%;
+    background:
+        radial-gradient(40% 35% at 30% 35%, rgba(59, 130, 246, .28), transparent 60%),
+        radial-gradient(35% 40% at 70% 65%, rgba(99, 102, 241, .22), transparent 60%);
+    filter: blur(40px);
+    mix-blend-mode: multiply;
+    animation: hueWaveA 28s ease-in-out infinite alternate;
+    will-change: transform;
+}
+
+/* Blob #2 — soft conic swirl, masked to keep edges feathered */
+.bg-hue::after {
+    content: "";
+    position: absolute;
+    left: -30%;
+    top: -35%;
+    width: 160%;
+    height: 160%;
+    background:
+        conic-gradient(from 0deg,
+            rgba(59, 130, 246, .08),
+            rgba(99, 102, 241, .16),
+            rgba(59, 130, 246, .08),
+            transparent 60%);
+    /* Feather the swirl to the center so it feels like a wave */
+    -webkit-mask-image: radial-gradient(55% 55% at 50% 50%, #000 40%, transparent 80%);
+    mask-image: radial-gradient(55% 55% at 50% 50%, #000 40%, transparent 80%);
+    filter: blur(60px);
+    animation: hueWaveB 42s ease-in-out infinite;
+    will-change: transform;
+}
+
+/* Keyframes: gentle but noticeable “wavy” motion */
+@keyframes hueWaveA {
+    0% {
+        transform: translate3d(-4%, -2%, 0) rotate(0deg) scale(1.00);
+    }
+
+    35% {
+        transform: translate3d(3%, 2%, 0) rotate(10deg) scale(1.06);
+    }
+
+    70% {
+        transform: translate3d(-2%, 4%, 0) rotate(-6deg) scale(1.10);
+    }
+
+    100% {
+        transform: translate3d(5%, -1%, 0) rotate(4deg) scale(1.04);
+    }
+}
+
+@keyframes hueWaveB {
+    0% {
+        transform: translate3d(3%, -6%, 0) rotate(0deg) scale(1.08);
+    }
+
+    50% {
+        transform: translate3d(-4%, 6%, 0) rotate(180deg) scale(1.02);
+    }
+
+    100% {
+        transform: translate3d(3%, -6%, 0) rotate(360deg) scale(1.08);
+    }
+}
+
+/* Respect user accessibility preferences */
+@media (prefers-reduced-motion: reduce) {
+
+    .bg-hue::before,
+    .bg-hue::after {
+        animation: none;
+    }
 }
 
 /* Make the work area a white panel so the hue never overlaps it */
