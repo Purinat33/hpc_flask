@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+<h2>Audit Log</h2>
+<p class="muted">Newest 100 actions are shown here. Use the CSV for the full history.</p>
+
+<div class="layout">
+    <!-- Sidebar copied from your Admin page -->
+    <aside class="sidebar">
+        <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">{{ _("Change Rate")
+            }}</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='usage',  type='mu') }}">{{ _("Usage Tables")
+            }}</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='myusage') }}">{{ _("My Usage") }}</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Billing") }}</a>
+        <a class="slink on" href="{{ url_for('admin.audit_page') }}">{{ _("Audit Log") }}</a>
+    </aside>
+
+    <main>
+        <div class="card">
+            <div style="margin-bottom:.5rem">
+                <a href="{{ url_for('admin.audit_csv') }}"><button type="button">Download CSV (all)</button></a>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time (UTC)</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>IP</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r.ts }}</td>
+                        <td>{{ r.actor or '—' }}</td>
+                        <td>{{ r.action }}</td>
+                        <td>{{ r.target or '—' }}</td>
+                        <td>{{ r.method or '—' }}</td>
+                        <td>{{ r.path or '—' }}</td>
+                        <td>{{ r.ip or '—' }}</td>
+                        <td>{{ r.status or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not rows or rows|length == 0 %}
+                    <tr>
+                        <td colspan="8" class="muted">No audit events yet.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+{% endblock %}

@@ -17,6 +17,7 @@ from time import time
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from flask_babel import Babel, gettext as _, get_locale
 from flask import redirect, request, url_for, abort, current_app, make_response
+from models.audit_store import init_audit_schema
 
 babel = Babel()
 
@@ -104,6 +105,7 @@ def create_app():
     with app.app_context():
         init_db()
         init_users_db()
+        init_audit_schema()
         # Seed admin (idempotent)
         admin_pwd = os.environ.get("ADMIN_PASSWORD", "admin123")
         if not get_user("admin"):

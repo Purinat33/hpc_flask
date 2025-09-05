@@ -14,7 +14,8 @@ from models.billing_store import (
     admin_list_receipts, mark_receipt_paid, paid_receipts_csv,
     list_billed_items_for_user, list_receipts, create_receipt_from_rows,
 )
-
+from models.audit_store import audit
+from models.audit_store import list_audit, export_csv 
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -221,6 +222,8 @@ def admin_update():
     r = rates_store.load_rates()
     r[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(r)
+    audit("rates.update.form", target=f"type={tier}", status=200,
+          extra={"cpu": cpu, "gpu": gpu, "mem": mem})
     return redirect(url_for("admin.admin_form", section="rates", type=tier))
 
 
@@ -230,6 +233,9 @@ def admin_update():
 def mark_paid(rid: int):
     # Mark any receipt as paid (used by My Usage -> billed, and Billing pages)
     ok = mark_receipt_paid(rid, current_user.username)
+    audit("receipt.paid",
+          target=f"receipt={rid}",
+          status=200 if ok else 404)
     # Ignore result for UX simplicity; redirect back to billing
     return redirect(url_for("admin.admin_form", section="billing"))
 
@@ -294,3 +300,20 @@ def create_self_receipt():
         current_user.username, start_d, end_d, df.to_dict(orient="records")
     )
     return redirect(url_for("admin.admin_form", section="myusage", before=before, view="billed"))
+
+
+@admin_bp.get("/admin/audit")
+@login_required
+@admin_required
+def audit_page():
+    rows = list_audit(limit=500)
+    return render_template("admin/audit.html", rows=rows)
+
+
+@admin_bp.get("/admin/audit.csv")
+@login_required
+@admin_required
+def audit_csv():
+    fname, csv_text = export_csv()
+    return Response(csv_text, mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})

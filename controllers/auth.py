@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import os
 from models.users_db import get_user, verify_password
+from models.audit_store import audit
 
 auth_bp = Blueprint("auth", __name__)
 login_manager = LoginManager()
@@ -61,6 +62,7 @@ def login_post():
     login_user(User(row["username"], row["role"]))
 
     # Always land on home; ignore ?next=
+    audit("auth.login.success", actor=u, status=200)
     return redirect(url_for("playground"))
 
 
@@ -69,4 +71,5 @@ def login_post():
 def logout():
     logout_user()
     # flash("Signed out")
+    audit("auth.logout", status=200)
     return redirect(url_for("auth.login"))

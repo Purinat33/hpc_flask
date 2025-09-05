@@ -13,7 +13,7 @@ from flask import flash, redirect
 from models.billing_store import create_receipt_from_rows
 # add to imports at top
 from models.billing_store import list_billed_items_for_user
-
+from models.audit_store import audit
 
 user_bp = Blueprint("user", __name__)
 
@@ -176,6 +176,13 @@ def create_receipt():
 
     if df.empty:
         # flash("No unbilled jobs to create a receipt from.")
+        audit(
+            action="receipt.create.noop",
+            target=f"user={current_user.username}",
+            status=204,
+            extra={"start": start_d, "end": end_d,
+                   "reason": "No unbilled jobs"}
+        )
         return redirect(url_for("user.my_usage", start=start_d, end=end_d))
 
     rid, total, skipped = create_receipt_from_rows(
@@ -184,4 +191,17 @@ def create_receipt():
     if skipped:
         msg += f" (skipped {len(skipped)} already billed job(s))"
     # flash(msg)
+    audit(
+        action="receipt.create",
+        target=f"receipt={rid}",
+        status=200,
+        extra={
+            "user": current_user.username,
+            "start": start_d,
+            "end": end_d,
+            "jobs": int(len(df)),
+            "total": float(total),
+            "skipped": list(skipped) if skipped else [],
+        },
+    )
     return redirect(url_for("user.my_receipts"))

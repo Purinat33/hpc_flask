@@ -6,7 +6,7 @@ from flask_login import login_required
 from controllers.auth import admin_required
 from models.rates_store import load_rates, save_rates
 from models import rates_store
-
+from models.audit_store import audit
 api_bp = Blueprint("api", __name__)
 
 
@@ -60,4 +60,9 @@ def update_formula():
     rates = rates_store.load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
+    # AUDIT
+    audit("rates.update",
+          target=f"type={tier}",
+          status=200,
+          extra={"new_rates": rates[tier]})
     return jsonify({"ok": True, "updated": {tier: rates[tier]}})
