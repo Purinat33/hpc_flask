@@ -1,50 +1,48 @@
 <header class="site site-header">
+    {# LEFT GROUP ----------------------------------------------------------- #}
+    <nav class="nav nav-left">
+        {# Home #}
+        {% set home_active = (request.endpoint == 'playground') %}
+        <a class="{{ 'active' if home_active }}" href="{{ url_for('playground') }}"
+            aria-current="{{ 'page' if home_active }}">{{ _("Home") }}</a>
+
+        {# Secondary tab: Admin if admin, otherwise My Usage (always visible) #}
+        {% set bp = request.blueprint or '' %}
+        {% set show_admin = current_user.is_authenticated and (current_user.is_admin|default(false)) %}
+        {% set target_href = url_for('admin.admin_form') if show_admin else url_for('user.my_usage') %}
+        {% set target_label = _("Admin") if show_admin else _("My Usage") %}
+        {% set target_active = (bp == 'admin') if show_admin else (bp == 'user') %}
+
+        <a class="{{ 'active' if target_active }}" href="{{ target_href }}"
+            aria-current="{{ 'page' if target_active }}">{{ target_label }}</a>
+    </nav>
+
+    {# CENTER LOGO ---------------------------------------------------------- #}
     <a class="brand" href="{{ url_for('playground') }}">
         <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" />
     </a>
 
-    {% set bp = request.blueprint or '' %}
-    {% set cur_locale = (get_locale()|string) %}
-    {% set is_en = cur_locale[:2] == 'en' %}
-    {% set is_en = (locale_code()[:2] == 'en') %}
+    {# RIGHT GROUP ---------------------------------------------------------- #}
+    <nav class="nav nav-right">
+        {% set is_en = (locale_code()[:2] == 'en') %}
 
-<nav class="nav">
-    {# Home #}
-    {% set home_active = (request.endpoint == 'playground') %}
-    <a class="{{ 'active' if home_active }}" href="{{ url_for('playground') }}"
-        aria-current="{{ 'page' if home_active }}">{{ _("Home") }}</a>
+        {% if current_user.is_authenticated %}
+        <form method="post" action="{{ url_for('auth.logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="navbtn" type="submit">
+                {% trans user=current_user.username %}Logout ({{ user }}){% endtrans %}
+            </button>
+        </form>
+        {% else %}
+        {% set login_active = (bp == 'auth') %}
+        <a class="{{ 'active' if login_active }}" href="{{ url_for('auth.login') }}"
+            aria-current="{{ 'page' if login_active }}">{{ _("Login") }}</a>
+        {% endif %}
 
-    {# Secondary tab: Admin if admin, otherwise My Usage (always visible) #}
-    {% set show_admin = current_user.is_authenticated and (current_user.is_admin|default(false)) %}
-    {% set target_href = url_for('admin.admin_form') if show_admin else url_for('user.my_usage') %}
-    {% set target_label = _("Admin") if show_admin else _("My Usage") %}
-    {% set target_active = (bp == 'admin') if show_admin else (bp == 'user') %}
-
-    <a class="{{ 'active' if target_active }}" href="{{ target_href }}" aria-current="{{ 'page' if target_active }}">{{
-        target_label }}</a>
-
-    <span class="sp"></span>
-
-    {# Auth area: Logout when signed-in, Login otherwise #}
-    {% if current_user.is_authenticated %}
-    <form method="post" action="{{ url_for('auth.logout') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="navbtn" type="submit">
-            {% trans user=current_user.username %}Logout ({{ user }}){% endtrans %}
-        </button>
-    </form>
-    {% else %}
-    {# Keep Login visible as before #}
-    {% set login_active = (bp == 'auth') %}
-    <a class="{{ 'active' if login_active }}" href="{{ url_for('auth.login') }}"
-        aria-current="{{ 'page' if login_active }}">{{ _("Login") }}</a>
-    {% endif %}
-
-    {# Language toggle #}
-    <form class="lang-toggle" method="post" action="{{ url_for('set_locale') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="lang" value="{{ 'th' if is_en else 'en' }}">
-        <button class="navbtn" type="submit">{{ 'ไทย' if is_en else 'EN' }}</button>
-    </form>
-</nav>
+        <form class="lang-toggle" method="post" action="{{ url_for('set_locale') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="lang" value="{{ 'th' if is_en else 'en' }}">
+            <button class="navbtn" type="submit">{{ 'ไทย' if is_en else 'EN' }}</button>
+        </form>
+    </nav>
 </header>

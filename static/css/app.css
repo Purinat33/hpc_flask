@@ -46,20 +46,24 @@ body {
     box-shadow: 0 12px 30px rgba(0, 0, 0, .04);
 }
 
-/* Header keeps its bottom rule with spacing above it */
+/* Header as a 3-column grid: left group | logo | right group */
 .site-header {
-    display: flex;
+    display: grid;
+    /* side columns flex equally; center is logo */
+    grid-template-columns: minmax(140px, 1fr) auto minmax(140px, 1fr);
     align-items: center;
-    gap: .75rem;
+    /* bigger gap around the logo */
+    column-gap: 1.5rem;
+    /* or just use: gap: 1.5rem; */
     margin-bottom: 1rem;
-    padding-bottom: .75rem;
-    padding-top: .75rem;
-    /* space above the line */
+    padding: .75rem 1.25rem;
+    /* add side padding so nothing hugs borders */
     border-bottom: 1px solid rgba(0, 0, 0, .4);
-    /* thin, soft line */
 }
 
 .brand {
+    justify-self: center;
+    /* center the logo */
     display: flex;
     align-items: center;
     gap: .5rem;
@@ -73,20 +77,33 @@ body {
     display: block;
 }
 
-.brand span {
-    font-weight: 800;
-    letter-spacing: .2px;
-}
-
+/* Left & right groups share base nav styling */
 .nav {
     display: flex;
-    gap: .5rem;
     align-items: center;
-    margin-left: .5rem;
+    gap: .5rem;
+}
+
+/* Explicit header alignment for groups */
+.nav-left {
+    justify-self: center;
+}
+
+.nav-right {
+    justify-self: center;
+}
+
+/* Normalize forms so their buttons behave like links inside navs */
+.nav form {
+    margin: 0;
+    display: contents;
 }
 
 .nav a,
-.nav .navbtn {
+.nav button.navbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
     text-decoration: none;
     color: #1f2937;
     padding: .45rem .7rem;
@@ -94,6 +111,10 @@ body {
     border: 1px solid var(--bd);
     background: #fff;
     cursor: pointer;
+    font: inherit;
+    line-height: 1.1;
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 .nav a.active {
@@ -102,8 +123,37 @@ body {
     border-color: #c7d2fe;
 }
 
+/* Remove old spacer usage if present */
 .nav .sp {
-    flex: 1;
+    display: none;
+}
+
+/* Optional: responsive behavior — stack logo below on very narrow screens */
+/* Optional: on very narrow screens, keep your stacking behavior */
+@media (max-width: 640px) {
+    .site-header {
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+            "left  right"
+            "brand brand";
+        row-gap: .5rem;
+        column-gap: .75rem;
+    }
+
+    .nav-left {
+        grid-area: left;
+        justify-self: start;
+    }
+
+    .brand {
+        grid-area: brand;
+        justify-self: center;
+    }
+
+    .nav-right {
+        grid-area: right;
+        justify-self: end;
+    }
 }
 
 /* Cards, tables, forms (global, reused by pages) */
