@@ -1,12 +1,6 @@
-# db.py
 import os
 import sqlite3
 from flask import g, current_app
-
-DB_PATH = os.environ.get(
-    "BILLING_DB",
-    os.path.join(os.path.dirname(__file__), "billing.sqlite3")
-)
 
 
 def get_db():
