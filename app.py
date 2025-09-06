@@ -41,6 +41,33 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _parse_demo_users(env_val: str) -> dict[str, tuple[str, str]]:
+    """
+    Parse DEMO_USERS in .env like:
+      "alice:alice:user,bob:bob:user,akara.sup:12345:user,surapol.gits:12345:user"
+    Returns {username: (password, role)}; role defaults to "user" if omitted.
+    Invalid entries are ignored.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    if not env_val:
+        return out
+    for item in env_val.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = [p.strip() for p in item.split(":")]
+        if len(parts) == 3:
+            u, pwd, role = parts
+        elif len(parts) == 2:
+            u, pwd = parts
+            role = "user"
+        else:
+            continue
+        if u and pwd:
+            out[u] = (pwd, role or "user")
+    return out
+
+
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
 
@@ -129,18 +156,23 @@ def create_app():
             create_user("admin", admin_pwd, role="admin")
             app.logger.info("Seeded admin user from .env")
 
-        # Seed demo users strictly in development when SEED_DEMO_USERS=1
+        # Seed demo users strictly in development when SEED_DEMO_USERS=1 (or true/on)
         if app.config["APP_ENV"] == "development" and _env_bool("SEED_DEMO_USERS", True):
-            demo = {
+            # Prefer DEMO_USERS from .env; fall back to legacy hard-coded list
+            demo_env = os.getenv("DEMO_USERS", "")
+            demo = _parse_demo_users(demo_env) or {
                 "alice": ("alice", "user"),
                 "bob": ("bob", "user"),
                 "akara.sup": ("12345", "user"),
                 "surapol.gits": ("12345", "user"),
             }
             for u, (pwd, role) in demo.items():
+                if u == "admin":
+                    continue  # never seed/override admin via DEMO_USERS
                 if not get_user(u):
                     create_user(u, pwd, role)
-            app.logger.info("Seeded demo users (development only)")
+            app.logger.info("Seeded demo users (development only) from %s",
+                            "DEMO_USERS env" if demo_env else "built-in defaults")
 
     login_manager.init_app(app)
 
