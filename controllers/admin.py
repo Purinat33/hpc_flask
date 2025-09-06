@@ -63,15 +63,21 @@ def admin_form():
 
     try:
         if section == "usage":
-            # All-user view
             df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
             df = compute_costs(df)
 
+            # Enforce End cutoff defensively
             if "End" in df.columns:
                 df["End"] = pd.to_datetime(df["End"], errors="coerce")
                 cutoff = pd.to_datetime(
                     end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
                 df = df[df["End"].notna() & (df["End"] <= cutoff)]
+
+            # (canonical_job_id() makes sacct/slurm JobIDs comparable to what we store)
+            if not df.empty:
+                df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
+                already = billed_job_ids()  # set/list of all receipt_items.job_key
+                df = df[~df["JobKey"].isin(already)]
 
             if not df.empty:
                 tot_cpu = float(df["CPU_Core_Hours"].sum())
