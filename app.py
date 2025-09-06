@@ -19,9 +19,11 @@ from flask_babel import Babel, gettext as _, get_locale
 from flask import redirect, request, url_for, abort, current_app, make_response
 from models.audit_store import init_audit_schema
 from models.security_throttle import init_throttle_schema  # ⭐ NEW
+from dotenv import load_dotenv
 
 babel = Babel()
 
+load_dotenv()
 
 def select_locale():
     from flask import request, current_app
