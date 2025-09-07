@@ -2,7 +2,7 @@ import io
 from datetime import date
 import pandas as pd
 from flask import Blueprint, render_template, request, redirect, url_for, Response
-from flask_login import login_required, current_user
+from flask_login import fresh_login_required, login_required, current_user
 
 from controllers.auth import admin_required
 from models import rates_store
@@ -235,6 +235,7 @@ def admin_update():
 
 @admin_bp.post("/admin/receipts/<int:rid>/paid")
 @login_required
+@fresh_login_required
 @admin_required
 def mark_paid(rid: int):
     ok = mark_receipt_paid(rid, current_user.username)
