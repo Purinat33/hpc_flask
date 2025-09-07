@@ -1,6 +1,10 @@
 import os
 
 
+def login_user(client, username, password):
+    return client.post("/login", data={"username": username, "password": password}, follow_redirects=False)
+
+
 def login_admin(client, password=None):
     pw = password or os.getenv("ADMIN_PASSWORD", "admin123")
-    return client.post("/login", data={"username": "admin", "password": pw}, follow_redirects=False)
+    return login_user(client, "admin", pw)
