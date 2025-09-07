@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Payment{% endblock %}
+
+{% block content %}
+<div class="card">
+    {% if status == 'paid' %}
+    <h2>🎉 Payment confirmed</h2>
+    <p class="muted">
+        Your receipt{% if rid %} <b>#{{ rid }}</b>{% endif %} is now marked as <b>paid</b>.
+    </p>
+    <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+        {% if rid %}
+        <a class="btn" href="{{ url_for('user.view_receipt', rid=rid) }}">View receipt #{{ rid }}</a>
+        {% endif %}
+        <a class="btn" href="{{ url_for('user.my_usage') }}">← Back to My Usage</a>
+    </div>
+    {% else %}
+    <h2>Thanks! Your payment is being processed…</h2>
+    <p class="muted">
+        We'll mark the receipt as <b>paid</b> as soon as the payment provider’s <i>webhook</i> reaches us and passes
+        verification.
+        {% if rid %}
+        You can refresh this page in a few seconds or open the receipt detail to check its status.
+        {% endif %}
+    </p>
+    <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+        {% if rid %}
+        <a class="btn" href="{{ url_for('user.view_receipt', rid=rid) }}">View receipt #{{ rid }}</a>
+        {% endif %}
+        <a class="btn" href="{{ url_for('user.my_usage') }}">← Back to My Usage</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

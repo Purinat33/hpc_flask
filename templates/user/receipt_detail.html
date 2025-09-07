@@ -27,4 +27,10 @@
         {% endfor %}
     </tbody>
 </table>
+{% if r['status'] == 'pending' %}
+<form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}">
+    <button type="submit">Pay now</button>
+</form>
+{% endif %}
+
 {% endblock %}

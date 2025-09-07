@@ -353,8 +353,11 @@
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
                         <td>{{ r['created_at'] }}</td>
                         <td>
-                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
-                                style="display:inline">
+                            <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}" style="display:inline">
+                                <button type="submit">Pay now</button>
+                            </form>
+
+                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}" style="display:inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit">{{ _("Mark as paid") }}</button>
                             </form>

@@ -17,6 +17,9 @@ from models.db import init_app as init_db_app, init_db
 from models.users_db import init_app as init_users_app, init_users_db, get_user, create_user
 from models.audit_store import init_audit_schema
 from models.security_throttle import init_throttle_schema
+from controllers.payments import payments_bp
+from models.payments_store import init_payments_schema
+from controllers.payments import webhook as payments_webhook
 
 babel = Babel()
 
@@ -116,6 +119,7 @@ def create_app():
     # ---- CSRF ----
     csrf = CSRFProtect()
     csrf.init_app(app)
+    csrf.exempt(payments_webhook)
     app.jinja_env.globals["csrf_token"] = generate_csrf
 
     @app.errorhandler(CSRFError)
@@ -149,7 +153,7 @@ def create_app():
         init_users_db()
         init_audit_schema()
         init_throttle_schema()
-
+        init_payments_schema()
         # Seed admin ONLY if ADMIN_PASSWORD is supplied (no hardcoded default)
         admin_pwd = os.getenv("ADMIN_PASSWORD")  # set this in .env
         if not get_user("admin") and admin_pwd:
@@ -181,8 +185,13 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(payments_bp)
+
+    # Exempt Payment BP from CSRF
+    csrf.exempt(payments_bp)
 
     # ---- Errors ----
+
     @app.errorhandler(404)
     def not_found(e):
         app.logger.warning("404 %s %s", request.method, request.path)
