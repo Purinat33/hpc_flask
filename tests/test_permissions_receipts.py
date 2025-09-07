@@ -53,3 +53,28 @@ def test_other_user_cannot_view_your_receipt(client):
     # redirected to /me/receipts by the view guard
     assert r.status_code in (302, 303)
     assert "/me/receipts" in r.headers.get("Location", "")
+
+
+def test_owner_sees_pay_button_when_pending(client):
+    rid = _make_receipt_for_user("alice")
+    client.post("/login", data={"username": "alice", "password": "alice"})
+    r = client.get(f"/me/receipts/{rid}")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "Pay now" in html
+
+
+def test_admin_can_view_others_but_cannot_pay(client):
+    rid = _make_receipt_for_user("alice")
+    login_admin(client)
+    r = client.get(f"/me/receipts/{rid}")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "Pay now" not in html  # hidden for non-owner
+
+
+def test_non_owner_blocked(client):
+    rid = _make_receipt_for_user("alice")
+    client.post("/login", data={"username": "bob", "password": "bob"})
+    r = client.get(f"/me/receipts/{rid}", follow_redirects=False)
+    assert r.status_code in (302, 303)

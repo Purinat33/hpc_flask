@@ -34,5 +34,13 @@
 {% elif r['status'] == 'pending' and not is_owner %}
 <p class="muted">Only the receipt owner can start payment.</p>
 {% endif %}
+{% if r['status'] == 'paid' %}
+<p class="muted">
+    Paid at {{ r['paid_at'] or '—' }}
+    {% if r['method'] %} • Method: <code>{{ r['method'] }}</code>{% endif %}
+    {% if r['tx_ref'] %} • Ref: <code>{{ r['tx_ref'] }}</code>{% endif %}
+</p>
+{% endif %}
+
 
 {% endblock %}
