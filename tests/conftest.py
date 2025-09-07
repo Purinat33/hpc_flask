@@ -25,33 +25,32 @@ def sample_csv_text():
 
 
 # tests/conftest.py
+
+
 @pytest.fixture
-def app(tmp_instance, monkeypatch, sample_csv_text):
+def app(tmp_instance: Path, monkeypatch, sample_csv_text):
+    # Write test CSV
     (tmp_instance / "test.csv").write_text(sample_csv_text, encoding="utf-8")
+
+    # Point all DB/files to the temp instance BEFORE app is created
+    monkeypatch.setenv("BILLING_DB", str(tmp_instance / "billing.sqlite3"))
+    monkeypatch.setenv("FALLBACK_CSV", str(tmp_instance / "test.csv"))
+    # optional: isolate users DB too so seeding lands here
+    monkeypatch.setenv("USERS_DB", str(tmp_instance / "users.sqlite3"))
+    # ensure admin password is deterministic for tests
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
 
     from app import create_app
     app = create_app()
     app.config.update(
         TESTING=True,
-        WTF_CSRF_ENABLED=False,   # <- disable CSRF for tests
+        WTF_CSRF_ENABLED=False,
         SECRET_KEY="test-secret",
-        BILLING_DB=str(tmp_instance / "billing.sqlite3"),
-        FALLBACK_CSV=str(tmp_instance / "test.csv"),
     )
 
-    # Force network fetchers off in tests
-    import services.data_sources as ds
-    monkeypatch.setattr(ds, "fetch_from_slurmrestd", lambda *a,
-                        **k: (_ for _ in ()).throw(RuntimeError("off")))
-    monkeypatch.setattr(ds, "fetch_from_sacct", lambda *a,
-                        **k: (_ for _ in ()).throw(RuntimeError("off")))
-
-    # Push app context for entire test
     ctx = app.app_context()
     ctx.push()
     try:
-        from models.db import init_db
-        init_db()
         yield app
     finally:
         ctx.pop()
