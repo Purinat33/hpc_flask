@@ -1,7 +1,7 @@
 # models/audit_store.py
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from flask import request, has_request_context
 from models.db import get_db
@@ -58,8 +58,9 @@ def audit(action: str,
     Write one audit row. Safe to call anywhere (with or without request ctx).
     """
     db = get_db()
-    ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-
+    # ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    ts = datetime.now(timezone.utc).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
     # Collect context if we’re inside a request
     ip = ua = method = path = None
     if has_request_context():

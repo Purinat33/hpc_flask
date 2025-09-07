@@ -24,7 +24,7 @@ Where to edit later:
 from __future__ import annotations
 import os
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
@@ -63,7 +63,7 @@ def _to_epoch_seconds(date_str: str, end_of_day: bool = False) -> int:
     Convert 'YYYY-MM-DD' to epoch seconds.
     If end_of_day=True -> 23:59:59 of that date.
     """
-    dt = datetime.fromisoformat(date_str)
+    dt = datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
     if end_of_day:
         dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
     return int(dt.timestamp())
@@ -189,7 +189,7 @@ class SlurmREST:
     def _epoch_to_iso(val: Any) -> str | None:
         try:
             sec = int(val)
-            return datetime.utcfromtimestamp(sec).isoformat(timespec="seconds") + "Z"
+            return datetime.fromtimestamp(sec, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         except Exception:
             return None
 

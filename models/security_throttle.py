@@ -1,5 +1,5 @@
 # models/security_throttle.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from flask import current_app
 from models.db import get_db
@@ -28,16 +28,17 @@ def init_throttle_schema():
 
 
 def _now_iso():
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        if ts.endswith("Z"):
-            ts = ts[:-1]
-        return datetime.fromisoformat(ts)
+        # make "Z" explicit for fromisoformat
+        ts = ts.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
@@ -61,7 +62,7 @@ def is_locked(username: str, ip: str) -> Tuple[bool, int]:
     s = get_status(username, ip)
     lu = _parse_iso(s.get("locked_until"))
     if lu:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if now < lu:
             return True, int((lu - now).total_seconds())
     return False, 0
@@ -78,7 +79,7 @@ def register_failure(username: str, ip: str,
     lock_sec = lock_sec or int(cfg.get("AUTH_THROTTLE_LOCK_SEC", 300))
 
     db = get_db()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     now_iso = _now_iso()
 
     row = db.execute(
@@ -112,8 +113,8 @@ def register_failure(username: str, ip: str,
                 (
                     now_iso,
                     fc,
-                    (locked_until.isoformat(timespec="seconds") +
-                     "Z") if locked_until else None,
+                    (locked_until.isoformat(timespec="seconds").replace(
+                        "+00:00", "Z") if locked_until else None),
                     username, ip,
                 ),
             )

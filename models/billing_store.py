@@ -3,7 +3,7 @@ import io
 import csv
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, Tuple, Dict, Any
 from models.db import get_db
 
@@ -45,11 +45,14 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
 def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable[dict]) -> Tuple[int, float, list[str]]:
     """
     rows must contain: JobID, Cost (฿), CPU_Core_Hours, GPU_Hours, Mem_GB_Hours
-    Returns: (receipt_id, total, skipped_job_keys)
+    Returns: (receipt_id, total, inserted_items)
+    Each inserted item is a dict with at least: job_key, job_id_display, cost, cpu_core_hours, gpu_hours, mem_gb_hours.
     """
     db = get_db()
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    skipped: list[str] = []
+    # now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    now = datetime.now(timezone.utc).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
+    inserted: list[dict] = []
     total = 0.0
     with db:  # transaction
         rid = db.execute(
@@ -71,18 +74,30 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
                      float(r["Mem_GB_Hours"]))
                 )
                 total += float(r["Cost (฿)"])
+                inserted.append({
+                    "receipt_id": rid,
+                    "job_key": job_key,
+                    "job_id_display": str(r["JobID"]),
+                    "cost": float(r["Cost (฿)"]),
+                    "cpu_core_hours": float(r["CPU_Core_Hours"]),
+                    "gpu_hours": float(r["GPU_Hours"]),
+                    "mem_gb_hours": float(r["Mem_GB_Hours"]),
+                })
             except sqlite3.IntegrityError:
-                # UNIQUE(job_key) -> already billed somewhere
-                skipped.append(job_key)
+                # UNIQUE(job_key) -> already billed somewhere; ignore for "inserted"
+                # skipped.append(job_key)
+                pass
 
         db.execute("UPDATE receipts SET total=? WHERE id=?",
                    (round(total, 2), rid))
-    return rid, round(total, 2), skipped
+    return rid, round(total, 2), inserted
 
 
 def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None):
     db = get_db()
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    now = datetime.now(timezone.utc).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
     with db:
         db.execute(
             "UPDATE receipts SET status='paid', paid_at=?, method=?, tx_ref=? WHERE id=?",
@@ -150,7 +165,9 @@ def mark_receipt_paid(receipt_id: int, admin_user: str):
         return False
     if row["status"] == "paid":
         return True
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    now = datetime.now(timezone.utc).isoformat(
+        timespec="seconds").replace("+00:00", "Z")
     with db:
         db.execute(
             "UPDATE receipts SET status='paid', paid_at=?, method=?, tx_ref=? WHERE id=?",

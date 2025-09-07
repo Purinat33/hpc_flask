@@ -1,7 +1,7 @@
 # models/users_db.py
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import g, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -52,7 +52,7 @@ def create_user(username: str, password: str, role: str = "user"):
     db.execute(
         "INSERT OR REPLACE INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
         (username, generate_password_hash(password),
-         role, datetime.utcnow().isoformat()),
+         role, datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")),
     )
     db.commit()
 
