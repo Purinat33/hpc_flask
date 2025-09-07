@@ -212,3 +212,12 @@ def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: i
                   method=f"auto:{provider}", tx_ref=external_payment_id)
 
     return True
+
+
+def get_latest_payment_for_receipt(receipt_id: int) -> Optional[dict]:
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM payments WHERE receipt_id=? ORDER BY id DESC LIMIT 1",
+        (receipt_id,)
+    ).fetchone()
+    return dict(row) if row else None

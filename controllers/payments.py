@@ -17,7 +17,8 @@ from models.payments_store import (
     get_payment,
 )
 from models.audit_store import audit
-
+from models.payments_store import load_receipt
+from models.payments_store import get_latest_payment_for_receipt
 payments_bp = Blueprint("payments", __name__)
 
 
@@ -31,23 +32,31 @@ def _env(key: str, default: str | None = None) -> str | None:
 @payments_bp.get("/payments/receipt/<int:rid>/start")
 @login_required
 def start_receipt_payment(rid: int):
-    """
-    Create a provider checkout for this receipt.
-    Authorization: the receipt should belong to current_user (or user is admin).
-    """
-    # NOTE: You can tighten this with an ownership check if needed.
+    rec = load_receipt(rid)
+    if not rec:
+        abort(404)
+    if not (current_user.is_admin or rec["username"] == current_user.username):
+        abort(403)
+
     currency = (_env("PAYMENT_CURRENCY") or "THB").upper()
     provider = get_provider()
 
-    # 1) Create local intent
+    # Reuse if we already have a pending/succeeded intent
+    existing = get_latest_payment_for_receipt(rid)
+    if existing:
+        if existing["status"] == "succeeded":
+            return redirect(url_for("payments.payment_thanks", rid=rid))
+        if existing["status"] == "pending" and existing.get("checkout_url"):
+            return redirect(existing["checkout_url"])
+
+    # Otherwise create a new intent
     pid, amount_cents = create_payment_for_receipt(
         provider.name, rid, current_user.username, currency)
 
-    # 2) Ask provider to create checkout
     site = _env("SITE_BASE_URL") or request.host_url.rstrip("/")
     success_base = _env("PAYMENT_SUCCESS_PATH") or "/payments/thanks"
     success_url = f"{site}{success_base}?rid={rid}"
-    cancel_url = (site + (_env("PAYMENT_CANCEL_PATH") or "/me"))
+    cancel_url = site + (_env("PAYMENT_CANCEL_PATH") or "/me")
 
     intent = provider.create_checkout(
         payment_id=pid,
@@ -59,14 +68,12 @@ def start_receipt_payment(rid: int):
         cancel_url=cancel_url,
     )
 
-    # 3) Save provider ids/urls
     attach_provider_checkout(
         pid, intent.external_payment_id, intent.checkout_url, intent.idempotency_key)
 
     audit("payment.intent", target=f"receipt={rid}", status=200,
           extra={"payment_id": pid, "provider": provider.name, "amount_cents": amount_cents})
 
-    # 4) Redirect to provider checkout page (dummy: local simulator)
     return redirect(intent.checkout_url or url_for("user.view_receipt", rid=rid))
 
 
@@ -133,6 +140,7 @@ def simulate_checkout():
     - constructs a signed (or plain) JSON and POSTs to /payments/webhook to simulate success
     - then redirects the user back to /payments/thanks
     """
+    rid = request.args.get("rid", type=int)
     external_payment_id = request.args.get("external_payment_id") or ""
     amount_cents = int(request.args.get("amount_cents") or "0")
     currency = request.args.get("currency") or "THB"
@@ -162,4 +170,4 @@ def simulate_checkout():
     for _ in app_iter:  # noqa
         pass
 
-    return redirect(url_for("payments.payment_thanks"))
+    return redirect(url_for("payments.payment_thanks", rid=rid))

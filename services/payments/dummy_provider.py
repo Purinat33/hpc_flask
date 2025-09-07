@@ -31,13 +31,14 @@ class DummyProvider(PaymentProvider):
                         success_url: str, cancel_url: str) -> PaymentIntentResult:
         # Make a deterministic external id for local testing
         external_payment_id = f"dummy_{payment_id}"
+
         # Build a local “checkout” URL that just simulates success by calling our webhook.
         qs = urlencode({
             "external_payment_id": external_payment_id,
             "amount_cents": amount_cents,
             "currency": currency,
+            "rid": receipt_id,  # <-- add this
         })
-        # The route below will post a fake webhook into the app and then redirect.
         checkout_url = url_for(
             "payments.simulate_checkout", _external=True) + "?" + qs
         idem = f"idem_{payment_id}"
