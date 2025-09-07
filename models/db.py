@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS receipts(
   username   TEXT NOT NULL,
   start      TEXT NOT NULL,
   end        TEXT NOT NULL,
-  total      REAL NOT NULL DEFAULT 0,
-  status     TEXT NOT NULL DEFAULT 'pending', -- pending|paid|void
+  total      REAL NOT NULL DEFAULT 0 CHECK(total >= 0),
+  status     TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','paid','void')), -- pending|paid|void
   created_at TEXT NOT NULL,
   paid_at    TEXT,
   method     TEXT,

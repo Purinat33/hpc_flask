@@ -153,11 +153,7 @@ def admin_list_receipts(status: str | None = None):
     return rows
 
 
-def mark_receipt_paid(receipt_id: int, admin_user: str):
-    """
-    Mark paid using the same DB connection as everything else.
-    (Alternatively, delete this and reuse mark_paid() below.)
-    """
+def mark_receipt_paid(receipt_id: int, admin_user: str) -> bool:
     db = get_db()
     row = db.execute("SELECT status FROM receipts WHERE id = ?",
                      (receipt_id,)).fetchone()
@@ -165,13 +161,15 @@ def mark_receipt_paid(receipt_id: int, admin_user: str):
         return False
     if row["status"] == "paid":
         return True
-    # now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    if row["status"] != "pending":   # block void → paid
+        return False
+
     now = datetime.now(timezone.utc).isoformat(
         timespec="seconds").replace("+00:00", "Z")
     with db:
         db.execute(
             "UPDATE receipts SET status='paid', paid_at=?, method=?, tx_ref=? WHERE id=?",
-            (now, admin_user or "admin", None, receipt_id)
+            (now, "admin_override", admin_user, receipt_id)
         )
     return True
 

@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS payments (
   provider              TEXT NOT NULL,            -- 'stripe' | 'omise' | 'paypal' | 'dummy' ...
   receipt_id            INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
   username              TEXT NOT NULL,            -- who pays
-  status                TEXT NOT NULL DEFAULT 'pending',  -- pending|succeeded|failed|canceled
-  currency              TEXT NOT NULL,
-  amount_cents          INTEGER NOT NULL,         -- total in minor units
+  status                TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','succeeded','failed','canceled')),  -- pending|succeeded|failed|canceled
+  currency              TEXT NOT NULL CHECK(length(currency)=3),
+  amount_cents          INTEGER NOT NULL CHECK(amount_cents >= 0),         -- total in minor units
   external_payment_id   TEXT,                     -- provider's charge/session/payment id
   checkout_url          TEXT,                     -- provider-hosted checkout URL (if any)
   idempotency_key       TEXT,                     -- our key passed to provider when creating
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS payment_events (
   payment_id        INTEGER,        -- our local FK -> payments.id (nullable until we can resolve)
   event_type        TEXT NOT NULL,  -- 'payment.succeeded', etc.
   raw               TEXT NOT NULL,  -- raw JSON (as text)
-  signature_ok      INTEGER NOT NULL DEFAULT 0,
+  signature_ok      INTEGER NOT NULL DEFAULT 0 CHECK(signature_ok IN (0,1)),
   received_at       TEXT NOT NULL,  -- ISO8601Z
   UNIQUE(provider, external_event_id)
 );
