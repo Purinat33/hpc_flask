@@ -190,11 +190,11 @@ def create_receipt():
         )
         return redirect(url_for("user.my_usage", start=start_d, end=end_d))
 
-    rid, total, skipped = create_receipt_from_rows(
+    rid, total, items = create_receipt_from_rows(
         current_user.username, start_d, end_d, df.to_dict(orient="records"))
     msg = f"Created receipt #{rid} for ฿{total:.2f}"
-    if skipped:
-        msg += f" (skipped {len(skipped)} already billed job(s))"
+    if items:
+        msg += f" (Add {len(items)} to billed job(s))"
     # flash(msg)
     audit(
         action="receipt.create",
@@ -206,7 +206,7 @@ def create_receipt():
             "end": end_d,
             "jobs": int(len(df)),
             "total": float(total),
-            "skipped": list(skipped) if skipped else [],
+            "items": list(items) if items else [],
         },
     )
     return redirect(url_for("user.my_receipts"))
