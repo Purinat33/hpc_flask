@@ -239,10 +239,12 @@ def admin_update():
 @admin_required
 def mark_paid(rid: int):
     ok = mark_receipt_paid(rid, current_user.username)
-    audit("receipt.paid.admin_override",
-          target=f"receipt={rid}",
-          status=200 if ok else 404,
-          extra={"actor": current_user.username, "reason": "manual_mark_paid"})
+    audit(
+        "receipt.paid.admin",
+        target=f"receipt={rid}",
+        status=200 if ok else 404,
+        extra={"actor": current_user.username, "reason": "manual_mark_paid"}
+    )
     return redirect(url_for("admin.admin_form", section="billing"))
 
 

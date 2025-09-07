@@ -38,3 +38,17 @@ def test_dummy_payment_happy_path_marks_paid(client, app):
         "SELECT status, external_payment_id FROM payments WHERE receipt_id=?", (rid,)).fetchone()
     assert pay["status"] == "succeeded"
     assert pay["external_payment_id"] == rec["tx_ref"]
+
+
+def test_finalize_rejects_non_pending(app):
+    from models.payments_store import finalize_success_if_amount_matches, get_db
+    db = get_db()
+    with db:
+        db.executescript("""
+          INSERT INTO receipts(username,start,end,total,status,created_at)
+          VALUES('alice','1970-01-01','1970-01-02',1.00,'void','2025-01-01T00:00:00Z');
+          INSERT INTO payments(provider,receipt_id,username,status,currency,amount_cents,created_at,updated_at,external_payment_id)
+          VALUES('dummy', last_insert_rowid(),'alice','failed','THB',100,'2025-01-01T00:00:00Z','2025-01-01T00:00:00Z','x1');
+        """)
+    assert finalize_success_if_amount_matches(
+        "x1", 100, "THB", "dummy") is False

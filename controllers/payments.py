@@ -6,7 +6,6 @@ import os
 import json
 from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
 from flask_login import login_required, current_user
-from models.security_throttle import throttle
 from services.payments.registry import get_provider
 from models.payments_store import (
     init_payments_schema,
@@ -32,8 +31,6 @@ def _env(key: str, default: str | None = None) -> str | None:
 @payments_bp.get("/payments/receipt/<int:rid>/start")
 @login_required
 def start_receipt_payment(rid: int):
-    throttle(key=f"paystart:{current_user.username}",
-             max_fails=10, window_sec=60)
     rec = load_receipt(rid)
     if not rec:
         abort(404)

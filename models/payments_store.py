@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS payment_events (
 
 CREATE INDEX IF NOT EXISTS idx_payments_receipt ON payments(receipt_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_idem ON payments(provider, idempotency_key) WHERE idempotency_key IS NOT NULL;
 """
 
 
@@ -172,45 +173,38 @@ def record_webhook_event(provider: str, external_event_id: Optional[str], event_
 
 
 def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: int, currency: str, provider: str) -> bool:
-    """
-    Finish the payment and mark receipt paid if:
-      - we can find the local payment by external id
-      - currency matches
-      - amount exactly matches the receipt total (in cents)
-    Returns True if the receipt was marked paid (or already paid), False otherwise.
-    """
     db = get_db()
     p = get_payment_by_external_id(external_payment_id)
     if not p:
         return False
-
-    # strict integrity checks
     if p["currency"].upper() != currency.upper():
         return False
     if int(p["amount_cents"]) != int(amount_cents):
         return False
 
-    # in one transaction: update local payment + flip receipt to paid
     with db:
-        # idempotent: if already succeeded, return True
         cur = db.execute(
-            "SELECT status, receipt_id FROM payments WHERE id=?", (p["id"],))
+            "SELECT status, receipt_id, username FROM payments WHERE id=?", (p["id"],))
         row = cur.fetchone()
         if not row:
             return False
+
+        # Only pending can transition to succeeded
         if row["status"] == "succeeded":
             return True
+        if row["status"] != "pending":
+            return False
 
-        # mark payment
+        # Verify the receipt still belongs to the same username (defense-in-depth)
+        rec = db.execute("SELECT username FROM receipts WHERE id=?",
+                         (row["receipt_id"],)).fetchone()
+        if not rec or rec["username"] != p["username"]:
+            return False
+
         db.execute(
             "UPDATE payments SET status='succeeded', updated_at=? WHERE id=?", (_now_iso(), p["id"]))
-
-        # mark receipt
-        # method = 'auto:<provider>' and tx_ref = external_payment_id for traceability
-        # record how it was paid and the provider reference
         mark_paid(row["receipt_id"],
                   method=f"auto:{provider}", tx_ref=external_payment_id)
-
     return True
 
 
