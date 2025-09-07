@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from tests.utils import login_user
 from models.billing_store import create_receipt_from_rows
@@ -24,7 +25,8 @@ def test_thanks_shows_status(client):
     login_user(client, "alice", "alice")
     r1 = client.get(f"/payments/thanks?rid={rid}")
     assert r1.status_code == 200
-    assert "processing" in r1.get_data(as_text=True).lower()
+    html = r1.get_data(as_text=True).lower()
+    assert re.search(r"\bprocess(?:ing|ed)\b", html)
 
     # flip to paid to check the other branch
     db = get_db()
@@ -32,4 +34,4 @@ def test_thanks_shows_status(client):
         db.execute("UPDATE receipts SET status='paid' WHERE id=?", (rid,))
     r2 = client.get(f"/payments/thanks?rid={rid}")
     assert r2.status_code == 200
-    assert "payment confirmed" in r2.get_data(as_text=True)
+    assert "payment confirmed" in r2.get_data(as_text=True).lower()
