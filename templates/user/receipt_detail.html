@@ -27,10 +27,12 @@
         {% endfor %}
     </tbody>
 </table>
-{% if r['status'] == 'pending' %}
+{% if r['status'] == 'pending' and is_owner %}
 <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}">
     <button type="submit">Pay now</button>
 </form>
+{% elif r['status'] == 'pending' and not is_owner %}
+<p class="muted">Only the receipt owner can start payment.</p>
 {% endif %}
 
 {% endblock %}

@@ -35,21 +35,18 @@ def start_receipt_payment(rid: int):
     rec = load_receipt(rid)
     if not rec:
         abort(404)
-    if not (current_user.is_admin or rec["username"] == current_user.username):
+
+    # Only the owner can initiate payment (admins cannot start others' payments)
+    if rec["username"] != current_user.username:
         abort(403)
+
+    if rec.get("status") == "paid":
+        # nothing to pay; send them to the thanks page with a confirmed state
+        return redirect(url_for("payments.payment_thanks", rid=rid))
 
     currency = (_env("PAYMENT_CURRENCY") or "THB").upper()
     provider = get_provider()
 
-    # Reuse if we already have a pending/succeeded intent
-    existing = get_latest_payment_for_receipt(rid)
-    if existing:
-        if existing["status"] == "succeeded":
-            return redirect(url_for("payments.payment_thanks", rid=rid))
-        if existing["status"] == "pending" and existing.get("checkout_url"):
-            return redirect(existing["checkout_url"])
-
-    # Otherwise create a new intent
     pid, amount_cents = create_payment_for_receipt(
         provider.name, rid, current_user.username, currency)
 

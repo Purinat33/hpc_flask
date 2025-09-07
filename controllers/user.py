@@ -31,14 +31,16 @@ def my_receipts():
 @login_required
 def view_receipt(rid: int):
     rec, items = get_receipt_with_items(rid)
-    if not rec or rec.get("username") != current_user.username:
+    is_admin = getattr(current_user, "is_admin", False)
+    if not rec or (rec.get("username") != current_user.username and not is_admin):
         audit(action="receipt.view.denied",
               target=f"receipt={rid}", status=403,
               extra={"actor": current_user.username})
         return redirect(url_for("user.my_receipts"))
-    # very simple detail view
-    rows = items
-    return render_template("user/receipt_detail.html", r=rec, rows=rows)
+
+    # pass ownership to the template so it can hide the Pay button for non-owners
+    return render_template("user/receipt_detail.html", r=rec, rows=items,
+                           is_owner=(rec.get("username") == current_user.username))
 
 
 @user_bp.get("/me")
