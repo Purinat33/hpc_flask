@@ -194,7 +194,8 @@ def create_app(test_config: dict | None = None):
     csrf.exempt(payments_bp)
 
     # Prometheus
-    init_metrics(app)
+    if _env_bool("METRICS_ENABLED", True):
+        init_metrics(app)
 
     # ---- Errors ----
 

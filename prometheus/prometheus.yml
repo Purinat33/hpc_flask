@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "hpc_flask"
+    scrape_interval: 5s
+    static_configs:
+      # If your Flask app is running on the host at http://localhost:8000/metrics:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          app: "hpc_flask"
