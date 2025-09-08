@@ -2,6 +2,7 @@
 import io
 import csv
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Iterable, Tuple, Dict, Any
@@ -9,8 +10,23 @@ from models.db import get_db
 
 
 def canonical_job_id(s: str) -> str:
-    # 12345.batch -> 12345, 12345_7.extern -> 12345_7
-    return (s or "").split(".", 1)[0].strip()
+    """
+    Normalize slurm job IDs for duplicate detection.
+
+    - For numeric IDs (e.g. '12345.batch', '12345_7.extern'), drop the suffix after the first dot.
+    - For non-numeric prefixes (e.g. 'CSV.A'), keep the full string to avoid collisions.
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if "." in s:
+        prefix = s.split(".", 1)[0]
+        # numeric or numeric_with_step, e.g., 12345 or 12345_7
+        if re.fullmatch(r"\d+(?:_\d+)?", prefix):
+            return prefix
+        # otherwise keep original (e.g., 'CSV.A')
+        return s
+    return s
 
 
 def billed_job_ids() -> set[str]:
