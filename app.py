@@ -71,7 +71,7 @@ def _parse_demo_users(env_val: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def create_app():
+def create_app(test_config: dict | None = None):
     app = Flask(__name__, instance_relative_config=True)
 
     # ---- Base config from environment (no hardcoded secrets) ----
@@ -109,6 +109,8 @@ def create_app():
         BABEL_TRANSLATION_DIRECTORIES="translations",
         LANGUAGES=["en", "th"],
     )
+    if test_config:
+        app.config.update(test_config)
 
     # ---- Babel ----
     babel.init_app(app, locale_selector=select_locale)

@@ -27,26 +27,33 @@ def sample_csv_text():
 # tests/conftest.py
 
 
+# tests/conftest.py
 @pytest.fixture
 def app(tmp_instance: Path, monkeypatch, sample_csv_text):
-    # Write test CSV
     (tmp_instance / "test.csv").write_text(sample_csv_text, encoding="utf-8")
 
-    # Point all DB/files to the temp instance BEFORE app is created
     monkeypatch.setenv("BILLING_DB", str(tmp_instance / "billing.sqlite3"))
     monkeypatch.setenv("FALLBACK_CSV", str(tmp_instance / "test.csv"))
-    # optional: isolate users DB too so seeding lands here
     monkeypatch.setenv("USERS_DB", str(tmp_instance / "users.sqlite3"))
-    # ensure admin password is deterministic for tests
     monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test-secret")
+    # make behavior deterministic
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("SEED_DEMO_USERS", "0")   # we'll seed ourselves
 
-    from app import create_app
-    app = create_app()
-    app.config.update(
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        SECRET_KEY="test-secret",
-    )
+    app = create_app({
+        "TESTING": True,
+        "WTF_CSRF_ENABLED": False,
+        "SECRET_KEY": "test-secret",
+    })
+
+    # Ensure alice/bob exist in THIS test database
+    from models.users_db import get_user, create_user
+    with app.app_context():
+        if not get_user("alice"):
+            create_user("alice", "alice", role="user")
+        if not get_user("bob"):
+            create_user("bob", "bob", role="user")
 
     ctx = app.app_context()
     ctx.push()

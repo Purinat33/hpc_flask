@@ -1,8 +1,11 @@
 import os
 
 
+# tests/utils.py
 def login_user(client, username, password):
-    return client.post("/login", data={"username": username, "password": password}, follow_redirects=False)
+    return client.post("/login",
+                       data={"username": username, "password": password},
+                       follow_redirects=False)
 
 
 def login_admin(client, password=None):
