@@ -4,6 +4,11 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from models.users_db import get_user, verify_password
 from models.audit_store import audit
 from models.security_throttle import is_locked, register_failure, reset, get_status
+from services.metrics import (
+    LOGIN_SUCCESSES, LOGIN_FAILURES,
+    LOCKOUT_ACTIVE, LOCKOUT_START, LOCKOUT_END,
+    FORBIDDEN_REDIRECTS,
+)
 
 auth_bp = Blueprint("auth", __name__)
 login_manager = LoginManager()
@@ -35,6 +40,7 @@ def admin_required(f):
         if not current_user.is_authenticated:
             return login_manager.unauthorized()
         if not getattr(current_user, "is_admin", False):
+            FORBIDDEN_REDIRECTS.inc()
             audit(action="auth.forbidden",
                   target=f"user={current_user.username}",
                   status=403,
@@ -76,6 +82,7 @@ def login_post():
     # If currently locked, audit & bounce with message
     locked, sec_left = is_locked(u or "unknown", ip)
     if locked:
+        LOCKOUT_ACTIVE.inc()
         audit(action="auth.lockout.active",
               target=f"user={u or 'unknown'}",
               status=423,
@@ -84,6 +91,7 @@ def login_post():
 
     # Check password
     if not verify_password(u, p):
+        LOGIN_FAILURES.labels(reason="bad_credentials").inc()
         audit(action="auth.login.failure",
               target=f"user={u or 'unknown'}",
               status=401,
@@ -92,6 +100,7 @@ def login_post():
         locked_now = register_failure(u or "unknown", ip)
         if locked_now:
             # best-effort seconds-left (new full lock window)
+            LOCKOUT_START.inc()
             lock_sec = int(current_app.config.get(
                 "AUTH_THROTTLE_LOCK_SEC", 300))
             audit(action="auth.lockout.start",
@@ -115,6 +124,7 @@ def login_post():
 
     row = get_user(u)
     login_user(User(row["username"], row["role"]))
+    LOGIN_SUCCESSES.inc()
 
     audit(action="auth.login.success",
           target=f"user={row['username']}",
@@ -122,6 +132,7 @@ def login_post():
           extra={"role": row["role"], "ip": ip, "ua": request.headers.get("User-Agent")})
 
     if was_locked:
+        LOCKOUT_END.inc()
         audit(action="auth.lockout.end",
               target=f"user={row['username']}",
               status=200,

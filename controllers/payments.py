@@ -18,6 +18,8 @@ from models.payments_store import (
 from models.audit_store import audit
 from models.payments_store import load_receipt
 from models.payments_store import get_latest_payment_for_receipt
+from services.metrics import WEBHOOK_EVENTS
+
 payments_bp = Blueprint("payments", __name__)
 
 
@@ -122,6 +124,8 @@ def webhook():
         )
         audit("payment.finalize", target=f"external={evt.external_payment_id}", status=200 if ok else 409,
               extra={"currency": evt.currency, "amount_cents": evt.amount_cents})
+        WEBHOOK_EVENTS.labels(
+            provider=provider.name, event="payment_succeeded", outcome="ok").inc()
 
     return "", 200
 

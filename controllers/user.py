@@ -14,6 +14,7 @@ from models.billing_store import create_receipt_from_rows
 # add to imports at top
 from models.billing_store import list_billed_items_for_user
 from models.audit_store import audit
+from services.metrics import CSV_DOWNLOADS, RECEIPT_CREATED
 
 user_bp = Blueprint("user", __name__)
 
@@ -149,6 +150,7 @@ def my_usage_csv():
     df.to_csv(out, index=False)
     out.seek(0)
     filename = f"usage_{current_user.username}_{start_d}_{end_d}.csv"
+    CSV_DOWNLOADS.labels(kind="user_usage").inc()
     return Response(out.read(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -209,4 +211,5 @@ def create_receipt():
             "items": list(items) if items else [],
         },
     )
+    RECEIPT_CREATED.labels(scope="user").inc()
     return redirect(url_for("user.my_receipts"))

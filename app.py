@@ -20,6 +20,7 @@ from models.security_throttle import init_throttle_schema
 from controllers.payments import payments_bp
 from models.payments_store import init_payments_schema
 from controllers.payments import webhook as payments_webhook
+from services.metrics import init_app as init_metrics, REQUEST_COUNT, REQUEST_LATENCY
 
 babel = Babel()
 
@@ -192,6 +193,9 @@ def create_app(test_config: dict | None = None):
     # Exempt Payment BP from CSRF
     csrf.exempt(payments_bp)
 
+    # Prometheus
+    init_metrics(app)
+
     # ---- Errors ----
 
     @app.errorhandler(404)
@@ -221,8 +225,23 @@ def create_app(test_config: dict | None = None):
     def _log_request(resp):
         try:
             ms = (time() - getattr(g, "_t0", time())) * 1000
-            app.logger.info("%s %s %s %s %.1fms", request.remote_addr,
-                            request.method, request.full_path, resp.status_code, ms)
+            app.logger.info("%s %s %s %s %.1fms",
+                            request.remote_addr, request.method, request.full_path, resp.status_code, ms)
+
+            # --- Skip self-scrapes & static to keep series clean ---
+            ep = request.endpoint or ""
+            path = request.path or ""
+            if ep == "static" or path.startswith("/metrics"):
+                return resp
+
+            endpoint = ep.replace(".", "_") or "unknown"
+            method = request.method
+            status = str(resp.status_code)
+
+            REQUEST_COUNT.labels(
+                method=method, endpoint=endpoint, status=status).inc()
+            REQUEST_LATENCY.labels(
+                endpoint=endpoint, method=method).observe(ms / 1000.0)
         except Exception:
             app.logger.exception("Failed to log request")
         return resp

@@ -16,6 +16,11 @@ from models.billing_store import (
 )
 from models.audit_store import audit
 from models.audit_store import list_audit, export_csv
+from services.metrics import (
+    RECEIPT_MARKED_PAID, CSV_DOWNLOADS, RECEIPT_CREATED
+)
+
+
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -239,6 +244,8 @@ def admin_update():
 @admin_required
 def mark_paid(rid: int):
     ok = mark_receipt_paid(rid, current_user.username)
+    if ok:
+        RECEIPT_MARKED_PAID.labels(actor_type="admin").inc()
     audit(
         "receipt.paid.admin",
         target=f"receipt={rid}",
@@ -253,6 +260,7 @@ def mark_paid(rid: int):
 @admin_required
 def paid_csv():
     fname, csv_text = paid_receipts_csv()
+    CSV_DOWNLOADS.labels(kind="admin_paid").inc()
     return Response(
         csv_text,
         mimetype="text/csv",
@@ -274,6 +282,7 @@ def my_usage_csv_admin():
     df.to_csv(out, index=False)
     out.seek(0)
     filename = f"usage_{current_user.username}_{start_d}_{end_d}.csv"
+    CSV_DOWNLOADS.labels(kind="my_usage").inc()
     return Response(
         out.read(),
         mimetype="text/csv",
@@ -307,6 +316,7 @@ def create_self_receipt():
     rid, total, _ = create_receipt_from_rows(
         current_user.username, start_d, end_d, df.to_dict(orient="records")
     )
+    RECEIPT_CREATED.labels(scope="admin").inc()
     return redirect(url_for("admin.admin_form", section="myusage", before=before, view="billed"))
 
 
@@ -323,5 +333,6 @@ def audit_page():
 @admin_required
 def audit_csv():
     fname, csv_text = export_csv()
+    CSV_DOWNLOADS.labels(kind="audit").inc()
     return Response(csv_text, mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
