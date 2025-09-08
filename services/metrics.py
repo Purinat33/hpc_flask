@@ -3,15 +3,18 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("PROMETHEUS_DISABLE_CREATED_SERIES", "1")
+ENABLED = (os.getenv("METRICS_ENABLED", "1").lower()
+           in ("1", "true", "yes", "on"))
 
 try:
-    from prometheus_client import (
-        Counter, Histogram, CollectorRegistry,
-        generate_latest, CONTENT_TYPE_LATEST,
-        # import these only if you want to add some runtime collectors back:
-        # ProcessCollector, PlatformCollector, GCCollector
-    )
-    _PROM = True
+    if ENABLED:
+        from prometheus_client import (
+            Counter, Histogram, CollectorRegistry,
+            generate_latest, CONTENT_TYPE_LATEST,
+        )
+        _PROM = True
+    else:
+        raise ImportError("metrics disabled")
 except Exception:  # pragma: no cover
     _PROM = False
 
@@ -27,8 +30,7 @@ except Exception:  # pragma: no cover
     def CollectorRegistry(*a, **k): return None
 
 # Use a DEDICATED registry so only our app metrics show up
-APP_REGISTRY = CollectorRegistry(auto_describe=True)
-
+APP_REGISTRY = CollectorRegistry(auto_describe=True) if _PROM else None
 # --- Generic HTTP metrics (bind to our registry) ---
 REQUEST_COUNT = Counter(
     "http_requests_total", "HTTP requests total",
@@ -72,6 +74,9 @@ WEBHOOK_EVENTS = Counter(
 
 
 def init_app(app):
+    if not _PROM:           # disabled or client unavailable
+        return              # do not register /metrics
+
     @app.get("/metrics")
     def metrics():
         data = generate_latest(APP_REGISTRY)
