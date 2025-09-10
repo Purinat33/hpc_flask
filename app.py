@@ -28,6 +28,18 @@ babel = Babel()
 # If you run "python app.py", this ensures variables are loaded.
 # If you use "flask run", Flask will also load .env automatically (when python-dotenv is installed).
 load_dotenv()
+if os.getenv("DATABASE_URL") and os.getenv("FORBID_SQLITE_WHEN_PG", "1") == "1":
+    import sqlite3
+    import traceback
+    _orig_sqlite_connect = sqlite3.connect
+
+    def _trap_sqlite_connect(*a, **kw):
+        tb = "".join(traceback.format_stack(limit=20))
+        raise RuntimeError(
+            f"SQLite connect blocked while DATABASE_URL is set. args={a} stack:\n{tb}")
+    sqlite3.connect = _trap_sqlite_connect
+
+USE_PG = bool(os.getenv("DATABASE_URL"))
 
 
 def select_locale():
@@ -149,37 +161,43 @@ def create_app(test_config: dict | None = None):
     os.makedirs(app.instance_path, exist_ok=True)
 
     # ---- DB & users init ----
-    init_db_app(app)
-    init_users_app(app)
-    with app.app_context():
-        init_db()
-        init_users_db()
-        init_audit_schema()
-        init_throttle_schema()
-        init_payments_schema()
-        # Seed admin ONLY if ADMIN_PASSWORD is supplied (no hardcoded default)
-        admin_pwd = os.getenv("ADMIN_PASSWORD")  # set this in .env
-        if not get_user("admin") and admin_pwd:
-            create_user("admin", admin_pwd, role="admin")
-            app.logger.info("Seeded admin user from .env")
 
-        # Seed demo users strictly in development when SEED_DEMO_USERS=1 (or true/on)
-        if app.config["APP_ENV"] == "development" and _env_bool("SEED_DEMO_USERS", True):
-            # Prefer DEMO_USERS from .env; fall back to legacy hard-coded list
-            demo_env = os.getenv("DEMO_USERS", "")
-            demo = _parse_demo_users(demo_env) or {
-                "alice": ("alice", "user"),
-                "bob": ("bob", "user"),
-                "akara.sup": ("12345", "user"),
-                "surapol.gits": ("12345", "user"),
-            }
-            for u, (pwd, role) in demo.items():
-                if u == "admin":
-                    continue  # never seed/override admin via DEMO_USERS
-                if not get_user(u):
-                    create_user(u, pwd, role)
-            app.logger.info("Seeded demo users (development only) from %s",
-                            "DEMO_USERS env" if demo_env else "built-in defaults")
+    # ---- DB & users init ----
+    if not USE_PG:
+        # SQLite path (legacy)
+        init_db_app(app)
+        init_users_app(app)
+        with app.app_context():
+            init_db()
+            init_users_db()
+            init_audit_schema()
+            init_throttle_schema()
+            init_payments_schema()
+
+            # Seed only on SQLite (your PG already has the migrated data)
+            admin_pwd = os.getenv("ADMIN_PASSWORD")
+            if not get_user("admin") and admin_pwd:
+                create_user("admin", admin_pwd, role="admin")
+                app.logger.info("Seeded admin user from .env")
+
+            if app.config["APP_ENV"] == "development" and _env_bool("SEED_DEMO_USERS", True):
+                demo_env = os.getenv("DEMO_USERS", "")
+                demo = _parse_demo_users(demo_env) or {
+                    "alice": ("alice", "user"),
+                    "bob": ("bob", "user"),
+                    "akara.sup": ("12345", "user"),
+                    "surapol.gits": ("12345", "user"),
+                }
+                for u, (pwd, role) in demo.items():
+                    if u == "admin":
+                        continue
+                    if not get_user(u):
+                        create_user(u, pwd, role)
+                app.logger.info("Seeded demo users (development only)")
+    else:
+        # Postgres path (Alembic already created schema; nothing to bootstrap)
+        from models.base import init_engine_and_session  # your SQLAlchemy engine
+        init_engine_and_session()
 
     login_manager.init_app(app)
 

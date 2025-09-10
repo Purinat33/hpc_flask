@@ -1,8 +1,18 @@
 # models/security_throttle.py
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
+import os
 from flask import current_app
-from models.db import get_db
+
+USE_PG = bool(os.getenv("DATABASE_URL"))
+
+if USE_PG:
+    import sqlalchemy as sa
+    from models.base import init_engine_and_session
+    from models.schema import AuthThrottle
+    Engine, SessionLocal = init_engine_and_session()
+else:
+    from models.db import get_db  # legacy SQLite path
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS auth_throttle (
@@ -19,6 +29,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_throttle_user_ip
 
 
 def init_throttle_schema():
+    # On Postgres, Alembic manages the table; nothing to do.
+    if USE_PG:
+        return
     db = get_db()
     with db:
         for stmt in SCHEMA_SQL.strip().split(";"):
@@ -35,7 +48,6 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        # make "Z" explicit for fromisoformat
         ts = ts.replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts)
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
@@ -44,6 +56,22 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
 
 
 def get_status(username: str, ip: str) -> dict:
+    if USE_PG:
+        with SessionLocal() as s:
+            row = s.execute(
+                sa.select(AuthThrottle.window_start,
+                          AuthThrottle.fail_count, AuthThrottle.locked_until)
+                .where(AuthThrottle.username == username, AuthThrottle.ip == ip)
+            ).one_or_none()
+            if not row:
+                return {"fail_count": 0, "window_start": None, "locked_until": None}
+            m = row._mapping
+            return {
+                "fail_count": int(m["fail_count"] or 0),
+                "window_start": m["window_start"],
+                "locked_until": m["locked_until"],
+            }
+
     db = get_db()
     row = db.execute(
         "SELECT window_start, fail_count, locked_until FROM auth_throttle WHERE username=? AND ip=?",
@@ -78,10 +106,53 @@ def register_failure(username: str, ip: str,
     max_fails = max_fails or int(cfg.get("AUTH_THROTTLE_MAX_FAILS", 5))
     lock_sec = lock_sec or int(cfg.get("AUTH_THROTTLE_LOCK_SEC", 300))
 
-    db = get_db()
-    now = datetime.now(timezone.utc)
+    now_dt = datetime.now(timezone.utc)
     now_iso = _now_iso()
 
+    if USE_PG:
+        with SessionLocal() as s:
+            # Lock row if exists to avoid races
+            rec = s.execute(
+                sa.select(AuthThrottle).where(AuthThrottle.username ==
+                                              username, AuthThrottle.ip == ip).with_for_update()
+            ).scalar_one_or_none()
+
+            if rec:
+                ws = _parse_iso(rec.window_start)
+                fc = int(rec.fail_count or 0)
+                lu = _parse_iso(rec.locked_until)
+
+                if not ws or (now_dt - ws).total_seconds() > window_sec:
+                    ws = now_dt
+                    fc = 0
+
+                fc += 1
+                locked_now = False
+                locked_until_dt = lu
+                if fc >= max_fails:
+                    locked_until_dt = now_dt + timedelta(seconds=lock_sec)
+                    locked_now = True
+
+                rec.window_start = now_iso
+                rec.fail_count = fc
+                rec.locked_until = (
+                    locked_until_dt.isoformat(
+                        timespec="seconds").replace("+00:00", "Z")
+                    if locked_until_dt else None
+                )
+                s.commit()
+                return locked_now
+
+            # first failure for this (user,ip)
+            s.add(AuthThrottle(
+                username=username, ip=ip,
+                window_start=now_iso, fail_count=1, locked_until=None
+            ))
+            s.commit()
+            return False
+
+    # --- SQLite legacy path ---
+    db = get_db()
     row = db.execute(
         "SELECT window_start, fail_count, locked_until FROM auth_throttle WHERE username=? AND ip=?",
         (username, ip)
@@ -92,9 +163,8 @@ def register_failure(username: str, ip: str,
         fc = int(row["fail_count"] or 0)
         lu = _parse_iso(row["locked_until"])
 
-        # reset the window if expired
-        if not ws or (now - ws).total_seconds() > window_sec:
-            ws = now
+        if not ws or (now_dt - ws).total_seconds() > window_sec:
+            ws = now_dt
             fc = 0
 
         fc += 1
@@ -102,7 +172,7 @@ def register_failure(username: str, ip: str,
         locked_until = lu
         locked_now = False
         if fc >= max_fails:
-            locked_until = now + timedelta(seconds=lock_sec)
+            locked_until = now_dt + timedelta(seconds=lock_sec)
             locked_now = True
 
         with db:
@@ -120,7 +190,6 @@ def register_failure(username: str, ip: str,
             )
         return locked_now
 
-    # first failure for this (user,ip)
     with db:
         db.execute(
             """INSERT INTO auth_throttle(username, ip, window_start, fail_count, locked_until)
@@ -132,6 +201,19 @@ def register_failure(username: str, ip: str,
 
 def reset(username: str, ip: str):
     """Clears failures & lock for (user,ip) after successful login."""
+    if USE_PG:
+        with SessionLocal() as s:
+            rec = s.execute(
+                sa.select(AuthThrottle).where(AuthThrottle.username ==
+                                              username, AuthThrottle.ip == ip).with_for_update()
+            ).scalar_one_or_none()
+            if rec:
+                rec.window_start = _now_iso()
+                rec.fail_count = 0
+                rec.locked_until = None
+                s.commit()
+        return
+
     db = get_db()
     with db:
         db.execute(

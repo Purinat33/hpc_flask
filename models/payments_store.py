@@ -1,73 +1,34 @@
 # models/payments_store.py
 """
-Payments store: keeps payment intents and webhook events and finalizes receipts
-transactionally after verified provider success.
-
-Design choices:
-- Amounts are stored as integer minor units ("cents") to avoid floats.
-- We verify provider webhooks (signature + idempotency) and only then
-  update the receipt as 'paid', within a single transaction.
-- We record the raw webhook payload for auditing/reconciliation.
+Payments store: keeps payment intents and webhook events and finalizes receipts.
+- Amounts stored in integer minor units ("cents") to avoid floats.
+- Postgres path uses SQLAlchemy; SQLite path uses the legacy helper.
 """
 
 from __future__ import annotations
+import os
 import json
 import sqlite3
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Tuple
 
-from flask import current_app
-from models.db import get_db
-from models.billing_store import mark_paid
+USE_PG = bool(os.getenv("DATABASE_URL"))
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS payments (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider              TEXT NOT NULL,            -- 'stripe' | 'omise' | 'paypal' | 'dummy' ...
-  receipt_id            INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
-  username              TEXT NOT NULL,            -- who pays
-  status                TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','succeeded','failed','canceled')),  -- pending|succeeded|failed|canceled
-  currency              TEXT NOT NULL CHECK(length(currency)=3),
-  amount_cents          INTEGER NOT NULL CHECK(amount_cents >= 0),         -- total in minor units
-  external_payment_id   TEXT,                     -- provider's charge/session/payment id
-  checkout_url          TEXT,                     -- provider-hosted checkout URL (if any)
-  idempotency_key       TEXT,                     -- our key passed to provider when creating
-  created_at            TEXT NOT NULL,            -- ISO8601Z
-  updated_at            TEXT NOT NULL,            -- ISO8601Z
-  UNIQUE(external_payment_id)
-);
-
-CREATE TABLE IF NOT EXISTS payment_events (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider          TEXT NOT NULL,
-  external_event_id TEXT,           -- unique id from provider (if provided)
-  payment_id        INTEGER,        -- our local FK -> payments.id (nullable until we can resolve)
-  event_type        TEXT NOT NULL,  -- 'payment.succeeded', etc.
-  raw               TEXT NOT NULL,  -- raw JSON (as text)
-  signature_ok      INTEGER NOT NULL DEFAULT 0 CHECK(signature_ok IN (0,1)),
-  received_at       TEXT NOT NULL,  -- ISO8601Z
-  UNIQUE(provider, external_event_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_payments_receipt ON payments(receipt_id);
-CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_idem ON payments(provider, idempotency_key) WHERE idempotency_key IS NOT NULL;
-"""
-
-
-def init_payments_schema():
-    db = get_db()
-    with db:
-        for stmt in SCHEMA_SQL.strip().split(";"):
-            s = stmt.strip()
-            if s:
-                db.execute(s)
+if USE_PG:
+    import sqlalchemy as sa
+    from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+    from models.base import init_engine_and_session
+    from models.schema import Payment, PaymentEvent, Receipt
+    Engine, SessionLocal = init_engine_and_session()
+else:
+    # legacy SQLite
+    from flask import current_app
+    from models.db import get_db
+    from models.billing_store import mark_paid  # legacy marks receipt paid
 
 
 # ---------- helpers ----------
-
 def _to_cents(amount: Decimal) -> int:
-    # 2 decimal places rounding half up
     return int((amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) * 100))
 
 
@@ -80,7 +41,84 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# PG helper
+def _pg_row_to_dict(p: Payment) -> dict:
+    return dict(
+        id=p.id,
+        provider=p.provider,
+        receipt_id=p.receipt_id,
+        username=p.username,
+        status=p.status,
+        currency=p.currency,
+        amount_cents=p.amount_cents,
+        external_payment_id=p.external_payment_id,
+        checkout_url=p.checkout_url,
+        idempotency_key=p.idempotency_key,
+        created_at=p.created_at,
+        updated_at=p.updated_at,
+    )
+
+
+# ---------- schema init (SQLite only) ----------
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS payments (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider              TEXT NOT NULL,
+  receipt_id            INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+  username              TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','succeeded','failed','canceled')),
+  currency              TEXT NOT NULL CHECK(length(currency)=3),
+  amount_cents          INTEGER NOT NULL CHECK(amount_cents >= 0),
+  external_payment_id   TEXT,
+  checkout_url          TEXT,
+  idempotency_key       TEXT,
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL,
+  UNIQUE(external_payment_id)
+);
+
+CREATE TABLE IF NOT EXISTS payment_events (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider          TEXT NOT NULL,
+  external_event_id TEXT,
+  payment_id        INTEGER,
+  event_type        TEXT NOT NULL,
+  raw               TEXT NOT NULL,
+  signature_ok      INTEGER NOT NULL DEFAULT 0 CHECK(signature_ok IN (0,1)),
+  received_at       TEXT NOT NULL,
+  UNIQUE(provider, external_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_receipt ON payments(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_idem
+  ON payments(provider, idempotency_key) WHERE idempotency_key IS NOT NULL;
+"""
+
+
+def init_payments_schema():
+    if USE_PG:
+        return  # PG is managed by Alembic
+    db = get_db()
+    with db:
+        for stmt in SCHEMA_SQL.strip().split(";"):
+            s = stmt.strip()
+            if s:
+                db.execute(s)
+
+
+# ---------- read helpers ----------
 def load_receipt(receipt_id: int) -> Optional[dict]:
+    if USE_PG:
+        with SessionLocal() as s:
+            r = s.get(Receipt, receipt_id)
+            if not r:
+                return None
+            return dict(
+                id=r.id, username=r.username, start=r.start, end=r.end,
+                total=r.total, status=r.status, created_at=r.created_at,
+                paid_at=r.paid_at, method=r.method, tx_ref=r.tx_ref
+            )
     db = get_db()
     row = db.execute("SELECT * FROM receipts WHERE id=?",
                      (receipt_id,)).fetchone()
@@ -88,7 +126,6 @@ def load_receipt(receipt_id: int) -> Optional[dict]:
 
 
 # ---------- core API used by controllers/payments.py ----------
-
 def create_payment_for_receipt(provider: str, receipt_id: int, username: str, currency: str) -> Tuple[int, int]:
     """
     Create a local payment intent for a receipt. Returns (payment_id, amount_cents).
@@ -103,13 +140,24 @@ def create_payment_for_receipt(provider: str, receipt_id: int, username: str, cu
 
     amount = Decimal(str(r["total"]))
     amount_cents = _to_cents(amount)
+    now = _now_iso()
+
+    if USE_PG:
+        with SessionLocal() as s:
+            p = Payment(
+                provider=provider, receipt_id=receipt_id, username=username,
+                status="pending", currency=currency, amount_cents=amount_cents,
+                external_payment_id=None, checkout_url=None, idempotency_key=None,
+                created_at=now, updated_at=now
+            )
+            s.add(p)
+            s.commit()
+            return p.id, amount_cents
 
     db = get_db()
-    now = _now_iso()
     with db:
         pid = db.execute(
-            """INSERT INTO payments(provider, receipt_id, username, status, currency, amount_cents,
-                                    created_at, updated_at)
+            """INSERT INTO payments(provider, receipt_id, username, status, currency, amount_cents, created_at, updated_at)
                VALUES (?,?,?,?,?,?,?,?)""",
             (provider, receipt_id, username, "pending",
              currency, amount_cents, now, now)
@@ -118,18 +166,37 @@ def create_payment_for_receipt(provider: str, receipt_id: int, username: str, cu
 
 
 def attach_provider_checkout(payment_id: int, external_payment_id: str, checkout_url: Optional[str], idempotency_key: Optional[str]) -> None:
+    now = _now_iso()
+    if USE_PG:
+        with SessionLocal() as s:
+            p = s.get(Payment, payment_id)
+            if not p:
+                return
+            p.external_payment_id = external_payment_id
+            p.checkout_url = checkout_url
+            p.idempotency_key = idempotency_key
+            p.updated_at = now
+            s.commit()
+        return
+
     db = get_db()
     with db:
         db.execute(
             "UPDATE payments SET external_payment_id=?, checkout_url=?, idempotency_key=?, updated_at=? WHERE id=?",
-            (external_payment_id, checkout_url,
-             idempotency_key, _now_iso(), payment_id)
+            (external_payment_id, checkout_url, idempotency_key, now, payment_id)
         )
 
 
 def get_payment_by_external_id(external_payment_id: str) -> Optional[dict]:
     if not external_payment_id:
         return None
+    if USE_PG:
+        with SessionLocal() as s:
+            p = s.execute(
+                sa.select(Payment).where(
+                    Payment.external_payment_id == external_payment_id)
+            ).scalar_one_or_none()
+            return _pg_row_to_dict(p) if p else None
     db = get_db()
     row = db.execute("SELECT * FROM payments WHERE external_payment_id=?",
                      (external_payment_id,)).fetchone()
@@ -137,6 +204,10 @@ def get_payment_by_external_id(external_payment_id: str) -> Optional[dict]:
 
 
 def get_payment(payment_id: int) -> Optional[dict]:
+    if USE_PG:
+        with SessionLocal() as s:
+            p = s.get(Payment, payment_id)
+            return _pg_row_to_dict(p) if p else None
     db = get_db()
     row = db.execute("SELECT * FROM payments WHERE id=?",
                      (payment_id,)).fetchone()
@@ -147,12 +218,38 @@ def record_webhook_event(provider: str, external_event_id: Optional[str], event_
                          raw_payload: dict, signature_ok: bool, payment_id: Optional[int] = None) -> int:
     """
     Store incoming webhook for auditing/idempotency. Returns local event id.
-    Duplicate provider+external_event_id is ignored.
+    Duplicate provider+external_event_id is tolerated (idempotent).
     """
-    db = get_db()
     now = _now_iso()
     raw_text = json.dumps(raw_payload, ensure_ascii=False,
                           separators=(",", ":"))
+
+    if USE_PG:
+        with SessionLocal() as s:
+            try:
+                ev = PaymentEvent(
+                    provider=provider,
+                    external_event_id=external_event_id,
+                    payment_id=payment_id,
+                    event_type=event_type,
+                    raw=raw_text,
+                    signature_ok=1 if signature_ok else 0,
+                    received_at=now,
+                )
+                s.add(ev)
+                s.commit()
+                return ev.id
+            except IntegrityError:
+                s.rollback()
+                # conflict on unique (provider, external_event_id)
+                row = s.execute(
+                    sa.select(PaymentEvent.id)
+                    .where(PaymentEvent.provider == provider)
+                    .where(PaymentEvent.external_event_id == external_event_id)
+                ).scalar_one_or_none()
+                return int(row or 0)
+
+    db = get_db()
     try:
         with db:
             eid = db.execute(
@@ -163,7 +260,6 @@ def record_webhook_event(provider: str, external_event_id: Optional[str], event_
             ).lastrowid
         return eid
     except sqlite3.IntegrityError:
-        # Same external_event_id already recorded -> idempotent
         cur = db.execute(
             "SELECT id FROM payment_events WHERE provider=? AND external_event_id=?",
             (provider, external_event_id)
@@ -173,7 +269,49 @@ def record_webhook_event(provider: str, external_event_id: Optional[str], event_
 
 
 def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: int, currency: str, provider: str) -> bool:
-    db = get_db()
+    """
+    Transition payment->succeeded and receipt->paid atomically (PG) or within a transaction (SQLite).
+    """
+    if USE_PG:
+        now = _now_iso()
+        with SessionLocal() as s:
+            # Lock the payment row to avoid races
+            p = s.execute(
+                sa.select(Payment).where(Payment.external_payment_id ==
+                                         external_payment_id).with_for_update()
+            ).scalar_one_or_none()
+            if not p:
+                return False
+            if p.currency.upper() != currency.upper():
+                return False
+            if int(p.amount_cents) != int(amount_cents):
+                return False
+            if p.status == "succeeded":
+                return True
+            if p.status != "pending":
+                return False
+
+            r = s.get(Receipt, p.receipt_id)
+            if not r or r.username != p.username:
+                return False
+
+            # Update both within the same transaction
+            p.status = "succeeded"
+            p.updated_at = now
+
+            r.status = "paid"
+            r.paid_at = now
+            r.method = f"auto:{provider}"
+            r.tx_ref = external_payment_id
+
+            try:
+                s.commit()
+                return True
+            except SQLAlchemyError:
+                s.rollback()
+                return False
+
+    # --- SQLite legacy path ---
     p = get_payment_by_external_id(external_payment_id)
     if not p:
         return False
@@ -182,25 +320,20 @@ def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: i
     if int(p["amount_cents"]) != int(amount_cents):
         return False
 
+    db = get_db()
     with db:
-        cur = db.execute(
-            "SELECT status, receipt_id, username FROM payments WHERE id=?", (p["id"],))
-        row = cur.fetchone()
+        row = db.execute(
+            "SELECT status, receipt_id, username FROM payments WHERE id=?", (p["id"],)).fetchone()
         if not row:
             return False
-
-        # Only pending can transition to succeeded
         if row["status"] == "succeeded":
             return True
         if row["status"] != "pending":
             return False
-
-        # Verify the receipt still belongs to the same username (defense-in-depth)
         rec = db.execute("SELECT username FROM receipts WHERE id=?",
                          (row["receipt_id"],)).fetchone()
         if not rec or rec["username"] != p["username"]:
             return False
-
         db.execute(
             "UPDATE payments SET status='succeeded', updated_at=? WHERE id=?", (_now_iso(), p["id"]))
         mark_paid(row["receipt_id"],
@@ -209,6 +342,13 @@ def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: i
 
 
 def get_latest_payment_for_receipt(receipt_id: int) -> Optional[dict]:
+    if USE_PG:
+        with SessionLocal() as s:
+            p = s.execute(
+                sa.select(Payment).where(Payment.receipt_id ==
+                                         receipt_id).order_by(Payment.id.desc()).limit(1)
+            ).scalar_one_or_none()
+            return _pg_row_to_dict(p) if p else None
     db = get_db()
     row = db.execute(
         "SELECT * FROM payments WHERE receipt_id=? ORDER BY id DESC LIMIT 1",
