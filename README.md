@@ -1,6 +1,7 @@
 # NVIDIA Bright Computing HPC Accounting Application
 
-![CI](https://github.com/Purinat33/hpc_flask/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/Purinat33/hpc_flask/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Purinat33/hpc_flask/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Purinat33/hpc_flask/branch/main/graph/badge.svg)](https://app.codecov.io/gh/Purinat33/hpc_flask)
 
 ## Slurm Integration (Guide):
 
