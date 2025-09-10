@@ -5,7 +5,6 @@ from models.billing_store import (
     list_billed_items_for_user, admin_list_receipts,
     mark_receipt_paid, paid_receipts_csv,
 )
-from models.db import get_db
 
 
 def test_canonical_job_id_variants():

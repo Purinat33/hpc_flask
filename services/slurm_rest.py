@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 import base64
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import pandas as pd
 import requests

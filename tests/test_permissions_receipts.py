@@ -1,6 +1,6 @@
 import pandas as pd
 from tests.utils import login_admin, login_user
-from models.billing_store import create_receipt_from_rows, get_receipt_with_items
+from models.billing_store import create_receipt_from_rows
 
 
 def _make_receipt_for_user(username: str):

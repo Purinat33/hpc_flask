@@ -4,7 +4,6 @@ import subprocess
 import pandas as pd
 import requests
 from io import StringIO
-from datetime import datetime, timedelta
 from flask import current_app, has_app_context
 
 # ---------- utilities ----------

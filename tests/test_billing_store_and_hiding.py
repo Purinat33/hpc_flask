@@ -1,5 +1,4 @@
 import pandas as pd
-from flask import url_for
 from tests.utils import login_admin
 from models.billing_store import create_receipt_from_rows, billed_job_ids
 from services.billing import compute_costs

@@ -16,7 +16,7 @@ import hmac
 import os
 from urllib.parse import urlencode
 
-from flask import url_for, request as flask_request
+from flask import url_for
 from services.payments.base import PaymentProvider, PaymentIntentResult, WebhookEvent
 
 

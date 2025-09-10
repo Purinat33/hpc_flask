@@ -1,8 +1,7 @@
 # tests/test_user_ui.py
 from __future__ import annotations
-import io
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date
 import pandas as pd
 import pytest
 from flask import template_rendered

@@ -1,10 +1,8 @@
 from __future__ import annotations
 from contextlib import contextmanager
-from datetime import timedelta
-import pytest
 from flask import template_rendered, url_for
 
-from tests.utils import login_user, login_admin
+from tests.utils import login_user
 from models.db import get_db
 
 # Helper to capture Jinja context

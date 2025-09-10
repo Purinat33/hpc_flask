@@ -16,7 +16,6 @@ import sqlite3
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Tuple
 
-from flask import current_app
 from models.db import get_db
 from models.billing_store import mark_paid
 

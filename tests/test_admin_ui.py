@@ -8,10 +8,9 @@ from flask import template_rendered
 from tests.utils import login_admin
 from models.rates_store import load_rates
 from models.billing_store import (
-    create_receipt_from_rows, list_receipts, get_receipt_with_items,
+    create_receipt_from_rows, get_receipt_with_items,
     mark_receipt_paid as mark_paid_fn, void_receipt,
 )
-from models.db import get_db
 
 
 @contextmanager

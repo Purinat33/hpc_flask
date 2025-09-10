@@ -4,7 +4,7 @@ import json
 from flask import Blueprint, request, jsonify, Response
 from flask_login import login_required
 from controllers.auth import admin_required
-from models.rates_store import load_rates, save_rates
+from models.rates_store import save_rates
 from models import rates_store
 from models.audit_store import audit
 api_bp = Blueprint("api", __name__)

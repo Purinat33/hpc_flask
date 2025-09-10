@@ -1,4 +1,3 @@
-import sqlite3
 from models.db import get_db
 
 

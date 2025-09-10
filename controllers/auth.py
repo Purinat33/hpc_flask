@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, current_app
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from models.users_db import get_user, verify_password
 from models.audit_store import audit
