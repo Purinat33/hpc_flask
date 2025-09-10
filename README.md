@@ -1,5 +1,7 @@
 # NVIDIA Bright Computing HPC Accounting Application
 
+![CI](https://github.com/Purinat33/hpc_flask/actions/workflows/ci.yml/badge.svg)
+
 ## Slurm Integration (Guide):
 
 Here’s a concise, hand-off–ready manual for wiring **real Slurm** into your app for both **auth** (recommended: PAM/SSO against the cluster’s user directory) and **data fetching** (recommended: `slurmrestd`, with `sacct` as fallback). I’ve split it into requirements, setup on the cluster, app-side file changes (exact files/lines), and a short runbook. Citations to Slurm docs are included.
