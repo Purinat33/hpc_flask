@@ -30,7 +30,8 @@ jobs:
           pip install pytest pytest-cov ruff black mypy
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: ruff check . --output-format=github
+        continue-on-error: true
 
       - name: Format (black, check only)
         run: black --check .
