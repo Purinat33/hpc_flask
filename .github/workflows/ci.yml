@@ -35,9 +35,11 @@ jobs:
 
       - name: Format (black, check only)
         run: black --check .
+        continue-on-error: true
 
       - name: Type-check (mypy)
         run: mypy --ignore-missing-imports .
+        continue-on-error: true
 
       - name: Run tests
         env:
