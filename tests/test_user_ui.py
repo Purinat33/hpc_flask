@@ -1,6 +1,5 @@
 # tests/test_user_ui.py
 from __future__ import annotations
-import io
 from contextlib import contextmanager
 from datetime import date, timedelta
 import pandas as pd
@@ -8,7 +7,8 @@ import pytest
 from flask import template_rendered
 from tests.utils import login_user, login_admin
 from models.billing_store import list_receipts, get_receipt_with_items
-from models.db import get_db
+from models.base import SessionLocal
+from models.schema import AuditLog
 
 
 # Helper to capture Jinja context without parsing HTML
@@ -187,15 +187,13 @@ def test_create_receipt_no_jobs_audits_and_redirects(client, app, monkeypatch):
                         lambda *a, **k: (df.copy(), "fake", []))
     # Post without CSRF (disabled in tests)
     r = client.post(
-        f"/me/receipt", data={"before": date.today().isoformat()}, follow_redirects=False)
+        "/me/receipt", data={"before": date.today().isoformat()}, follow_redirects=False)
     assert r.status_code in (302, 303)
 
     # confirm an audit row was written with the noop action
-    db = get_db()
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row and row["action"] == "receipt.create.noop"
+    with SessionLocal() as s:
+        row = s.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        assert row and row.action == "receipt.create.noop"
 
 
 def test_create_receipt_creates_and_redirects_to_receipts(client, app, monkeypatch):
@@ -206,7 +204,7 @@ def test_create_receipt_creates_and_redirects_to_receipts(client, app, monkeypat
     monkeypatch.setattr("controllers.user.billed_job_ids", lambda: set())
 
     r = client.post(
-        f"/me/receipt", data={"before": date.today().isoformat()}, follow_redirects=False)
+        "/me/receipt", data={"before": date.today().isoformat()}, follow_redirects=False)
     assert r.status_code in (302, 303)
     assert "/me/receipts" in r.headers["Location"]
 
@@ -281,12 +279,10 @@ def test_view_receipt_non_owner_redirects_and_audits(client, app, monkeypatch):
     assert "/me/receipts" in r.headers["Location"]
 
     # audit recorded
-    db = get_db()
-    row = db.execute(
-        "SELECT action, target FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row["action"] == "receipt.view.denied"
-    assert f"receipt={rid}" in row["target"]
+    with SessionLocal() as s:
+        row = s.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        assert row.action == "receipt.view.denied"
+        assert f"receipt={rid}" in (row.target or "")
 
 
 def test_my_usage_collects_notes_on_exception(client, app, monkeypatch):

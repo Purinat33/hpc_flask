@@ -1,4 +1,4 @@
-from models.base import init_engine_and_session
+from models.base import init_engine_and_session, Base
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -142,7 +142,11 @@ def create_app(test_config: dict | None = None):
 
     # ---- DB & users init ----
     from models.users_db import get_user, create_user
-    init_engine_and_session()
+    engine, _Session = init_engine_and_session()
+
+    if os.getenv("AUTO_CREATE_SCHEMA", "1") in ("1", "true", "yes", "on"):
+        Base.metadata.create_all(engine, checkfirst=True)
+
     with app.app_context():
         # seed admin (optional)
         admin_pwd = os.getenv("ADMIN_PASSWORD")
@@ -246,9 +250,8 @@ def create_app(test_config: dict | None = None):
     return app
 
 
-app = create_app()
-
 if __name__ == "__main__":
     # TIP: use APP_ENV=production FLASK_SECRET_KEY=... when deploying
+    app = create_app()
     app.run(host="0.0.0.0", port=8000, debug=(
         app.config["APP_ENV"] != "production"))

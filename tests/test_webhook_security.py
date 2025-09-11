@@ -2,10 +2,11 @@ import json
 import hmac
 import hashlib
 import pandas as pd
-from models.db import get_db
 from models.payments_store import create_payment_for_receipt
 from services.payments.registry import get_provider
 from tests.utils import login_user
+from models.base import SessionLocal
+from models.schema import Receipt, PaymentEvent
 
 
 def _sign(app, body: bytes) -> dict:
@@ -35,13 +36,11 @@ def test_wrong_amount_or_currency_does_not_mark_paid(client, app):
 
     # Create local intent to get amount/currency and a payment_id/external id
     provider = get_provider()
-    from models.payments_store import load_receipt, get_payment
-    rec = load_receipt(rid)
     pid, amt_cents = create_payment_for_receipt(
         provider.name, rid, "alice", "THB")
 
     # Attach an external id to match finalize logic
-    from models.payments_store import attach_provider_checkout, get_payment
+    from models.payments_store import attach_provider_checkout
     external_id = f"dummy_{pid}"
     attach_provider_checkout(pid, external_id, None, f"idem_{pid}")
 
@@ -56,10 +55,9 @@ def test_wrong_amount_or_currency_does_not_mark_paid(client, app):
     r = client.post("/payments/webhook", data=body, headers=_sign(app, body))
     assert r.status_code == 200
 
-    db = get_db()
-    recrow = db.execute(
-        "SELECT status FROM receipts WHERE id=?", (rid,)).fetchone()
-    assert recrow["status"] == "pending"
+    with SessionLocal() as s:
+        recrow = s.get(Receipt, rid)
+        assert recrow.status == "pending"
 
     # 2) Wrong currency
     body2 = json.dumps({
@@ -72,9 +70,9 @@ def test_wrong_amount_or_currency_does_not_mark_paid(client, app):
     r2 = client.post("/payments/webhook", data=body2,
                      headers=_sign(app, body2))
     assert r2.status_code == 200
-    recrow2 = db.execute(
-        "SELECT status FROM receipts WHERE id=?", (rid,)).fetchone()
-    assert recrow2["status"] == "pending"
+    with SessionLocal() as s:
+        recrow2 = s.get(Receipt, rid)
+        assert recrow2["status"] == "pending"
 
 
 def test_webhook_idempotency_on_event_id(client, app):
@@ -101,13 +99,14 @@ def test_webhook_idempotency_on_event_id(client, app):
                         headers=_sign(app, body))
         assert r.status_code == 200
 
-    db = get_db()
-    # Only one row recorded for this provider + event_id
-    c = db.execute("SELECT COUNT(*) AS c FROM payment_events WHERE provider=? AND external_event_id=?",
-                   (provider.name, "evt_dup_1")).fetchone()["c"]
-    assert c == 1
+    with SessionLocal() as s:
+        # Only one row recorded for this provider + event_id
+        c = s.query(PaymentEvent).filter_by(
+            provider=provider.name, external_event_id="evt_dup_1"
+        ).count()
+        assert c == 1
 
     # Receipt is paid, and replays don't harm
-    rec = db.execute("SELECT status FROM receipts WHERE id=?",
-                     (rid,)).fetchone()
-    assert rec["status"] == "paid"
+    with SessionLocal() as s:
+        rec = s.get(Receipt, rid)
+        assert rec["status"] == "paid"

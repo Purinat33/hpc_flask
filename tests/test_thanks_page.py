@@ -2,7 +2,8 @@ import re
 import pandas as pd
 from tests.utils import login_user
 from models.billing_store import create_receipt_from_rows
-from models.db import get_db
+from models.base import SessionLocal
+from models.schema import Receipt
 
 
 def test_thanks_requires_login(client):
@@ -29,9 +30,11 @@ def test_thanks_shows_status(client):
     assert re.search(r"\bprocess(?:ing|ed)\b", html)
 
     # flip to paid to check the other branch
-    db = get_db()
-    with db:
-        db.execute("UPDATE receipts SET status='paid' WHERE id=?", (rid,))
+    with SessionLocal() as s:
+        rec = s.get(Receipt, rid)
+        assert rec is not None
+        rec.status = "paid"
+        s.commit()
     r2 = client.get(f"/payments/thanks?rid={rid}")
     assert r2.status_code == 200
     assert "payment confirmed" in r2.get_data(as_text=True).lower()

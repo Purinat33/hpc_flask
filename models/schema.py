@@ -69,7 +69,7 @@ class ReceiptItem(Base):
     )
 
 
-Index("idx_items_receipt", ReceiptItem.receipt_id)
+# Index("idx_items_receipt", ReceiptItem.receipt_id)
 
 
 class Rate(Base):

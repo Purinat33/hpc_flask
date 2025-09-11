@@ -1,13 +1,13 @@
+# tests/test_auth_extras.py
 from __future__ import annotations
 from contextlib import contextmanager
-from datetime import timedelta
-import pytest
 from flask import template_rendered, url_for
 
 from tests.utils import login_user, login_admin
-from models.db import get_db
 
-# Helper to capture Jinja context
+from sqlalchemy import select
+from models.base import SessionLocal
+from models.schema import AuditLog
 
 
 def _url(app, endpoint, **values):
@@ -27,6 +27,14 @@ def captured_templates(app):
         yield rec
     finally:
         template_rendered.disconnect(receiver, app)
+
+
+def _last_actions(n: int = 1) -> list[str]:
+    """Return last n audit action strings, newest first."""
+    with SessionLocal() as s:
+        return s.execute(
+            select(AuditLog.action).order_by(AuditLog.id.desc()).limit(n)
+        ).scalars().all()
 
 
 def test_login_get_messages_locked_and_bad(client, app):
@@ -54,11 +62,7 @@ def test_admin_required_redirects_non_admin_and_audits(client, app):
     assert r.status_code in (302, 303)
     assert _url(app, "playground") in r.headers["Location"]
     # Audit recorded with forbidden action
-    db = get_db()
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row and row["action"] == "auth.forbidden"
+    assert _last_actions(1)[0] == "auth.forbidden"
 
 
 def test_login_post_when_already_locked_redirects_with_left_and_audits(client, monkeypatch, app):
@@ -71,11 +75,7 @@ def test_login_post_when_already_locked_redirects_with_left_and_audits(client, m
     loc = r.headers["Location"]
     assert "err=locked" in loc and "left=90" in loc and "u=alice" in loc
 
-    db = get_db()
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row["action"] == "auth.lockout.active"
+    assert _last_actions(1)[0] == "auth.lockout.active"
 
 
 def test_login_post_bad_then_generic_error(client, monkeypatch, app):
@@ -91,11 +91,7 @@ def test_login_post_bad_then_generic_error(client, monkeypatch, app):
     assert r.status_code in (302, 303)
     assert "err=bad" in r.headers["Location"] and "u=eve" in r.headers["Location"]
 
-    db = get_db()
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row["action"] == "auth.login.failure"
+    assert _last_actions(1)[0] == "auth.login.failure"
 
 
 def test_login_post_bad_triggers_lock_start_with_configured_seconds(client, monkeypatch, app):
@@ -116,12 +112,7 @@ def test_login_post_bad_triggers_lock_start_with_configured_seconds(client, monk
     loc = r.headers["Location"]
     assert "err=locked" in loc and "left=123" in loc
 
-    db = get_db()
-    # Last two actions should include lockout.start
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row["action"] == "auth.lockout.start"
+    assert _last_actions(1)[0] == "auth.lockout.start"
 
 
 def test_login_post_success_resets_and_optionally_emits_lockout_end(client, monkeypatch, app):
@@ -133,21 +124,15 @@ def test_login_post_success_resets_and_optionally_emits_lockout_end(client, monk
                         lambda u, ip: {"locked_until": "x"})
     monkeypatch.setattr("controllers.auth.reset", lambda u, ip: None)
     # ensure user exists
-    monkeypatch.setattr(
-        "controllers.auth.get_user",
-        lambda u: {"username": u, "role": "user"}
-    )
+    monkeypatch.setattr("controllers.auth.get_user", lambda u: {
+                        "username": u, "role": "user"})
 
     r = client.post(
         "/login", data={"username": "alice", "password": "ok"}, follow_redirects=False)
     assert r.status_code in (302, 303)
     assert _url(app, "playground") in r.headers["Location"]
 
-    db = get_db()
-    actions = [r["action"] for r in db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 3"
-    ).fetchall()]
-    # Expect success and lockout.end among the latest few
+    actions = _last_actions(3)
     assert "auth.login.success" in actions
     assert "auth.lockout.end" in actions
 
@@ -157,11 +142,7 @@ def test_logout_audits_and_redirects(client, app):
     r = client.post("/logout", follow_redirects=False)
     assert r.status_code in (302, 303)
     assert _url(app, "auth.login") in r.headers["Location"]
-    db = get_db()
-    row = db.execute(
-        "SELECT action FROM audit_log ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    assert row["action"] == "auth.logout"
+    assert _last_actions(1)[0] == "auth.logout"
 
 
 def test_load_user_missing_and_valid(app, monkeypatch):
@@ -173,10 +154,8 @@ def test_load_user_missing_and_valid(app, monkeypatch):
         assert load_user("ghost") is None
 
         # Present
-        monkeypatch.setattr(
-            "controllers.auth.get_user",
-            lambda u: {"username": "alice", "role": "admin"}
-        )
+        monkeypatch.setattr("controllers.auth.get_user", lambda u: {
+                            "username": "alice", "role": "admin"})
         u = load_user("alice")
         assert isinstance(u, User)
         assert u.username == "alice" and u.is_admin is True

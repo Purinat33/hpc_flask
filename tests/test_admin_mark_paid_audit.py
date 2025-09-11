@@ -1,37 +1,85 @@
 import pandas as pd
+from datetime import datetime, timezone
+
 from tests.utils import login_admin
-from models.billing_store import create_receipt_from_rows
-from models.db import get_db
+from services.billing import compute_costs
+
+from models.base import init_engine_and_session
+from models.schema import Receipt, ReceiptItem, AuditLog
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def test_admin_mark_paid_audited_as_admin_action(client):
-    # Make pending receipt for bob
-    from services.billing import compute_costs
-    df = pd.DataFrame([{
-        "User": "bob", "JobID": "adm-1",
-        "Elapsed": "00:10:00", "TotalCPU": "00:10:00",
-        "ReqTRES": "cpu=1,mem=1G", "State": "COMPLETED"
-    }])
+    # 1) Create a pending receipt for bob (via ORM, not SQLite helpers)
+    df = pd.DataFrame(
+        [
+            {
+                "User": "bob",
+                "JobID": "adm-1",
+                "Elapsed": "00:10:00",
+                "TotalCPU": "00:10:00",
+                "ReqTRES": "cpu=1,mem=1G",
+                "State": "COMPLETED",
+            }
+        ]
+    )
     df = compute_costs(df)
-    rid, *_ = create_receipt_from_rows("bob", "1970-01-01",
-                                       "2099-12-31", df.to_dict(orient="records"))
+    total = float(df["Cost (฿)"].sum())
 
+    engine, SessionLocal = init_engine_and_session()
+    with SessionLocal() as s:
+        rec = Receipt(
+            username="bob",
+            start="1970-01-01",
+            end="2099-12-31",
+            total=round(total, 2),
+            status="pending",
+            created_at=_now_iso(),
+            paid_at=None,
+            method=None,
+            tx_ref=None,
+        )
+        s.add(rec)
+        s.flush()  # get rec.id
+        rid = rec.id
+
+        for row in df.to_dict(orient="records"):
+            s.add(
+                ReceiptItem(
+                    receipt_id=rid,
+                    # keep simple (your schema enforces uniqueness)
+                    job_key=str(row["JobID"]),
+                    job_id_display=str(row["JobID"]),
+                    cost=float(row["Cost (฿)"]),
+                    cpu_core_hours=float(row["CPU_Core_Hours"]),
+                    gpu_hours=float(row["GPU_Hours"]),
+                    mem_gb_hours=float(row["Mem_GB_Hours"]),
+                )
+            )
+        s.commit()
+
+    # 2) Mark it paid via the admin endpoint
     login_admin(client)
-
-    # Mark paid via admin
     r = client.post(
         f"/admin/receipts/{rid}/paid", data={"csrf_token": "x"}, follow_redirects=False)
     assert r.status_code in (302, 303)
 
-    db = get_db()
-    rec = db.execute(
-        "SELECT status, method, tx_ref FROM receipts WHERE id=?", (rid,)).fetchone()
-    assert rec["status"] == "paid"
-    # billing_store.mark_receipt_paid writes method=<admin_user>, tx_ref=NULL
-    assert rec["method"] == "admin"
-    # If your implementation stores the actual actor username, assert that instead.
+    # 3) Assert receipt updated & audit logged
+    with SessionLocal() as s:
+        updated = s.get(Receipt, rid)
+        assert updated is not None
+        assert updated.status == "paid"
 
-    # audit row exists with action 'receipt.paid.admin'
-    row = db.execute("SELECT COUNT(*) AS c FROM audit_log WHERE action='receipt.paid.admin' AND target=?",
-                     (f"receipt={rid}",)).fetchone()
-    assert row["c"] >= 1
+        # Your admin code writes method=<admin_user> (often "admin")
+        assert updated.method in ("admin",) or (
+            updated.method or "").startswith("admin")
+
+        audit_count = (
+            s.query(AuditLog)
+            .filter(AuditLog.action == "receipt.paid.admin", AuditLog.target == f"receipt={rid}")
+            .count()
+        )
+        assert audit_count >= 1

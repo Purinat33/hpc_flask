@@ -1,10 +1,12 @@
-import sqlite3
-from models.db import get_db
+# tests/test_audit_log.py
+from sqlalchemy import select, func
+from models.base import SessionLocal
+from models.schema import AuditLog
 
 
-def _count_audit():
-    db = get_db()
-    return db.execute("SELECT COUNT(*) AS c FROM audit_log").fetchone()["c"]
+def _count_audit() -> int:
+    with SessionLocal() as s:
+        return s.execute(select(func.count(AuditLog.id))).scalar_one()
 
 
 def test_audit_records_login_success_and_failure(client, monkeypatch):
@@ -20,5 +22,5 @@ def test_audit_records_login_success_and_failure(client, monkeypatch):
     assert r2.status_code in (302, 303)
 
     after = _count_audit()
-    # At least 2 entries (failure + success), often more due to throttling lookups etc.
+    # At least 2 entries (failure + success); there may be more from throttle checks, etc.
     assert after - before >= 2

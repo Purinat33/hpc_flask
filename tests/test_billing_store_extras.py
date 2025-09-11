@@ -5,7 +5,6 @@ from models.billing_store import (
     list_billed_items_for_user, admin_list_receipts,
     mark_receipt_paid, paid_receipts_csv,
 )
-from models.db import get_db
 
 
 def test_canonical_job_id_variants():
@@ -13,6 +12,7 @@ def test_canonical_job_id_variants():
     assert canonical_job_id("12345_7.extern") == "12345_7"
     assert canonical_job_id("NODOT") == "NODOT"
     assert canonical_job_id("") == ""
+    assert canonical_job_id("CSV.A") == "CSV.A"
 
 
 # tests/test_billing_store_extras.py

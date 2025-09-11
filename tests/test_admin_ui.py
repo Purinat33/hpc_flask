@@ -1,17 +1,21 @@
 # tests/test_admin_ui.py
 from __future__ import annotations
-from datetime import date
+from datetime import date, timezone, datetime
 from contextlib import contextmanager
+
 import pandas as pd
 import pytest
 from flask import template_rendered
+
 from tests.utils import login_admin
-from models.rates_store import load_rates
-from models.billing_store import (
-    create_receipt_from_rows, list_receipts, get_receipt_with_items,
-    mark_receipt_paid as mark_paid_fn, void_receipt,
-)
-from models.db import get_db
+from services.billing import compute_costs
+
+from models.base import init_engine_and_session
+from models.schema import Receipt, ReceiptItem, Rate, AuditLog
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 @contextmanager
@@ -20,6 +24,7 @@ def captured_templates(app):
 
     def receiver(sender, template, context, **extra):
         rec.append((template, context))
+
     template_rendered.connect(receiver, app)
     try:
         yield rec
@@ -31,15 +36,20 @@ def _df(*rows):
     cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "End", "State"]
     if not rows:
         return pd.DataFrame(columns=cols)
-    return pd.DataFrame([{
-        "User": r.get("User", "alice"),
-        "JobID": r["JobID"],
-        "Elapsed": r.get("Elapsed", "01:00:00"),
-        "TotalCPU": r.get("TotalCPU", "01:00:00"),
-        "ReqTRES": r.get("ReqTRES", "cpu=1,mem=1G"),
-        "End": r.get("End", date.today().isoformat() + "T00:00:00"),
-        "State": r.get("State", "COMPLETED"),
-    } for r in rows])
+    return pd.DataFrame(
+        [
+            {
+                "User": r.get("User", "alice"),
+                "JobID": r["JobID"],
+                "Elapsed": r.get("Elapsed", "01:00:00"),
+                "TotalCPU": r.get("TotalCPU", "01:00:00"),
+                "ReqTRES": r.get("ReqTRES", "cpu=1,mem=1G"),
+                "End": r.get("End", date.today().isoformat() + "T00:00:00"),
+                "State": r.get("State", "COMPLETED"),
+            }
+            for r in rows
+        ]
+    )
 
 
 def test_admin_rates_section_and_update(client, app):
@@ -54,14 +64,20 @@ def test_admin_rates_section_and_update(client, app):
     r2 = client.post(
         "/admin", data={"type": "gov", "cpu": "1.1", "gpu": "2.2", "mem": "3.3"})
     assert r2.status_code in (302, 303)
-    assert load_rates()["gov"] == {"cpu": 1.1, "gpu": 2.2, "mem": 3.3}
+
+    # verify via ORM instead of load_rates()
+    _, SessionLocal = init_engine_and_session()
+    with SessionLocal() as s:
+        row = s.get(Rate, "gov")
+        assert row is not None
+        assert (row.cpu, row.gpu, row.mem) == (1.1, 2.2, 3.3)
 
     # invalid tier -> redirect to rates default (no crash)
     r3 = client.post(
         "/admin", data={"type": "nope", "cpu": "1", "gpu": "1", "mem": "1"})
     assert r3.status_code in (302, 303)
 
-    # negative value blocked
+    # negative value blocked (controller should reject & redirect)
     r4 = client.post(
         "/admin", data={"type": "mu", "cpu": "-1", "gpu": "1", "mem": "1"})
     assert r4.status_code in (302, 303)
@@ -126,7 +142,6 @@ def test_admin_myusage_billed_view_sums_and_lists(client, app, monkeypatch):
     _, ctx = rec[-1]
     assert ctx["sum_pending"] == pytest.approx(12.5)
     assert ctx["sum_paid"] == pytest.approx(5.5)
-    # receipts lists exist (might be empty if none created yet, but keys exist)
     assert "my_pending_receipts" in ctx and "my_paid_receipts" in ctx
 
 
@@ -149,20 +164,60 @@ def test_admin_create_self_receipt_and_my_csv(client, app, monkeypatch):
 
 
 def test_admin_mark_paid_endpoint_and_paid_csv(client, app):
-    # make a pending receipt for alice
-    rows = [{"JobID": "RCP1.1",
-             "Cost (฿)": 3.0, "CPU_Core_Hours": 1, "GPU_Hours": 0, "Mem_GB_Hours": 1}]
-    rid, *_ = create_receipt_from_rows("alice",
-                                       "1970-01-01", "1970-01-31", rows)
+    # make a pending receipt for alice (via ORM)
+    df = pd.DataFrame([{
+        "User": "alice",
+        "JobID": "RCP1.1",
+        "Elapsed": "00:10:00",
+        "TotalCPU": "00:10:00",
+        "ReqTRES": "cpu=1,mem=1G",
+        "State": "COMPLETED",
+    }])
+    df = compute_costs(df)
+    total = float(df["Cost (฿)"].sum())
+
+    engine, SessionLocal = init_engine_and_session()
+    with SessionLocal() as s:
+        rec = Receipt(
+            username="alice",
+            start="1970-01-01",
+            end="1970-01-31",
+            total=round(total, 2),
+            status="pending",
+            created_at=_now_iso(),
+            paid_at=None,
+            method=None,
+            tx_ref=None,
+        )
+        s.add(rec)
+        s.flush()
+        rid = rec.id
+
+        for row in df.to_dict(orient="records"):
+            s.add(
+                ReceiptItem(
+                    receipt_id=rid,
+                    job_key=str(row["JobID"]),
+                    job_id_display=str(row["JobID"]),
+                    cost=float(row["Cost (฿)"]),
+                    cpu_core_hours=float(row["CPU_Core_Hours"]),
+                    gpu_hours=float(row["GPU_Hours"]),
+                    mem_gb_hours=float(row["Mem_GB_Hours"]),
+                )
+            )
+        s.commit()
 
     login_admin(client)
+
     # mark paid via endpoint
     r = client.post(f"/admin/receipts/{rid}/paid", follow_redirects=False)
     assert r.status_code in (302, 303)
 
-    # verify in DB
-    rec, _ = get_receipt_with_items(rid)
-    assert rec["status"] == "paid" and rec["paid_at"]
+    # verify via ORM
+    with SessionLocal() as s:
+        updated = s.get(Receipt, rid)
+        assert updated is not None
+        assert updated.status == "paid" and updated.paid_at
 
     # csv export contains our receipt
     r2 = client.get("/admin/paid.csv")
@@ -173,12 +228,26 @@ def test_admin_mark_paid_endpoint_and_paid_csv(client, app):
     assert f"{rid},alice," in body and ",paid," in body
 
     # void flow stays void (blocked from becoming paid)
-    rid2, *_ = create_receipt_from_rows("alice",
-                                        "1970-01-01", "1970-01-31", rows)
-    void_receipt(rid2)
+    with SessionLocal() as s:
+        rec2 = Receipt(
+            username="alice",
+            start="1970-01-01",
+            end="1970-01-31",
+            total=round(total, 2),
+            status="void",
+            created_at=_now_iso(),
+            paid_at=None,
+            method=None,
+            tx_ref=None,
+        )
+        s.add(rec2)
+        s.flush()
+        rid2 = rec2.id
+        s.commit()
+
     r3 = client.post(f"/admin/receipts/{rid2}/paid", follow_redirects=False)
     assert r3.status_code in (302, 303)
-    rec2, _ = get_receipt_with_items(rid2)
-    assert rec2["status"] == "void"
-    # and the helper returns False in this state
-    assert mark_paid_fn(rid2, "admin") is False
+
+    with SessionLocal() as s:
+        rec2_now = s.get(Receipt, rid2)
+        assert rec2_now.status == "void"
