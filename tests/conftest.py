@@ -1,5 +1,7 @@
 # tests/conftest.py
 from __future__ import annotations
+from models.base import SessionLocal
+from sqlalchemy import text
 
 import os
 import textwrap
@@ -101,6 +103,21 @@ def sample_csv_text():
         b.u|2|00:30:00|00:30:00|cpu=1,mem=1G|2025-12-31T00:00:00|COMPLETED
         """
     )
+
+# Basically delete the data after each test so nothing interfere with another
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_after_test():
+    yield  # run test first
+    with SessionLocal() as s:
+        s.execute(text("SET LOCAL lock_timeout = '1s'"))
+        # Only wipe what your tests touch
+        s.execute(text("DELETE FROM payment_events"))
+        s.execute(text("DELETE FROM payments"))
+        s.execute(text("DELETE FROM receipt_items"))
+        s.execute(text("DELETE FROM receipts"))
+        s.commit()
 
 
 @pytest.fixture
