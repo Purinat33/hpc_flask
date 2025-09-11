@@ -24,3 +24,33 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+
+  pg:
+    image: postgres:16
+    container_name: pg
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: hpc_user
+      POSTGRES_PASSWORD: muict
+      POSTGRES_DB: hpc_app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpc_user -d hpc_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - pg
+    restart: unless-stopped
+
+volumes:
+  pgdata:
