@@ -1,7 +1,6 @@
 # models/base.py
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
 import os
 
@@ -17,24 +16,36 @@ def make_engine_from_env():
     return create_engine(url, pool_pre_ping=True, future=True)
 
 
-Engine = None
-SessionLocal = None
+# Private globals
+_Engine = None
+_SessionFactory = None
 
 
 def init_engine_and_session():
-    global Engine, SessionLocal
-    if Engine is None:
-        Engine = make_engine_from_env()
-        SessionLocal = sessionmaker(
-            bind=Engine, autoflush=False, autocommit=False, future=True, expire_on_commit=False)
-    return Engine, SessionLocal
+    """Idempotently init engine + session factory and return them."""
+    global _Engine, _SessionFactory
+    if _Engine is None:
+        _Engine = make_engine_from_env()
+        _SessionFactory = sessionmaker(
+            bind=_Engine,
+            autoflush=False,
+            autocommit=False,
+            future=True,
+            expire_on_commit=False,  # prevents DetachedInstanceError after commit
+        )
+    return _Engine, _SessionFactory
+
+
+def SessionLocal():
+    """Return a new Session bound to the current engine."""
+    _, factory = init_engine_and_session()
+    return factory()
 
 
 @contextmanager
 def session_scope():
     """Provide a transactional scope around a series of operations."""
-    _, Session = init_engine_and_session()
-    s = Session()
+    s = SessionLocal()
     try:
         yield s
         s.commit()
