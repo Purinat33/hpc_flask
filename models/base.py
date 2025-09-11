@@ -2,6 +2,7 @@
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
 import os
 
 
@@ -27,3 +28,18 @@ def init_engine_and_session():
         SessionLocal = sessionmaker(
             bind=Engine, autoflush=False, autocommit=False, future=True)
     return Engine, SessionLocal
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    _, Session = init_engine_and_session()
+    s = Session()
+    try:
+        yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
