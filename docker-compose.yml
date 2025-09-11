@@ -78,6 +78,12 @@ services:
       - "8000:8000"  # host:container; you hit http://localhost:8000
     command: gunicorn -b 0.0.0.0:8000 --access-logfile - --error-logfile - wsgi:app
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2).getcode()==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
 volumes:
   pgdata:

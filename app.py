@@ -17,7 +17,8 @@ from controllers.user import user_bp
 from controllers.payments import payments_bp
 from controllers.payments import webhook as payments_webhook
 from services.metrics import init_app as init_metrics, REQUEST_COUNT, REQUEST_LATENCY
-
+from sqlalchemy import text
+from flask import jsonify
 babel = Babel()
 
 # --- Load .env exactly once, here ---
@@ -262,6 +263,23 @@ def create_app(test_config: dict | None = None):
         resp.set_cookie("lang", lang, max_age=60 *
                         60 * 24 * 365, samesite="Lax")
         return resp
+
+    @app.get("/healthz")
+    def healthz():
+        # Liveness: process is up, Flask can serve a simple request
+        return jsonify(status="ok"), 200
+
+    @app.get("/readyz")
+    def readyz():
+        # Readiness: app can talk to the DB
+        try:
+            engine, _ = init_engine_and_session()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return jsonify(status="ok"), 200
+        except Exception as e:
+            current_app.logger.exception("Readiness check failed")
+            return jsonify(status="error", error=str(e)), 500
 
     return app
 
