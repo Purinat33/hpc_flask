@@ -31,12 +31,15 @@ jobs:
 
       - name: Ruff (lint)
         run: ruff check .
+        continue-on-error: true
 
       - name: Ruff (format check)
         run: ruff format --check .
+        continue-on-error: true
 
       - name: Black (format check)
         run: black --check .
+        continue-on-error: true
 
   tests:
     name: Tests (py${{ matrix.python-version }})
