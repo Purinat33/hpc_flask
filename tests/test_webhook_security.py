@@ -72,7 +72,7 @@ def test_wrong_amount_or_currency_does_not_mark_paid(client, app):
     assert r2.status_code == 200
     with SessionLocal() as s:
         recrow2 = s.get(Receipt, rid)
-        assert recrow2["status"] == "pending"
+        assert recrow2.status == "pending"
 
 
 def test_webhook_idempotency_on_event_id(client, app):
@@ -109,4 +109,4 @@ def test_webhook_idempotency_on_event_id(client, app):
     # Receipt is paid, and replays don't harm
     with SessionLocal() as s:
         rec = s.get(Receipt, rid)
-        assert rec["status"] == "paid"
+        assert rec.status == "paid"

@@ -16,7 +16,7 @@ from models.users_db import create_user
 # Use a dedicated test DB (never point at your real one!)
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg2://hpc_user:muict@localhost:5432/hpc_test",
+    "postgresql+psycopg2://hpc_user:muict@localhost:5433/hpc_test",
 )
 
 

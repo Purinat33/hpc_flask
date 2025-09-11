@@ -26,7 +26,7 @@ def init_engine_and_session():
     if Engine is None:
         Engine = make_engine_from_env()
         SessionLocal = sessionmaker(
-            bind=Engine, autoflush=False, autocommit=False, future=True)
+            bind=Engine, autoflush=False, autocommit=False, future=True, expire_on_commit=False)
     return Engine, SessionLocal
 
 

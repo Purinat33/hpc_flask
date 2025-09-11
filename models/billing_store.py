@@ -94,8 +94,9 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
                 mem_gb_hours=float(row["Mem_GB_Hours"]),
             )
             try:
-                s.add(item)
-                s.flush()
+                with s.begin_nested():
+                    s.add(item)
+                    s.flush()
                 total += float(row["Cost (฿)"])
                 inserted.append({
                     "receipt_id": r.id, "job_key": job_key, "job_id_display": str(row["JobID"]),
@@ -105,13 +106,18 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
                     "mem_gb_hours": float(row["Mem_GB_Hours"]),
                 })
             except IntegrityError:
-                s.rollback()  # rollback only the failed item; keep session alive
-                # skip duplicates (job_key UNIQUE)
+                # s.rollback()   # keep your logic; see note below
+                # duplicate job_key -> skip
                 pass
 
         r.total = round(total, 2)
         s.add(r)
-    return r.id, round(total, 2), inserted
+
+        # STASH BEFORE LEAVING THE WITH
+        rid = r.id
+        total_val = float(r.total)
+
+    return rid, total_val, inserted
 
 
 def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None):

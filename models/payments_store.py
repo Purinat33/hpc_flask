@@ -138,9 +138,11 @@ def finalize_success_if_amount_matches(external_payment_id: str, amount_cents: i
         payment.updated_at = _now_iso()
         s.add(payment)
 
-    # mark the receipt as paid (separate session; same result)
-    mark_paid(payment.receipt_id,
-              method=f"auto:{provider}", tx_ref=external_payment_id)
+        # STASH BEFORE EXIT
+        rid = int(payment.receipt_id)
+
+    # now safe to use outside the session
+    mark_paid(rid, method=f"auto:{provider}", tx_ref=external_payment_id)
     return True
 
 

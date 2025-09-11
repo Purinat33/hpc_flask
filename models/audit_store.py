@@ -78,12 +78,14 @@ def export_csv() -> tuple[str, str]:
     with session_scope() as s:
         rows = s.execute(select(AuditLog).order_by(
             AuditLog.id.desc())).scalars().all()
+        data = [(r.id, r.ts, r.actor, r.ip, r.ua, r.method, r.path,
+                 r.action, r.target, r.status, r.prev_hash, r.hash, r.extra)
+                for r in rows]
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["id", "ts", "actor", "ip", "ua", "method", "path",
                "action", "target", "status", "prev_hash", "hash", "extra"])
-    for r in rows:
-        w.writerow([r.id, r.ts, r.actor, r.ip, r.ua, r.method, r.path,
-                   r.action, r.target, r.status, r.prev_hash, r.hash, r.extra])
+    for tup in data:
+        w.writerow(tup)
     out.seek(0)
     return ("audit_export.csv", out.read())
