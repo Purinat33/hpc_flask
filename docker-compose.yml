@@ -1,29 +1,29 @@
 services:
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command: ["--config.file=/etc/prometheus/prometheus.yml"]
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   volumes:
+  #     - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #   command: ["--config.file=/etc/prometheus/prometheus.yml"]
+  #   ports:
+  #     - "9090:9090"
+  #   restart: unless-stopped
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on:
-      - prometheus
-    restart: unless-stopped
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: grafana
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+  #     - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+  #     - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+  #   environment:
+  #     - GF_SECURITY_ADMIN_USER=admin
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #   depends_on:
+  #     - prometheus
+  #   restart: unless-stopped
 
   pg:
     image: postgres:16
@@ -50,6 +50,33 @@ services:
       - "8080:8080"
     depends_on:
       - pg
+    restart: unless-stopped
+
+  hpc:
+    build: .
+    container_name: hpc
+    volumes:
+      # Option A: mount the whole folder
+      - ./instance:/app/instance:ro
+      # Option B: mount just the file
+      # - ./instance/test.csv:/app/instance/test.csv:ro
+    # The app talks to Postgres over the Docker network (service name "pg")
+    environment:
+      DATABASE_URL: postgresql+psycopg2://hpc_user:muict@pg:5432/hpc_app
+      FLASK_SECRET_KEY: change-me
+      APP_ENV: development
+      # any others you use:
+      ADMIN_PASSWORD: rosebud
+      SEED_DEMO_USERS: "1"
+      FALLBACK_CSV: /app/instance/test.csv
+      LOG_TO_STDOUT: "1"
+      DEMO_USERS: alice:alice:user,bob:bob:user,akara.sup:12345678:user,surapol.gits:12345:user,phakee.tra:54321:user
+    depends_on:
+      pg:
+        condition: service_healthy
+    ports:
+      - "8000:8000"  # host:container; you hit http://localhost:8000
+    command: gunicorn -b 0.0.0.0:8000 --access-logfile - --error-logfile - wsgi:app
     restart: unless-stopped
 
 volumes:

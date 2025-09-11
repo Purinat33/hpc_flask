@@ -123,18 +123,34 @@ def create_app(test_config: dict | None = None):
         return render_template("errors/csrf.html", reason=getattr(e, "description", "")), 400
 
     # ---- Logging ----
-    log_dir = os.path.join(os.path.dirname(__file__), "log")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "app.log")
-    file_handler = RotatingFileHandler(
-        log_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s [%(name)s] %(message)s"))
-    file_handler.setLevel(logging.INFO)
+    # default on in containers
+    log_to_stdout = os.getenv("LOG_TO_STDOUT", "1") == "1"
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-    if not any(isinstance(h, RotatingFileHandler) for h in root_logger.handlers):
-        root_logger.addHandler(file_handler)
+
+    if log_to_stdout:
+        handler = logging.StreamHandler()
+    else:
+        log_dir = os.path.join(os.path.dirname(__file__), "log")
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            handler = RotatingFileHandler(
+                os.path.join(log_dir, "app.log"),
+                maxBytes=5 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            )
+        except Exception:
+            # If file logging fails (e.g., in a container), fall back to stdout
+            handler = logging.StreamHandler()
+
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    ))
+
+    # avoid duplicate handlers on reload
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
     app.logger.setLevel(logging.INFO)
 
     # Ensure instance folder exists
