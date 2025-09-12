@@ -220,3 +220,5 @@ __marimo__/
 log/*
 !log/.gitkeep
 babel_note.md
+secrets/*
+!secrets/.gitkeep
