@@ -85,5 +85,18 @@ services:
       retries: 5
       start_period: 15s
 
+  swagger:
+    image: swaggerapi/swagger-ui:latest
+    container_name: swagger
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+    volumes:
+      - ./docs/api:/spec:ro
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+
+
 volumes:
   pgdata:

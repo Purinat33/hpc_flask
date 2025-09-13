@@ -13,6 +13,16 @@ Then access:
 - Application at http://localhost:8000
 - Adminer (Database tool) at http://localhost:8080
 
+### Accessing the Documentation
+
+```bash
+mkdocs serve -a localhost:9999
+```
+
+Then access:
+
+- Documentation at http://localhost:9999
+
 ## Features:
 
 ### UI & UX

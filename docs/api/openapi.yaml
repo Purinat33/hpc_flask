@@ -1,0 +1,221 @@
+openapi: 3.0.3
+info:
+  title: HPC Billing Platform API
+  version: 0.1.0
+  description: >
+    Public/admin endpoints for health checks, pricing (formula), payments
+    webhook finalization, and metrics (text/plain).
+
+servers:
+  - url: http://localhost:8000
+    description: Dev (Flask in Docker)
+
+tags:
+  - name: Health
+  - name: Rates
+  - name: Payments
+  - name: Metrics
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      responses:
+        "200":
+          description: App process is alive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+              example: { status: "ok" }
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness check (DB connectivity)
+      responses:
+        "200":
+          description: DB reachable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+              example: { status: "ok" }
+        "500":
+          description: DB not reachable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+              example: { status: "fail", reason: "db" }
+
+  /formula:
+    get:
+      tags: [Rates]
+      summary: Get current pricing formula (tiers and rates)
+      responses:
+        "200":
+          description: Current tier rates
+          headers:
+            ETag:
+              description: Strong ETag of the current formula
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RateResponse" }
+              example:
+                version: "2025-09-01T00:00:00Z"
+                tiers:
+                  - {
+                      tier: "mu",
+                      cpu: 0.0,
+                      gpu: 0.0,
+                      mem: 0.0,
+                      updated_at: "2025-09-01T00:00:00Z",
+                    }
+                  - {
+                      tier: "gov",
+                      cpu: 0.0,
+                      gpu: 0.0,
+                      mem: 0.0,
+                      updated_at: "2025-09-01T00:00:00Z",
+                    }
+                  - {
+                      tier: "private",
+                      cpu: 0.0,
+                      gpu: 0.0,
+                      mem: 0.0,
+                      updated_at: "2025-09-01T00:00:00Z",
+                    }
+    post:
+      tags: [Rates]
+      summary: Update pricing formula (admin only)
+      security:
+        - cookieAuth: [] # Flask-Login session cookie
+          # CSRF header may also be required depending on your config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RateUpdateRequest" }
+            example:
+              tiers:
+                - { tier: "mu", cpu: 0.02, gpu: 1.50, mem: 0.001 }
+                - { tier: "gov", cpu: 0.03, gpu: 2.00, mem: 0.002 }
+                - { tier: "private", cpu: 0.05, gpu: 3.50, mem: 0.003 }
+      responses:
+        "200":
+          description: Updated formula
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RateResponse" }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "403":
+          description: Not authorized (admin required)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /payments/webhook:
+    post:
+      tags: [Payments]
+      summary: Payment provider webhook (finalizes receipts)
+      description: >
+        Provider posts signed event payloads here. App verifies signature and
+        amount/currency before marking the payment/receipt succeeded.
+      parameters:
+        - in: header
+          name: X-Signature
+          required: false
+          description: Provider-specific HMAC/signature header (name varies)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              # Accept any provider payload; app validates internally.
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Event accepted (idempotent)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+              example: { status: "ok" }
+
+  /metrics:
+    get:
+      tags: [Metrics]
+      summary: Prometheus metrics (text/plain)
+      responses:
+        "200":
+          description: Prometheus exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus text exposition
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session # Flask-Login default cookie; adjust if customized
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string }
+        reason: { type: string, nullable: true }
+    Problem:
+      type: object
+      properties:
+        code: { type: integer }
+        error: { type: string }
+        detail: { type: string }
+      required: [error]
+    RateTier:
+      type: object
+      properties:
+        tier:
+          type: string
+          enum: [mu, gov, private]
+        cpu: { type: number }
+        gpu: { type: number }
+        mem: { type: number }
+        updated_at:
+          type: string
+          format: date-time
+      required: [tier, cpu, gpu, mem]
+    RateResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          format: date-time
+        tiers:
+          type: array
+          items: { $ref: "#/components/schemas/RateTier" }
+      required: [tiers]
+    RateUpdateRequest:
+      type: object
+      properties:
+        tiers:
+          type: array
+          items:
+            type: object
+            properties:
+              tier:
+                type: string
+                enum: [mu, gov, private]
+              cpu: { type: number }
+              gpu: { type: number }
+              mem: { type: number }
+            required: [tier, cpu, gpu, mem]
+      required: [tiers]
