@@ -1,0 +1,31 @@
+site_name: HPC Billing Platform Docs
+theme:
+  name: material
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences: # fenced Mermaid
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
+  - pymdownx.highlight
+plugins:
+  - search
+  - mermaid2
+nav:
+  - Overview: index.md
+  - Requirements (SRS): 01-srs.md
+  - Architecture: 02-architecture.md
+  - Data Model: 03-data-model.md
+  - API: 04-api.md
+  - Flows: 05-flows.md
+  - Security: 06-security.md
+  - Deployment: 07-deployment.md
+  - Operations: 08-ops.md
+  - Testing: 09-testing.md
+  - Performance: 10-performance.md
+  - Privacy: 11-privacy.md
