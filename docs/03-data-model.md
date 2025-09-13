@@ -1,6 +1,6 @@
 # Data Model
 
-> Canonical entities, relationships, constraints, and lifecycle for the **HPC Billing Platform**. Includes ER and state diagrams (Mermaid) plus field-level notes you’ll use when writing queries, tests, and migrations.
+> Canonical entities, relationships, constraints, and lifecycle for the **HPC Billing Platform**. 
 
 ---
 

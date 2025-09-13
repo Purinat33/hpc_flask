@@ -1,6 +1,6 @@
 # Architecture
 
-> How the system is structured: context, containers, components, key flows, data, and the main use cases. All diagrams are text-based (Mermaid) so they render in MkDocs Material.
+> How the system is structured: context, containers, components, key flows, data, and the main use cases.
 
 ---
 
