@@ -131,6 +131,7 @@
 
             {% if view == 'detail' %}
             {% if rows and rows|length>0 %}
+            <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
@@ -165,6 +166,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             <div class="muted" style="margin-top:.5rem">
                 <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
                 <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>

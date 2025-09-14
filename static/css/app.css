@@ -501,3 +501,35 @@ tbody tr:last-child td {
         white-space: normal;
     }
 }
+/* keep grid child shrinkable — you already added this */
+.layout>main {
+    min-width: 0;
+}
+
+/* make the card itself not horizontally scroll */
+.card {
+    overflow-x: visible;
+}
+
+/* scroll only the table, keep header/filters/tabs static */
+.card>table {
+    display: block;
+    /* isolate a scroll box without a wrapper */
+    width: max-content;
+    /* grow to the table’s intrinsic width */
+    max-width: 100%;
+    /* but don’t exceed the card */
+    overflow: auto;
+    /* override the base table{ overflow: hidden } */
+}
+
+/* don’t let long tokens blow up columns */
+.card>table th,
+.card>table td {
+    overflow-wrap: anywhere;
+}
+
+.table-wrap {
+    max-width: 100%;
+    overflow: auto;
+}
