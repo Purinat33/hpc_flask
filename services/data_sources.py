@@ -6,7 +6,8 @@ import requests
 from io import StringIO
 from datetime import datetime, timedelta
 from flask import current_app, has_app_context
-
+from services.billing import canonical_job_id
+import re
 # ---------- utilities ----------
 
 
@@ -29,6 +30,16 @@ def _run(cmd: list[str]) -> str:
     return res.stdout
 
 # ---------- fetchers ----------
+
+
+def drop_steps(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty or "JobID" not in df.columns:
+        return df
+    df = df.copy()
+    df["JobID"] = df["JobID"].astype(str)
+    # keep only parent rows: JobID equals its canonical (no ".step")
+    df = df[df["JobID"] == df["JobID"].map(canonical_job_id)]
+    return df
 
 
 def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
@@ -75,7 +86,7 @@ def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
         })
     if not rows:
         raise RuntimeError("slurmrestd returned no jobs")
-    return pd.DataFrame(rows)
+    return drop_steps(pd.DataFrame(rows))
 
 
 def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
@@ -89,6 +100,7 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         "--parsable2", "--noheader",
         "-S", start_date,
         "-E", end_date,
+        "-X",
         # Only finished/terminal states (exclude RUNNING/PENDING etc.)
         "--state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE",
         "--format=User,JobID,Elapsed,TotalCPU,ReqTRES,End,State",
@@ -120,8 +132,10 @@ def _fallback_csv_path():
 
 
 def fetch_via_fallback() -> pd.DataFrame:
-    return pd.read_csv(_fallback_csv_path(), sep="|",
-                       keep_default_na=False, dtype=str)
+    df = pd.read_csv(_fallback_csv_path(), sep="|",
+                     keep_default_na=False, dtype=str)
+    df = drop_steps(df)
+    return df
 
 
 def fetch_from_slurmrestd(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
@@ -164,7 +178,7 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
             cutoff = pd.to_datetime(end_date) + \
                 pd.Timedelta(hours=23, minutes=59, seconds=59)
             df = df[df["End"].notna() & (df["End"] <= cutoff)]
-
+        df = drop_steps(df)
         return df, "test.csv", notes
     except Exception as e:
         notes.append(f"test.csv: {e}")

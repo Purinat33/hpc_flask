@@ -6,6 +6,21 @@ from models.rates_store import load_rates
 from datetime import datetime
 from models import rates_store
 
+# -----------------------------------------------------
+
+
+def canonical_job_id(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if "." in s:
+        prefix = s.split(".", 1)[0]
+        if re.fullmatch(r"\d+(?:_\d+)?", prefix):
+            return prefix
+        return s
+    return s
+# -----------------------------------------------------
+
 # ---------- parsing helpers ----------
 
 
@@ -94,6 +109,11 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
+    # final guard: keep only parent jobs
+    if "JobID" in df.columns:
+        df["JobID"] = df["JobID"].astype(str)
+        df = df[df["JobID"] == df["JobID"].map(canonical_job_id)]
+
     for c in ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES"]:
         if c not in df:
             df[c] = ""
