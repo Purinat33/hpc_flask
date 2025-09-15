@@ -61,10 +61,15 @@ def extract_mem_gb(tres: str) -> float:
     return 0.0
 
 
-def classify_user_type(user: str) -> str:
-    u = (user or "").lower()
+def classify_user_type(user) -> str:
+    # normalize safely; treat non-strings and NaN as empty
+    try:
+        u = user if isinstance(user, str) else ""
+    except Exception:
+        u = ""
+    u = u.strip().lower()
     if any(k in u for k in ["test", "support", "admin", "monitor", "sys"]):
-        return "mu"     # internal → mu rate
+        return "mu"
     if any(k in u for k in ["dip", "gits", "nstda", "nectec", ".go.", "gov"]):
         return "gov"
     if re.match(r"^[a-z]+\.[a-z]+$", u) or "ku.ac.th" in u or "mu.ac.th" in u:
@@ -72,6 +77,7 @@ def classify_user_type(user: str) -> str:
     if any(k in u for k in ["co.th", ".com", "corp", "inc"]):
         return "private"
     return "private"
+
 
 # ---------- main ----------
 
@@ -85,6 +91,9 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
+    for c in ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES"]:
+        if c not in df:
+            df[c] = ""
 
     df["Elapsed_Hours"] = df["Elapsed"].map(hms_to_hours)
     df["TotalCPU_Hours"] = df["TotalCPU"].map(hms_to_hours)

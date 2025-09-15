@@ -120,7 +120,8 @@ def _fallback_csv_path():
 
 
 def fetch_via_fallback() -> pd.DataFrame:
-    return pd.read_csv(_fallback_csv_path(), sep="|")
+    return pd.read_csv(_fallback_csv_path(), sep="|",
+                       keep_default_na=False, dtype=str)
 
 
 def fetch_from_slurmrestd(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
@@ -137,7 +138,7 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
     try:
         df = fetch_from_slurmrestd(start_date, end_date, username=username)
         if username:
-            df = df[df["User"].str.lower() == username.lower()]
+            df = df[df["User"].str.strip().lower() == username.strip().lower()]
         return df, "slurmrestd", notes
     except Exception as e:
         notes.append(f"slurmrestd: {e}")
@@ -152,9 +153,11 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
     # 3) test.csv fallback
     try:
         path = current_app.config.get("FALLBACK_CSV")
-        df = pd.read_csv(path, sep="|")
+        df = pd.read_csv(path, sep="|", keep_default_na=False, dtype=str)
         if username:
-            df = df[df["User"].str.lower() == username.lower()]
+            u = username.strip().lower()
+            # .str accessors are safe even if some entries are ""
+            df = df[df["User"].fillna("").str.strip().str.lower() == u]
 
         if "End" in df.columns:
             df["End"] = pd.to_datetime(df["End"], errors="coerce")
