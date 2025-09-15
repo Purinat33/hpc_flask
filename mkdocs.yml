@@ -30,3 +30,8 @@ nav:
   - Performance: 10-performance.md
   - Privacy: 11-privacy.md
   - Docker: 12-docker.md
+  - Metrics: 13-metrics.md
+  - Roadmap: 14-roadmap.md
+  - Troubleshooting: 15-trouble.md
+  - Glossary: 16-glossary.md
+  - Usage: 17-usage.md
