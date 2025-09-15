@@ -10,7 +10,7 @@ from models import rates_store
 
 
 def hms_to_hours(hms: str) -> float:
-    """Supports D-HH:MM:SS and HH:MM:SS."""
+    """Supports D-HH:MM:SS(.fff), HH:MM:SS(.fff), and MM:SS(.fff)."""
     if not isinstance(hms, str) or not hms.strip():
         return 0.0
     s = hms.strip()
@@ -23,14 +23,17 @@ def hms_to_hours(hms: str) -> float:
             days = 0
     parts = s.split(":")
     try:
-        if len(parts) == 3:
-            h, m, sec = map(int, parts)
-        elif len(parts) == 2:
-            h, m = map(int, parts)
-            sec = 0
+        if len(parts) == 3:              # HH:MM:SS(.fff)
+            h = int(parts[0])
+            m = int(parts[1])
+            sec = float(parts[2])
+        elif len(parts) == 2:            # MM:SS(.fff)
+            h = 0
+            m = int(parts[0])
+            sec = float(parts[1])
         else:
             return 0.0
-    except:
+    except Exception:
         return 0.0
     return days*24 + h + m/60 + sec/3600
 
