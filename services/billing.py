@@ -53,6 +53,17 @@ def hms_to_hours(hms: str) -> float:
     return days*24 + h + m/60 + sec/3600
 
 
+def extract_cpu_count(tres: str) -> int:
+    try:
+        for it in (tres or "").split(","):
+            it = it.strip()
+            if it.startswith("cpu="):
+                return int(float(it.split("=", 1)[1]))
+    except:
+        pass
+    return 0
+
+
 def extract_gpu_count(tres: str) -> int:
     try:
         for it in (tres or "").split(","):
@@ -128,7 +139,14 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
     df["Mem_GB_Hours"] = df["Memory_GB"] * df["Elapsed_Hours"]
 
     # Prefer actual CPU time (core-hours). If it's 0, fall back to AllocCPUS*Elapsed (not provided here).
-    df["CPU_Core_Hours"] = df["TotalCPU_Hours"]
+    df["AllocCPUS"] = df["ReqTRES"].fillna("").map(extract_cpu_count)
+
+    # Prefer actual CPU time; if it’s 0, fall back to AllocCPUS * Elapsed
+    df["CPU_Core_Hours"] = df.apply(
+        lambda r: r["TotalCPU_Hours"] if r["TotalCPU_Hours"] > 0
+        else r["AllocCPUS"] * r["Elapsed_Hours"],
+        axis=1
+    )
 
     # tier by user
     df["tier"] = df["User"].map(classify_user_type)
