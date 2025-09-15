@@ -7,6 +7,7 @@ from sqlalchemy import select, func, update, delete
 from sqlalchemy.exc import IntegrityError
 from models.base import session_scope
 from models.schema import Receipt, ReceiptItem
+from models import rates_store
 
 
 def canonical_job_id(s: str) -> str:
@@ -40,9 +41,22 @@ def list_receipts(username: str | None = None) -> list[dict]:
         out = []
         for r in rows:
             out.append({
-                "id": r.id, "username": r.username, "start": r.start, "end": r.end,
-                "total": float(r.total), "status": r.status, "created_at": r.created_at,
-                "paid_at": r.paid_at, "method": r.method, "tx_ref": r.tx_ref
+                "id": r.id,
+                "username": r.username,
+                "start": r.start,
+                "end": r.end,
+                "total": float(r.total),
+                "status": r.status,
+                "created_at": r.created_at,
+                "paid_at": r.paid_at,
+                "method": r.method,
+                "tx_ref": r.tx_ref,
+                # NEW:
+                "pricing_tier": r.pricing_tier,
+                "rate_cpu": float(r.rate_cpu),
+                "rate_gpu": float(r.rate_gpu),
+                "rate_mem": float(r.rate_mem),
+                "rates_locked_at": r.rates_locked_at,
             })
         return out
 
@@ -53,34 +67,70 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
         if not r:
             return {}, []
         items = s.execute(
-            select(ReceiptItem).where(ReceiptItem.receipt_id ==
-                                      receipt_id).order_by(ReceiptItem.job_id_display)
+            select(ReceiptItem)
+            .where(ReceiptItem.receipt_id == receipt_id)
+            .order_by(ReceiptItem.job_id_display)
         ).scalars().all()
         return (
             {
-                "id": r.id, "username": r.username, "start": r.start, "end": r.end,
-                "total": float(r.total), "status": r.status, "created_at": r.created_at,
-                "paid_at": r.paid_at, "method": r.method, "tx_ref": r.tx_ref
+                "id": r.id,
+                "username": r.username,
+                "start": r.start,
+                "end": r.end,
+                "total": float(r.total),
+                "status": r.status,
+                "created_at": r.created_at,
+                "paid_at": r.paid_at,
+                "method": r.method,
+                "tx_ref": r.tx_ref,
+                # NEW:
+                "pricing_tier": r.pricing_tier,
+                "rate_cpu": float(r.rate_cpu),
+                "rate_gpu": float(r.rate_gpu),
+                "rate_mem": float(r.rate_mem),
+                "rates_locked_at": r.rates_locked_at,
             },
             [
                 {
-                    "receipt_id": i.receipt_id, "job_key": i.job_key, "job_id_display": i.job_id_display,
-                    "cost": float(i.cost), "cpu_core_hours": float(i.cpu_core_hours),
-                    "gpu_hours": float(i.gpu_hours), "mem_gb_hours": float(i.mem_gb_hours)
-                } for i in items
-            ]
+                    "receipt_id": i.receipt_id,
+                    "job_key": i.job_key,
+                    "job_id_display": i.job_id_display,
+                    "cost": float(i.cost),
+                    "cpu_core_hours": float(i.cpu_core_hours),
+                    "gpu_hours": float(i.gpu_hours),
+                    "mem_gb_hours": float(i.mem_gb_hours),
+                }
+                for i in items
+            ],
         )
 
 
 def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable[dict]) -> Tuple[int, float, list[dict]]:
     now = _now_iso()
+    rows = list(rows)  # we'll scan them twice
     inserted: List[dict] = []
     total = 0.0
+
+    # --- determine tier & snapshot current rates
+    # prefer the first non-empty 'tier' in the rows; default to 'mu'
+    tier = next((str((r.get("tier") or "")).lower()
+                for r in rows if r.get("tier")), "mu")
+    # {'cpu': ..., 'gpu': ..., 'mem': ...}
+    snap = rates_store.get_rate_for_tier(tier)
+
     with session_scope() as s:
-        r = Receipt(username=username, start=start, end=end,
-                    total=0.0, status="pending", created_at=now)
+        r = Receipt(
+            username=username, start=start, end=end,
+            total=0.0, status="pending", created_at=now,
+            # NEW snapshot fields:
+            pricing_tier=tier,
+            rate_cpu=float(snap["cpu"]),
+            rate_gpu=float(snap["gpu"]),
+            rate_mem=float(snap["mem"]),
+            rates_locked_at=now,
+        )
         s.add(r)
-        s.flush()  # get r.id
+        s.flush()  # to get r.id
 
         for row in rows:
             job_key = canonical_job_id(str(row["JobID"]))
@@ -88,36 +138,26 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
                 receipt_id=r.id,
                 job_key=job_key,
                 job_id_display=str(row["JobID"]),
-                cost=float(row["Cost (฿)"]),
-                cpu_core_hours=float(row["CPU_Core_Hours"]),
-                gpu_hours=float(row["GPU_Hours"]),
-                mem_gb_hours=float(row["Mem_GB_Hours"]),
+                cost=float(row.get("Cost (฿)", 0.0)),
+                cpu_core_hours=float(row.get("CPU_Core_Hours", 0.0)),
+                gpu_hours=float(row.get("GPU_Hours", 0.0)),
+                mem_gb_hours=float(row.get("Mem_GB_Hours", 0.0)),
             )
-            try:
-                with s.begin_nested():
-                    s.add(item)
-                    s.flush()
-                total += float(row["Cost (฿)"])
-                inserted.append({
-                    "receipt_id": r.id, "job_key": job_key, "job_id_display": str(row["JobID"]),
-                    "cost": float(row["Cost (฿)"]),
-                    "cpu_core_hours": float(row["CPU_Core_Hours"]),
-                    "gpu_hours": float(row["GPU_Hours"]),
-                    "mem_gb_hours": float(row["Mem_GB_Hours"]),
-                })
-            except IntegrityError:
-                # s.rollback()   # keep your logic; see note below
-                # duplicate job_key -> skip
-                pass
+            s.add(item)
+            total += float(item.cost)
+            inserted.append({
+                "job_key": job_key,
+                "job_id_display": item.job_id_display,
+                "cost": float(item.cost),
+                "cpu_core_hours": float(item.cpu_core_hours),
+                "gpu_hours": float(item.gpu_hours),
+                "mem_gb_hours": float(item.mem_gb_hours),
+            })
 
-        r.total = round(total, 2)
+        r.total = float(total)
         s.add(r)
 
-        # STASH BEFORE LEAVING THE WITH
-        rid = r.id
-        total_val = float(r.total)
-
-    return rid, total_val, inserted
+    return r.id, float(total), inserted
 
 
 def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None):
@@ -172,8 +212,20 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
         q = q.order_by(Receipt.created_at.desc(), Receipt.id.desc())
         rows = s.execute(q).scalars().all()
         return [{
-            "id": r.id, "username": r.username, "start": r.start, "end": r.end,
-            "total": float(r.total), "status": r.status, "created_at": r.created_at, "paid_at": r.paid_at
+            "id": r.id,
+            "username": r.username,
+            "start": r.start,
+            "end": r.end,
+            "total": float(r.total),
+            "status": r.status,
+            "created_at": r.created_at,
+            "paid_at": r.paid_at,
+            # NEW:
+            "pricing_tier": r.pricing_tier,
+            "rate_cpu": float(r.rate_cpu),
+            "rate_gpu": float(r.rate_gpu),
+            "rate_mem": float(r.rate_mem),
+            "rates_locked_at": r.rates_locked_at,
         } for r in rows]
 
 
@@ -200,10 +252,19 @@ def paid_receipts_csv():
     rows = admin_list_receipts(status="paid")
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["id", "username", "start", "end", "total_THB",
-               "status", "created_at", "paid_at"])
+    w.writerow([
+        "id", "username", "start", "end",
+        "total_THB", "status", "created_at", "paid_at",
+        # NEW:
+        "pricing_tier", "rate_cpu", "rate_gpu", "rate_mem", "rates_locked_at",
+    ])
     for r in rows:
-        w.writerow([r["id"], r["username"], r["start"], r["end"],
-                   f"{float(r['total']):.2f}", r["status"], r["created_at"], r["paid_at"] or ""])
+        w.writerow([
+            r["id"], r["username"], r["start"], r["end"],
+            f"{float(r['total']):.2f}", r["status"], r["created_at"], r["paid_at"] or "",
+            r.get("pricing_tier", ""), r.get("rate_cpu", ""), r.get(
+                "rate_gpu", ""), r.get("rate_mem", ""),
+            r.get("rates_locked_at", ""),
+        ])
     out.seek(0)
     return ("paid_receipts_history.csv", out.read())

@@ -28,25 +28,43 @@ class Receipt(Base):
     __tablename__ = "receipts"
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True)
+    # who / period
     username: Mapped[str] = mapped_column(
-        String, nullable=False)  # optional: FK to users.username
+        String, nullable=False)  # optional FK to users.username
     start: Mapped[str] = mapped_column(
-        String, nullable=False)     # ISO8601Z text
-    end: Mapped[str] = mapped_column(
-        String, nullable=False)       # ISO8601Z text
-    total: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.0)  # keep as float for 1:1
-    status: Mapped[str] = mapped_column(
+        String, nullable=False)     # ISO8601 text
+    end:   Mapped[str] = mapped_column(
+        String, nullable=False)     # ISO8601 text
+
+    # NEW: snapshot of pricing inputs locked at creation-time
+    pricing_tier:  Mapped[str] = mapped_column(
+        String, nullable=False)   # 'mu' | 'gov' | 'private'
+    rate_cpu:      Mapped[float] = mapped_column(
+        Float,  nullable=False)   # THB per CPU core-hour
+    rate_gpu:      Mapped[float] = mapped_column(
+        Float,  nullable=False)   # THB per GPU-hour
+    rate_mem:      Mapped[float] = mapped_column(
+        Float,  nullable=False)   # THB per GB-hour
+    rates_locked_at: Mapped[str] = mapped_column(
+        String, nullable=False)   # ISO8601 when we snapped them
+
+    # totals / lifecycle
+    total:   Mapped[float] = mapped_column(Float,  nullable=False, default=0.0)
+    status:  Mapped[str] = mapped_column(
         String, nullable=False, default="pending")
     created_at: Mapped[str] = mapped_column(String, nullable=False)
-    paid_at: Mapped[str | None] = mapped_column(String)
-    method: Mapped[str | None] = mapped_column(String)
-    tx_ref: Mapped[str | None] = mapped_column(String)
+    paid_at:    Mapped[str | None] = mapped_column(String)
+    method:     Mapped[str | None] = mapped_column(String)
+    tx_ref:     Mapped[str | None] = mapped_column(String)
+
     __table_args__ = (
         CheckConstraint("total >= 0", name="ck_receipts_total_ge_0"),
         CheckConstraint("status in ('pending','paid','void')",
                         name="ck_receipts_status"),
+        CheckConstraint("pricing_tier in ('mu','gov','private')",
+                        name="ck_receipts_tier"),
     )
+
 
 
 class ReceiptItem(Base):
