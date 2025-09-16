@@ -100,10 +100,12 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         "--parsable2", "--noheader",
         "-S", start_date,
         "-E", end_date,
-        "-X",
+        "-X",  # Skip job steps (.batchh)
+        "-L",  # Show all clusters
         # Only finished/terminal states (exclude RUNNING/PENDING etc.)
         "--state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE",
-        "--format=User,JobID,Elapsed,TotalCPU,ReqTRES,End,State",
+        "--format=User,JobID,Elapsed,TotalCPU,ReqTRES,AllocTRES,"
+        "AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,CPUTime,End,State"
     ]
     if username:
         cmd += ["-u", username]
