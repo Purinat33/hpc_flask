@@ -125,7 +125,7 @@
             <div class="clear"></div>
 
 <style>
-    /* Priority styles:
+    /* Priority styles for header legend + raw-table header emphasis
      - primary:      bold + underline + italic
      - 1st fallback: bold + underline
      - 2nd fallback: bold + italic
@@ -154,9 +154,56 @@
         margin-top: .75rem;
     }
 
+    /* The wrapper is the scroll container (vertical + horizontal).
+     Sticky headers will pin to the top INSIDE this element. */
     .table-wrap {
-        overflow: auto;
+        position: relative;
         max-height: 60vh;
+        /* vertical scroll */
+        overflow: auto;
+        /* both axes if needed */
+        border: 1px solid var(--bd);
+        border-radius: 10px;
+    }
+
+    /* Tables inside the wrapper behave like normal tables */
+    .table-wrap>table {
+        width: 100%;
+        border: 0;
+        /* wrapper holds the border */
+        border-collapse: separate;
+        border-spacing: 0;
+        margin: 0;
+    }
+
+    /* Make header cells sticky within the scroll container */
+    .table-wrap thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        /* keep above body cells */
+        background: #f8fafc;
+        /* must have a background for sticky */
+        box-shadow: 0 1px 0 var(--bd);
+        /* subtle divider under the header */
+    }
+
+    /* Optional: freeze first column too (uncomment if you want this)
+  .table-wrap tbody td:first-child,
+  .table-wrap thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #ffffff;
+    box-shadow: 1px 0 0 var(--bd);
+  }
+  .table-wrap thead th:first-child { z-index: 3; }  /* above the sticky row */
+    */
+
+    /* Don’t let long tokens blow up columns */
+    .table-wrap th,
+    .table-wrap td {
+        overflow-wrap: anywhere;
     }
 
     .chip {
@@ -167,6 +214,7 @@
         margin-right: .25rem;
     }
 </style>
+
 
             <!-- Formula legend with matching styles -->
             <div class="formula" style="margin:.5rem 0 .75rem 0">
