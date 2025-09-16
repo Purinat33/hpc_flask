@@ -66,37 +66,66 @@ def admin_form():
     sum_pending = 0.0
     sum_paid = 0.0
 
+    # for the raw (unaggregated) fetched data preview
+    raw_cols: list[str] = []
+    raw_rows: list[dict] = []
+    # style classes for header highlighting
+    header_classes: dict[str, str] = {}
+
     try:
         if section == "usage":
-            df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
-            df = compute_costs(df)
+            # -------- fetch RAW (parents + steps) --------
+            df_raw, data_source, notes = fetch_jobs_with_fallbacks(
+                start_d, end_d)
+            # keep a small sample for display (avoid huge tables)
+            if not df_raw.empty:
+                # enforce End cutoff defensively (matches normal display)
+                if "End" in df_raw.columns:
+                    df_raw["End"] = pd.to_datetime(
+                        df_raw["End"], errors="coerce")
+                    cutoff = pd.to_datetime(
+                        end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                    df_raw = df_raw[df_raw["End"].notna() & (
+                        df_raw["End"] <= cutoff)]
 
-            # Enforce End cutoff defensively
-            if "End" in df.columns:
-                df["End"] = pd.to_datetime(df["End"], errors="coerce")
-                cutoff = pd.to_datetime(
-                    end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df = df[df["End"].notna() & (df["End"] <= cutoff)]
+                raw_cols = list(df_raw.columns)
+                raw_rows = df_raw.head(200).to_dict(
+                    orient="records")  # cap rows for UI
 
-            # (canonical_job_id() makes sacct/slurm JobIDs comparable to what we store)
+            # -------- compute COSTED (aggregated to parents) --------
+            df = compute_costs(
+                df_raw.copy() if df_raw is not None else pd.DataFrame())
+
+            # hide already billed parents
             if not df.empty:
                 df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
                 already = billed_job_ids()  # set/list of all receipt_items.job_key
                 df = df[~df["JobKey"].isin(already)]
 
+            # totals
             if not df.empty:
                 tot_cpu = float(df["CPU_Core_Hours"].sum())
                 tot_gpu = float(df["GPU_Hours"].sum())
-                tot_mem = float(df["Mem_GB_Hours"].sum())
-                tot_elapsed = float(df.get("Elapsed_Hours", 0).sum())
+                # NOTE: used-mem sum (not allocated)
+                tot_mem = float(df["Mem_GB_Hours_Used"].sum()
+                                ) if "Mem_GB_Hours_Used" in df else 0.0
+                tot_elapsed = float(
+                    df.get("Elapsed_Hours", 0).sum()) if "Elapsed_Hours" in df else 0.0
 
-            cols = ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "State",
-                    "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
+            # detailed table (computed)
+            cols = [
+                "User", "JobID", "Elapsed", "End", "State",
+                "CPU_Core_Hours",
+                "GPU_Count", "GPU_Hours",
+                "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                "tier", "Cost (฿)"
+            ]
             for c in cols:
                 if c not in df.columns:
                     df[c] = ""
             rows = df[cols].to_dict(orient="records")
 
+            # aggregate table
             if not df.empty:
                 agg = (
                     df.groupby(["User", "tier"], dropna=False)
@@ -104,26 +133,52 @@ def admin_form():
                         jobs=("JobID", "count"),
                         CPU_Core_Hours=("CPU_Core_Hours", "sum"),
                         GPU_Hours=("GPU_Hours", "sum"),
-                        Mem_GB_Hours=("Mem_GB_Hours", "sum"),
+                        Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
                         Cost=("Cost (฿)", "sum"),
                     ).reset_index()
                 )
                 agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
                 agg_rows = agg[["User", "tier", "jobs", "CPU_Core_Hours",
-                                "GPU_Hours", "Mem_GB_Hours", "Cost (฿)"]].to_dict(orient="records")
+                                "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict(orient="records")
                 grand_total = float(agg["Cost (฿)"].sum())
+
+            # -------- header highlighting map for RAW table --------
+            # Primary / fallback semantics:
+            # CPU: primary=TotalCPU, fb1=CPUTimeRAW, fb2=AllocTRES+ReqTRES+Elapsed
+            # MEM: primary=AveRSS,    fb2=AllocTRES+ReqTRES+Elapsed
+            # GPU: primary=AllocTRES, fb2=ReqTRES+Elapsed
+            header_classes = {c: "" for c in raw_cols}
+            for c in raw_cols:
+                if c == "TotalCPU":
+                    header_classes[c] = "hl-primary"
+                elif c == "CPUTimeRAW":
+                    header_classes[c] = "hl-fallback1"
+                elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
+                    # these are 2nd-level fallbacks for CPU/MEM/GPU
+                    header_classes[c] = "hl-fallback2"
+                elif c == "AveRSS":
+                    # memory primary “used” source (on steps)
+                    header_classes[c] = "hl-primary"
+                # keep others default ""
 
         elif section == "myusage":
             # Admin's own usage (copy of /me, but lives under Admin)
-            df, data_source, notes = fetch_jobs_with_fallbacks(
+            df_raw, data_source, notes = fetch_jobs_with_fallbacks(
                 start_d, end_d, username=current_user.username)
-            df = compute_costs(df)
 
-            if "End" in df.columns:
-                df["End"] = pd.to_datetime(df["End"], errors="coerce")
-                cutoff = pd.to_datetime(
-                    end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df = df[df["End"].notna() & (df["End"] <= cutoff)]
+            if not df_raw.empty:
+                if "End" in df_raw.columns:
+                    df_raw["End"] = pd.to_datetime(
+                        df_raw["End"], errors="coerce")
+                    cutoff = pd.to_datetime(
+                        end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                    df_raw = df_raw[df_raw["End"].notna() & (
+                        df_raw["End"] <= cutoff)]
+                raw_cols = list(df_raw.columns)
+                raw_rows = df_raw.head(200).to_dict(orient="records")
+
+            df = compute_costs(
+                df_raw.copy() if df_raw is not None else pd.DataFrame())
 
             if view in {"detail", "aggregate"}:
                 # hide already billed
@@ -131,8 +186,12 @@ def admin_form():
                 already = billed_job_ids()
                 df = df[~df["JobKey"].isin(already)]
 
-                cols = ["JobID", "Elapsed", "TotalCPU", "ReqTRES", "State",
-                        "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
+                cols = [
+                    "JobID", "Elapsed", "End", "State",
+                    "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
+                    "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                    "tier", "Cost (฿)"
+                ]
                 for c in cols:
                     if c not in df.columns:
                         df[c] = ""
@@ -145,28 +204,27 @@ def admin_form():
                             jobs=("JobID", "count"),
                             CPU_Core_Hours=("CPU_Core_Hours", "sum"),
                             GPU_Hours=("GPU_Hours", "sum"),
-                            Mem_GB_Hours=("Mem_GB_Hours", "sum"),
+                            Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
                             Cost=("Cost (฿)", "sum"),
                         ).reset_index()
                     )
                     agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
                     agg_rows = agg[["tier", "jobs", "CPU_Core_Hours",
-                                    "GPU_Hours", "Mem_GB_Hours", "Cost (฿)"]].to_dict(orient="records")
+                                    "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict(orient="records")
 
                 # totals
                 tot_cpu = float(df["CPU_Core_Hours"].sum()
                                 ) if "CPU_Core_Hours" in df else 0.0
                 tot_gpu = float(df["GPU_Hours"].sum()
                                 ) if "GPU_Hours" in df else 0.0
-                tot_mem = float(df["Mem_GB_Hours"].sum()
-                                ) if "Mem_GB_Hours" in df else 0.0
+                tot_mem = float(df["Mem_GB_Hours_Used"].sum()
+                                ) if "Mem_GB_Hours_Used" in df else 0.0
                 tot_elapsed = float(
                     df.get("Elapsed_Hours", 0).sum()) if "Elapsed_Hours" in df else 0.0
                 grand_total = float(df["Cost (฿)"].sum(
                 )) if "Cost (฿)" in df and not df.empty else 0.0
 
             else:  # 'billed'
-                # admin's own billed items and receipts
                 pending_items = list_billed_items_for_user(
                     current_user.username, "pending")
                 paid_items = list_billed_items_for_user(
@@ -207,8 +265,11 @@ def admin_form():
         my_paid_receipts=my_paid_receipts,
         sum_pending=sum_pending,
         sum_paid=sum_paid,
+        # NEW: raw preview + header styles
+        raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
         url_for=url_for,
     )
+
 
 
 @admin_bp.post("/admin")

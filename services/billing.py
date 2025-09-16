@@ -1,4 +1,5 @@
 # billing.py
+import numpy as np
 import re
 import os
 import pandas as pd
@@ -111,59 +112,159 @@ def classify_user_type(user) -> str:
 # ---------- main ----------
 
 
+def _prefer_alloc_over_req(row_or_series: pd.Series, key: str) -> str:
+    """Return a TRES string that contains the key=..., preferring AllocTRES."""
+    alloc = str(row_or_series.get("AllocTRES", "") or "")
+    req = str(row_or_series.get("ReqTRES", "") or "")
+    return alloc if f"{key}=" in alloc else req
+
+
+def _rss_to_gb(x) -> float:
+    """
+    sacct AveRSS/MaxRSS often show like '2996K' (KiB).
+    Support suffixes K/M/G/T; bare numbers treated as KiB.
+    """
+    s = str(x or "").strip().upper()
+    if not s:
+        return 0.0
+    m = re.match(r"^([0-9]*\.?[0-9]+)\s*([KMGT]?)B?$", s)
+    if not m:
+        # Sometimes raw KiB number without suffix
+        try:
+            return float(s) / (1024**2)
+        except:
+            return 0.0
+    val = float(m.group(1))
+    suf = m.group(2) or "K"
+    mult = {"K": 1/(1024**2), "M": 1/1024, "G": 1.0, "T": 1024.0}[suf]
+    return val * mult
+
+
 def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds GPU_Hours, Mem_GB_Hours, CPU_Core_Hours and Cost (฿) using the latest rates.
-    Expects columns: User, JobID, Elapsed, TotalCPU, ReqTRES
-    """
     if df.empty:
         return df
 
     df = df.copy()
-    # final guard: keep only parent jobs
-    if "JobID" in df.columns:
-        df["JobID"] = df["JobID"].astype(str)
-        df = df[df["JobID"] == df["JobID"].map(canonical_job_id)]
 
-    for c in ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES"]:
+    # Ensure core columns exist
+    for c in ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "AllocTRES", "AveRSS", "CPUTimeRAW"]:
         if c not in df:
             df[c] = ""
 
+    # Parse times
     df["Elapsed_Hours"] = df["Elapsed"].map(hms_to_hours)
     df["TotalCPU_Hours"] = df["TotalCPU"].map(hms_to_hours)
-    df["GPU_Count"] = df["ReqTRES"].fillna("").map(extract_gpu_count)
-    df["Memory_GB"] = df["ReqTRES"].fillna("").map(extract_mem_gb)
+    # CPUTimeRAW is seconds integer; be robust
+    df["CPUTimeRAW_Hours"] = pd.to_numeric(
+        df["CPUTimeRAW"], errors="coerce").fillna(0) / 3600.0
 
-    # resource-hours
-    df["GPU_Hours"] = df["GPU_Count"] * df["Elapsed_Hours"]
-    df["Mem_GB_Hours"] = df["Memory_GB"] * df["Elapsed_Hours"]
+    # Mark parent vs step and define parent key
+    df["ParentID"] = df["JobID"].map(canonical_job_id)
+    df["is_step"] = df["JobID"].astype(str) != df["ParentID"]
 
-    # Prefer actual CPU time (core-hours). If it's 0, fall back to AllocCPUS*Elapsed (not provided here).
-    df["AllocCPUS"] = df["ReqTRES"].fillna("").map(extract_cpu_count)
+    # ---------- Step-level “used” metrics ----------
+    steps = df[df["is_step"]].copy()
+    parents = df[~df["is_step"]].copy()
 
-    # Prefer actual CPU time; if it’s 0, fall back to AllocCPUS * Elapsed
-    df["CPU_Core_Hours"] = df.apply(
-        lambda r: r["TotalCPU_Hours"] if r["TotalCPU_Hours"] > 0
-        else r["AllocCPUS"] * r["Elapsed_Hours"],
-        axis=1
+    # Memory used at step = AveRSS_GB * Elapsed_hours (approx time-avg usage)
+    steps["AveRSS_GB"] = steps["AveRSS"].map(_rss_to_gb)
+    steps["Mem_GB_Hours_Used_step"] = steps["AveRSS_GB"] * \
+        steps["Elapsed_Hours"]
+
+    # CPU used at step: prefer TotalCPU, then CPUTimeRAW
+    steps["CPU_Core_Hours_Used_step"] = np.where(
+        steps["TotalCPU_Hours"] > 0, steps["TotalCPU_Hours"], steps["CPUTimeRAW_Hours"]
     )
 
-    # tier by user
-    df["tier"] = df["User"].map(classify_user_type)
+    # Aggregate steps → parent
+    agg = steps.groupby("ParentID").agg(
+        CPU_Core_Hours_Used_steps=("CPU_Core_Hours_Used_step", "sum"),
+        Mem_GB_Hours_Used_steps=("Mem_GB_Hours_Used_step", "sum"),
+        # we could also bring MaxRSS across steps if you want efficiency reporting:
+        MaxRSS_GB=("AveRSS_GB", "max")
+    ).reset_index()
 
-    # latest rates
-    # {'mu':{'cpu':...,'gpu':...,'mem':...}, ...}
+    # Merge aggregates back to parent rows
+    parents = parents.merge(
+        agg, how="left", left_on="JobID", right_on="ParentID")
+    parents["CPU_Core_Hours_Used_steps"] = parents["CPU_Core_Hours_Used_steps"].fillna(
+        0)
+    parents["Mem_GB_Hours_Used_steps"] = parents["Mem_GB_Hours_Used_steps"].fillna(
+        0)
+
+    # Prefer AllocTRES for allocations; fallback to ReqTRES
+    parents["_TRES_CPU"] = parents.apply(
+        _prefer_alloc_over_req, axis=1, result_type=None, args=("cpu",))
+    parents["_TRES_GPU"] = parents.apply(
+        _prefer_alloc_over_req, axis=1, result_type=None, args=("gres/gpu",))
+    parents["_TRES_MEM"] = parents.apply(
+        _prefer_alloc_over_req, axis=1, result_type=None, args=("mem",))
+
+    parents["AllocCPUS"] = parents["_TRES_CPU"].map(extract_cpu_count)
+    parents["GPU_Count"] = parents["_TRES_GPU"].map(extract_gpu_count)
+    parents["Memory_GB"] = parents["_TRES_MEM"].map(extract_mem_gb)
+
+    # Allocation-based resource-hours (still used for GPU + fallback)
+    parents["GPU_Hours_Alloc"] = parents["GPU_Count"] * \
+        parents["Elapsed_Hours"]
+    parents["Mem_GB_Hours_Alloc"] = parents["Memory_GB"] * \
+        parents["Elapsed_Hours"]
+
+    # Final CPU used (per job):
+    # 1) sum of step TotalCPU (or CPUTimeRAW) if > 0
+    # 2) else parent's TotalCPU_Hours if > 0
+    # 3) else CPUTimeRAW_Hours
+    # 4) else AllocCPUS * Elapsed
+    parents["CPU_Core_Hours"] = np.where(
+        parents["CPU_Core_Hours_Used_steps"] > 0,
+        parents["CPU_Core_Hours_Used_steps"],
+        np.where(
+            parents["TotalCPU_Hours"] > 0,
+            parents["TotalCPU_Hours"],
+            np.where(
+                parents["CPUTimeRAW_Hours"] > 0,
+                parents["CPUTimeRAW_Hours"],
+                parents["AllocCPUS"] * parents["Elapsed_Hours"]
+            )
+        )
+    )
+
+    # Final Memory used: prefer step-based used; fallback to allocated
+    parents["Mem_GB_Hours_Used"] = np.where(
+        parents["Mem_GB_Hours_Used_steps"] > 0,
+        parents["Mem_GB_Hours_Used_steps"],
+        parents["Mem_GB_Hours_Alloc"]
+    )
+
+    # GPU: remain allocation-based unless you later integrate DCGM/NVML
+    parents["GPU_Hours"] = parents["GPU_Hours_Alloc"]
+
+    # Tier + Cost
+    parents["tier"] = parents["User"].map(classify_user_type)
+
     rates = rates_store.load_rates()
 
     def row_cost(r):
-        t = r["tier"]
-        rt = rates.get(t, rates.get(
+        rt = rates.get(r["tier"], rates.get(
             "private", {"cpu": 5, "gpu": 100, "mem": 2}))
         return (
             r["CPU_Core_Hours"] * float(rt["cpu"]) +
             r["GPU_Hours"] * float(rt["gpu"]) +
-            r["Mem_GB_Hours"] * float(rt["mem"])
+            r["Mem_GB_Hours_Used"] * float(rt["mem"])
         )
 
-    df["Cost (฿)"] = df.apply(row_cost, axis=1).round(2)
-    return df
+    parents["Cost (฿)"] = parents.apply(row_cost, axis=1).round(2)
+
+    # Keep a clean job-level view (one row per parent job)
+    keep_cols = [
+        "User", "JobID", "Elapsed", "End", "State",
+        "CPU_Core_Hours",
+        "GPU_Count", "GPU_Hours",
+        "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+        "tier", "Cost (฿)"
+    ]
+    for c in keep_cols:
+        if c not in parents.columns:
+            parents[c] = pd.NA
+
+    return parents[keep_cols]

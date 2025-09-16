@@ -86,26 +86,22 @@ def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
         })
     if not rows:
         raise RuntimeError("slurmrestd returned no jobs")
+    return pd.DataFrame(rows)
     return drop_steps(pd.DataFrame(rows))
 
 
 def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
-    """
-    Fetch jobs via sacct. We request End + State so we can implement
-    'completed before {end_date}' semantics correctly (filter by End).
-    """
-    # Build sacct command (use --parsable2 for ISO-like timestamps)
     cmd = [
         "sacct",
-        "--parsable2", "--noheader",
+        "--parsable2",  # keep header so pandas sees names
         "-S", start_date,
         "-E", end_date,
-        "-X",  # Skip job steps (.batchh)
-        "-L",  # Show all clusters
-        # Only finished/terminal states (exclude RUNNING/PENDING etc.)
+        # "-X",  # ← REMOVE: we want steps (.batch, .0, etc.)
+        "-L",
         "--state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE",
-        "--format=User,JobID,Elapsed,TotalCPU,ReqTRES,AllocTRES,"
-        "AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,CPUTime,End,State"
+        "--format="
+        "User,JobID,JobName,Elapsed,TotalCPU,CPUTime,CPUTimeRAW,"
+        "ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State"
     ]
     if username:
         cmd += ["-u", username]
@@ -113,16 +109,18 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         cmd += ["--allusers"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    df = pd.read_csv(StringIO(result.stdout), sep="|")
+    out = result.stdout
+    if not out.strip():
+        return pd.DataFrame()
 
-    # Keep only rows with a valid End time that finish on/before the cutoff day
+    df = pd.read_csv(StringIO(out), sep="|")
+
     if "End" in df.columns:
         df["End"] = pd.to_datetime(df["End"], errors="coerce")
         cutoff = pd.to_datetime(end_date) + \
             pd.Timedelta(hours=23, minutes=59, seconds=59)
         df = df[df["End"].notna() & (df["End"] <= cutoff)]
 
-    # Return the same core columns you already consume; extra columns are OK too
     return df
 
 
@@ -136,7 +134,7 @@ def _fallback_csv_path():
 def fetch_via_fallback() -> pd.DataFrame:
     df = pd.read_csv(_fallback_csv_path(), sep="|",
                      keep_default_na=False, dtype=str)
-    df = drop_steps(df)
+    # df = drop_steps(df)
     return df
 
 
@@ -180,7 +178,7 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
             cutoff = pd.to_datetime(end_date) + \
                 pd.Timedelta(hours=23, minutes=59, seconds=59)
             df = df[df["End"].notna() & (df["End"] <= cutoff)]
-        df = drop_steps(df)
+        # df = drop_steps(df)
         return df, "test.csv", notes
     except Exception as e:
         notes.append(f"test.csv: {e}")

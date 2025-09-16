@@ -36,7 +36,6 @@
         <button type="submit">{{ _("Create Receipt")}}</button>
     </form>
 
-
     <div class="tabs">
         <a class="{{ 'on' if view=='detail' else '' }}"
             href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
@@ -46,6 +45,81 @@
             href="{{ url_for('user.my_usage', before=before, view='billed') }}">Billed</a>
     </div>
 
+<style>
+    /* Priority styles:
+     - primary:      bold + underline + italic
+     - 1st fallback: bold + underline
+     - 2nd fallback: bold + italic
+  */
+    .hl-primary {
+        font-weight: 700;
+        text-decoration: underline;
+        font-style: italic;
+    }
+
+    .hl-fallback1 {
+        font-weight: 700;
+        text-decoration: underline;
+    }
+
+    .hl-fallback2 {
+        font-weight: 700;
+        font-style: italic;
+    }
+
+    .formula small {
+        color: var(--muted, #666);
+    }
+
+    details.raw {
+        margin-top: .75rem;
+    }
+
+    .table-wrap {
+        overflow: auto;
+        max-height: 60vh;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: .1rem .4rem;
+        border-radius: .6rem;
+        background: #efefef;
+        margin-right: .25rem;
+    }
+</style>
+
+
+    {% if view in ['detail','aggregate'] %}
+    {% if data_source %}
+    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif
+        %}</p>
+    {% endif %}
+
+    <!-- Formula legend -->
+    <div class="formula" style="margin:.5rem 0 .75rem 0">
+        <div>
+            <b>CPU</b>:
+            <span class="hl-primary">Σ TotalCPU (steps)</span>
+            <small>or</small>
+            <span class="hl-fallback1">CPUTimeRAW / 3600</span>
+            <small>or</small>
+            <span class="hl-fallback2">AllocCPUS × Elapsed</span>
+        </div>
+        <div>
+            <b>MEM</b>:
+            <span class="hl-primary">Σ AveRSS<small>(GB)</small> × Elapsed (steps)</span>
+            <small>or</small>
+            <span class="hl-fallback2">Mem_from_TRES × Elapsed</span>
+        </div>
+        <div>
+            <b>GPU</b>:
+            <span class="hl-primary">AllocGPU × Elapsed</span>
+            <small>or</small>
+            <span class="hl-fallback2">ReqGPU × Elapsed</span>
+        </div>
+    </div>
+    {% endif %}
 
     {% if view == 'detail' %}
     {% if rows and rows|length>0 %}
@@ -53,39 +127,75 @@
         <span class="chip">Jobs: {{ rows|length }}</span>
         <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
     </p>
-    <table>
-        <thead>
-            <tr>
-                <th>JobID</th>
-                <th>Elapsed</th>
-                <th>TotalCPU</th>
-                <th>ReqTRES</th>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>JobID</th>
+                    <th>Elapsed</th>
+                    <th>End</th>
+                    <th>State</th>
+                    <th>CPU core-hrs</th>
+                    <th>GPU (count)</th>
+                    <th>GPU hrs</th>
+                    <th>Mem (GB alloc)</th>
+                    <th>Mem GB-hrs <small>(used)</small></th>
+                    <th>Mem GB-hrs <small>(alloc)</small></th>
+                    <th>Tier</th>
+                    <th>Cost (฿)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td>{{ r['JobID'] }}</td>
+                    <td>{{ r['Elapsed'] }}</td>
+                    <td>{{ r['End'] }}</td>
+                    <td>{{ r['State'] }}</td>
+                    <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                    <td>{{ r['GPU_Count'] }}</td>
+                    <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                    <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                    <td>{{ r['tier']|upper }}</td>
+                    <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
-                <th>CPU core-hrs</th>
-                <th>GPU hrs</th>
-                <th>Mem GB-hrs</th>
-                <th>State</th>
-                <th>Tier</th>
-                <th>Cost (฿)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in rows %}
-            <tr>
-                <td>{{ r['JobID'] }}</td>
-                <td>{{ r['Elapsed'] }}</td>
-                <td>{{ r['TotalCPU'] }}</td>
-                <td>{{ r['ReqTRES'] }}</td>
-                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
-                <td>{{ r['State'] }}</td>
-                <td>{{ r['tier']|upper }}</td>
-                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <!-- Collapsible: Raw fetched data -->
+    <details class="raw">
+        <summary>Show raw fetched data (parents + steps)</summary>
+        {% if raw_cols and raw_rows %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        {% for c in raw_cols %}
+                        <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in raw_rows %}
+                    <tr>
+                        {% for c in raw_cols %}
+                        <td>{{ r.get(c) }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
+        {% else %}
+        <p class="muted">No raw rows.</p>
+        {% endif %}
+    </details>
+
     {% else %}
     <p class="muted">No jobs for the selected period.</p>
     {% endif %}
@@ -98,7 +208,7 @@
                 <th>Jobs</th>
                 <th>CPU core-hrs</th>
                 <th>GPU hrs</th>
-                <th>Mem GB-hrs</th>
+                <th>Mem GB-hrs (used)</th>
                 <th>Total Cost (฿)</th>
             </tr>
         </thead>
@@ -108,93 +218,50 @@
                 <td>{{ r['jobs'] }}</td>
                 <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                 <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
                 <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+
+    <!-- optional: raw collapsible also for aggregate view -->
+    <details class="raw">
+        <summary>Show raw fetched data (parents + steps)</summary>
+        {% if raw_cols and raw_rows %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        {% for c in raw_cols %}
+                        <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in raw_rows %}
+                    <tr>
+                        {% for c in raw_cols %}
+                        <td>{{ r.get(c) }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
+        {% else %}
+        <p class="muted">No raw rows.</p>
+        {% endif %}
+    </details>
+
     {% else %}
     <p class="muted">No jobs for the selected period.</p>
     {% endif %}
 
     {% elif view == 'billed' %}
-    <h4>Pending (unpaid) jobs</h4>
-    {% if pending and pending|length>0 %}
-    <p class="muted">
-        <span class="chip">Jobs: {{ pending|length }}</span>
-        <span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span>
-    </p>
-    <table>
-        <thead>
-            <tr>
-                <th>Receipt</th>
-                <th>Period</th>
-                <th>Job</th>
-                <th>CPU hrs</th>
-                <th>GPU hrs</th>
-                <th>Mem GB-hrs</th>
-                <th>Cost (฿)</th>
-                <th>Created</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for it in pending %}
-            <tr>
-                <td><a href="{{ url_for('user.view_receipt', rid=it['receipt_id']) }}">#{{ it['receipt_id'] }}</a></td>
-                <td>{{ it['start'] }} → {{ it['end'] }}</td>
-                <td>{{ it['job_id_display'] }}</td>
-                <td>{{ '%.2f'|format(it['cpu_core_hours']) }}</td>
-                <td>{{ '%.2f'|format(it['gpu_hours']) }}</td>
-                <td>{{ '%.2f'|format(it['mem_gb_hours']) }}</td>
-                <td>฿{{ '%.2f'|format(it['cost']) }}</td>
-                <td>{{ it['created_at'] }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">No pending jobs.</p>
-    {% endif %}
-
-    <h4 style="margin-top:1rem">Paid jobs</h4>
-    {% if paid and paid|length>0 %}
-    <p class="muted">
-        <span class="chip">Jobs: {{ paid|length }}</span>
-        <span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span>
-    </p>
-    <table>
-        <thead>
-            <tr>
-                <th>Receipt</th>
-                <th>Period</th>
-                <th>Job</th>
-                <th>CPU hrs</th>
-                <th>GPU hrs</th>
-                <th>Mem GB-hrs</th>
-                <th>Cost (฿)</th>
-                <th>Paid at</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for it in paid %}
-            <tr>
-                <td><a href="{{ url_for('user.view_receipt', rid=it['receipt_id']) }}">#{{ it['receipt_id'] }}</a></td>
-                <td>{{ it['start'] }} → {{ it['end'] }}</td>
-                <td>{{ it['job_id_display'] }}</td>
-                <td>{{ '%.2f'|format(it['cpu_core_hours']) }}</td>
-                <td>{{ '%.2f'|format(it['gpu_hours']) }}</td>
-                <td>{{ '%.2f'|format(it['mem_gb_hours']) }}</td>
-                <td>฿{{ '%.2f'|format(it['cost']) }}</td>
-                <td>{{ it['paid_at'] or '—' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">No paid jobs yet.</p>
-    {% endif %}
-
+    {# keep your existing billed tables unchanged #}
+    {{ super() }}
     {% else %}
     <p class="muted">Unknown view.</p>
     {% endif %}

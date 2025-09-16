@@ -25,11 +25,13 @@
 
         <a class="slink {{ 'on' if section=='billing' else '' }}"
             href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Billing") }}</a>
+
         <a class="slink {{ 'on' if section=='audit' else '' }}" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
-        </aside>
+    </aside>
 
     <!-- Main -->
     <main>
+
         {# ================= RATES ================= #}
         {% if section == 'rates' %}
         <div class="card">
@@ -116,6 +118,80 @@
                 <input type="hidden" name="type" value="{{ tier }}">
             </form>
 
+            <div class="right muted">
+                Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{%
+                endif %}
+            </div>
+            <div class="clear"></div>
+
+<style>
+    /* Priority styles:
+     - primary:      bold + underline + italic
+     - 1st fallback: bold + underline
+     - 2nd fallback: bold + italic
+  */
+    .hl-primary {
+        font-weight: 700;
+        text-decoration: underline;
+        font-style: italic;
+    }
+
+    .hl-fallback1 {
+        font-weight: 700;
+        text-decoration: underline;
+    }
+
+    .hl-fallback2 {
+        font-weight: 700;
+        font-style: italic;
+    }
+
+    .formula small {
+        color: var(--muted, #666);
+    }
+
+    details.raw {
+        margin-top: .75rem;
+    }
+
+    .table-wrap {
+        overflow: auto;
+        max-height: 60vh;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: .1rem .4rem;
+        border-radius: .6rem;
+        background: #efefef;
+        margin-right: .25rem;
+    }
+</style>
+
+            <!-- Formula legend with matching styles -->
+            <div class="formula" style="margin:.5rem 0 .75rem 0">
+                <div>
+                    <b>CPU</b>:
+                    <span class="hl-primary">Σ TotalCPU (steps)</span>
+                    <small>or</small>
+                    <span class="hl-fallback1">CPUTimeRAW / 3600</span>
+                    <small>or</small>
+                    <span class="hl-fallback2">AllocCPUS × Elapsed</span>
+                </div>
+                <div>
+                    <b>MEM</b>:
+                    <span class="hl-primary">Σ AveRSS<small>(GB)</small> × Elapsed (steps)</span>
+                    <small>or</small>
+                    <span class="hl-fallback2">Mem_from_TRES × Elapsed</span>
+                </div>
+                <div>
+                    <b>GPU</b>:
+                    <span class="hl-primary">AllocGPU × Elapsed</span>
+                    <small>or</small>
+                    <span class="hl-fallback2">ReqGPU × Elapsed</span>
+                </div>
+            </div>
+
             <div class="tabs">
                 <a class="{{ 'on' if view=='detail' else '' }}"
                     href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">Detailed</a>
@@ -123,59 +199,88 @@
                     href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">Aggregate</a>
             </div>
 
-            <div class="right muted">
-                Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{%
-                endif %}
-            </div>
-            <div class="clear"></div>
-
             {% if view == 'detail' %}
             {% if rows and rows|length>0 %}
             <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>JobID</th>
-                        <th>Elapsed</th>
-                        <th>TotalCPU</th>
-                        <th>ReqTRES</th>
-                        <th>CPU core-hrs</th>
-                        <th>GPU hrs</th>
-                        <th>Mem GB-hrs</th>
-                        <th>Tier</th>
-                        <th>State</th>
-                        <th>Cost (฿)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in rows %}
-                    <tr>
-                        <td>{{ r['User'] }}</td>
-                        <td>{{ r['JobID'] }}</td>
-                        <td>{{ r['Elapsed'] }}</td>
-                        <td>{{ r['TotalCPU'] }}</td>
-                        <td>{{ r['ReqTRES'] }}</td>
-                        <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
-                        <td>{{ r['tier']|upper }}</td>
-                        <td>{{ r['State'] }}</td>
-                        <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>JobID</th>
+                            <th>Elapsed</th>
+                            <th>End</th>
+                            <th>State</th>
+                            <th>CPU core-hrs</th>
+                            <th>GPU (count)</th>
+                            <th>GPU hrs</th>
+                            <th>Mem (GB alloc)</th>
+                            <th>Mem GB-hrs <small>(used)</small></th>
+                            <th>Mem GB-hrs <small>(alloc)</small></th>
+                            <th>Tier</th>
+                            <th>Cost (฿)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr>
+                            <td>{{ r['User'] }}</td>
+                            <td>{{ r['JobID'] }}</td>
+                            <td>{{ r['Elapsed'] }}</td>
+                            <td>{{ r['End'] }}</td>
+                            <td>{{ r['State'] }}</td>
+                            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                            <td>{{ r['GPU_Count'] }}</td>
+                            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                            <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                            <td>{{ r['tier']|upper }}</td>
+                            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
             <div class="muted" style="margin-top:.5rem">
                 <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
                 <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
-                <span class="chip">Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}</span>
+                <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
                 <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
             </div>
             {% else %}
             <p class="muted">No rows for the given range.</p>
             {% endif %}
+
+            <!-- Collapsible: Raw fetched data (all columns) with styled headers -->
+            <details class="raw">
+                <summary>Show raw fetched data (parents + steps)</summary>
+                {% if raw_cols and raw_rows %}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                {% for c in raw_cols %}
+                                <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in raw_rows %}
+                            <tr>
+                                {% for c in raw_cols %}
+                                <td>{{ r.get(c) }}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
+                {% else %}
+                <p class="muted">No raw rows.</p>
+                {% endif %}
+            </details>
+
             {% else %}
             {% if agg_rows and agg_rows|length>0 %}
             <p class="muted"><span class="chip">Grand total: ฿{{ '%.2f'|format(grand_total) }}</span></p>
@@ -187,7 +292,7 @@
                         <th>Jobs</th>
                         <th>CPU core-hrs</th>
                         <th>GPU hrs</th>
-                        <th>Mem GB-hrs</th>
+                        <th>Mem GB-hrs (used)</th>
                         <th>Total Cost (฿)</th>
                     </tr>
                 </thead>
@@ -199,7 +304,7 @@
                         <td>{{ r['jobs'] }}</td>
                         <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                         <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
                         <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                     </tr>
                     {% endfor %}
@@ -208,7 +313,7 @@
             <div class="muted" style="margin-top:.5rem">
                 <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
                 <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
-                <span class="chip">Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}</span>
+                <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
                 <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
             </div>
             {% else %}
@@ -272,12 +377,14 @@
                     <tr>
                         <th>JobID</th>
                         <th>Elapsed</th>
-                        <th>TotalCPU</th>
-                        <th>ReqTRES</th>
-                        <th>CPU core-hrs</th>
-                        <th>GPU hrs</th>
-                        <th>Mem GB-hrs</th>
+                        <th>End</th>
                         <th>State</th>
+                        <th>CPU core-hrs</th>
+                        <th>GPU (count)</th>
+                        <th>GPU hrs</th>
+                        <th>Mem (GB alloc)</th>
+                        <th>Mem GB-hrs <small>(used)</small></th>
+                        <th>Mem GB-hrs <small>(alloc)</small></th>
                         <th>Tier</th>
                         <th>Cost (฿)</th>
                     </tr>
@@ -287,12 +394,14 @@
                     <tr>
                         <td>{{ r['JobID'] }}</td>
                         <td>{{ r['Elapsed'] }}</td>
-                        <td>{{ r['TotalCPU'] }}</td>
-                        <td>{{ r['ReqTRES'] }}</td>
-                        <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                        <td>{{ r['End'] }}</td>
                         <td>{{ r['State'] }}</td>
+                        <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                        <td>{{ r['GPU_Count'] }}</td>
+                        <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                        <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
                         <td>{{ r['tier']|upper }}</td>
                         <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                     </tr>
@@ -311,7 +420,7 @@
                         <th>Jobs</th>
                         <th>CPU core-hrs</th>
                         <th>GPU hrs</th>
-                        <th>Mem GB-hrs</th>
+                        <th>Mem GB-hrs (used)</th>
                         <th>Total Cost (฿)</th>
                     </tr>
                 </thead>
@@ -322,7 +431,7 @@
                         <td>{{ r['jobs'] }}</td>
                         <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                         <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours']) }}</td>
+                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
                         <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                     </tr>
                     {% endfor %}
@@ -355,11 +464,13 @@
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
                         <td>{{ r['created_at'] }}</td>
                         <td>
-                            <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}" style="display:inline">
+                            <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}"
+                                style="display:inline">
                                 <button type="submit">Pay now</button>
                             </form>
 
-                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}" style="display:inline">
+                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
+                                style="display:inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit">{{ _("Mark as paid") }}</button>
                             </form>
@@ -446,7 +557,11 @@
             <p class="muted">Exports all <b>paid</b> receipts.</p>
             <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
         </div>
+
+        {% else %}
+        <p class="muted">Unknown section.</p>
         {% endif %}
+
     </main>
 </div>
 {% endblock %}

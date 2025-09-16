@@ -65,42 +65,70 @@ def my_usage():
     pending = paid = []
     sum_pending = sum_paid = 0.0
 
+    raw_cols: list[str] = []
+    raw_rows: list[dict] = []
+    header_classes: dict[str, str] = {}
+
     try:
         if view in {"detail", "aggregate"}:
-            df, data_source, notes = fetch_jobs_with_fallbacks(
+            # RAW fetch
+            df_raw, data_source, notes = fetch_jobs_with_fallbacks(
                 start_d, end_d, username=current_user.username)
-            df = compute_costs(df)
-
-            # Enforce End cutoff defensively
-            if "End" in df.columns:
-                df["End"] = pd.to_datetime(df["End"], errors="coerce")
+            if not df_raw.empty and "End" in df_raw.columns:
+                df_raw["End"] = pd.to_datetime(df_raw["End"], errors="coerce")
                 cutoff = pd.to_datetime(
                     end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df = df[df["End"].notna() & (df["End"] <= cutoff)]
+                df_raw = df_raw[df_raw["End"].notna() & (
+                    df_raw["End"] <= cutoff)]
+            raw_cols = list(df_raw.columns) if not df_raw.empty else []
+            raw_rows = df_raw.head(200).to_dict(
+                orient="records") if not df_raw.empty else []
+
+            # header style mapping for RAW table
+            header_classes = {c: "" for c in raw_cols}
+            for c in raw_cols:
+                if c == "TotalCPU":
+                    header_classes[c] = "hl-primary"
+                elif c == "CPUTimeRAW":
+                    header_classes[c] = "hl-fallback1"
+                elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
+                    header_classes[c] = "hl-fallback2"
+                elif c == "AveRSS":
+                    header_classes[c] = "hl-primary"
+
+            # Computed (parent-aggregated)
+            df = compute_costs(df_raw.copy())
 
             # Hide jobs that are already billed/pending
-            df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
-            already = billed_job_ids()
-            df = df[~df["JobKey"].isin(already)]
+            if not df.empty:
+                df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
+                already = billed_job_ids()
+                df = df[~df["JobKey"].isin(already)]
 
             # detailed rows
-            cols = ["JobID", "Elapsed", "TotalCPU", "ReqTRES", "State",
-                    "CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours", "tier", "Cost (฿)"]
-            for c in cols:
-                if c not in df.columns:
-                    df[c] = ""
-            rows = df[cols].to_dict(orient="records")
-            total_cost = float(df["Cost (฿)"].sum()) if not df.empty else 0.0
+            if view == "detail":
+                cols = [
+                    "JobID", "Elapsed", "End", "State",
+                    "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
+                    "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                    "tier", "Cost (฿)"
+                ]
+                for c in cols:
+                    if c not in df.columns:
+                        df[c] = ""
+                rows = df[cols].to_dict(orient="records")
+                total_cost = float(df["Cost (฿)"].sum()
+                                   ) if not df.empty else 0.0
 
             # aggregate (single row)
-            if not df.empty:
+            if view == "aggregate" and not df.empty:
                 agg_row = {
                     "user": current_user.username,
                     "tier": (df["tier"].mode()[0] if not df["tier"].mode().empty else ""),
                     "jobs": int(len(df)),
                     "CPU_Core_Hours": float(df["CPU_Core_Hours"].sum()),
                     "GPU_Hours": float(df["GPU_Hours"].sum()),
-                    "Mem_GB_Hours": float(df["Mem_GB_Hours"].sum()),
+                    "Mem_GB_Hours_Used": float(df["Mem_GB_Hours_Used"].sum()),
                     "Cost (฿)": float(df["Cost (฿)"].sum()),
                 }
                 agg_rows = [agg_row]
@@ -125,6 +153,8 @@ def my_usage():
         pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,  # billed
         data_source=data_source, notes=notes,
         total_cost=total_cost,
+        # NEW: raw table + header styles
+        raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
         url_for=url_for
     )
 
