@@ -134,6 +134,17 @@
         background: #efefef;
         margin-right: .25rem;
     }
+
+
+    /* Footnotes / tooltips */
+.formula abbr { text-decoration: none; border-bottom: 1px dotted var(--bd); cursor: help; }
+.fn { font-size: .8em; margin-left: .25rem; color: var(--muted); text-decoration: none; }
+details.footnotes { margin-top: .5rem; }
+details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
+.fn-list { margin: .25rem 0 0 1.25rem; }
+.fn-list li { margin: .25rem 0; }
+.fn-var { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
 </style>
 
 
@@ -143,29 +154,88 @@
         %}</p>
     {% endif %}
 
-    <!-- Formula legend -->
-    <div class="formula" style="margin:.5rem 0 .75rem 0">
-        <div>
-            <b>CPU</b>:
-            <span class="hl-primary">Σ TotalCPU (steps)</span>
-            <small>or</small>
-            <span class="hl-fallback1">CPUTimeRAW / 3600</span>
-            <small>or</small>
-            <span class="hl-fallback2">AllocCPUS × Elapsed</span>
-        </div>
-        <div>
-            <b>MEM</b>:
-            <span class="hl-primary">Σ AveRSS<small>(GB)</small> × Elapsed (steps)</span>
-            <small>or</small>
-            <span class="hl-fallback2">Mem_from_TRES × Elapsed</span>
-        </div>
-        <div>
-            <b>GPU</b>:
-            <span class="hl-primary">AllocGPU × Elapsed</span>
-            <small>or</small>
-            <span class="hl-fallback2">ReqGPU × Elapsed</span>
-        </div>
+<!-- Formula legend with matching styles + tooltips + footnotes -->
+<div class="formula" style="margin:.5rem 0 .25rem 0">
+    <div>
+        <b>CPU</b>:
+        <span class="hl-primary">
+            <abbr
+                title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
+                TotalCPU (steps)</abbr>
+            <a href="#fn-totalcpu" class="fn">[1]</a>
+        </span>
+        <small>or</small>
+        <span class="hl-fallback1">
+            <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW / 3600</abbr>
+            <a href="#fn-cputimeraw" class="fn">[2]</a>
+        </span>
+        <small>or</small>
+        <span class="hl-fallback2">
+            <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS × Elapsed</abbr>
+            <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
+        </span>
     </div>
+
+    <div>
+        <b>MEM</b>:
+        <span class="hl-primary">
+            <abbr
+                title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
+                AveRSS(GB) × Elapsed (steps)</abbr>
+            <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
+        </span>
+        <small>or</small>
+        <span class="hl-fallback2">
+            <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES × Elapsed</abbr>
+            <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
+        </span>
+    </div>
+
+    <div>
+        <b>GPU</b>:
+        <span class="hl-primary">
+            <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU × Elapsed</abbr>
+            <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
+        </span>
+        <small>or</small>
+        <span class="hl-fallback2">
+            <abbr title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU ×
+                Elapsed</abbr>
+            <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
+        </span>
+    </div>
+</div>
+
+<!-- Footnotes / glossary -->
+<details class="footnotes">
+    <summary>What do these variables mean?</summary>
+    <ol class="fn-list">
+        <li id="fn-totalcpu"><span class="fn-var">TotalCPU</span> — Slurm field of CPU time used (HH:MM:SS[.fff]) per
+            job/step. We sum over steps and convert to core-hours.</li>
+        <li id="fn-cputimeraw"><span class="fn-var">CPUTimeRAW</span> — Slurm field of CPU time in seconds (integer). We
+            divide by 3600 to get hours; used when <span class="fn-var">TotalCPU</span> is missing/zero.</li>
+        <li id="fn-alloccpus"><span class="fn-var">AllocCPUS</span> — CPU cores allocated, parsed from <span
+                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
+                class="fn-var">cpu=</span>.</li>
+        <li id="fn-elapsed"><span class="fn-var">Elapsed</span> — Wall-clock runtime of the parent job (D-HH:MM:SS),
+            converted to hours for calculations.</li>
+        <li id="fn-averss"><span class="fn-var">AveRSS</span> — Average resident set size per step (K/M/G/T). We convert
+            to GB; used to estimate memory actually used over time.</li>
+        <li id="fn-memfromtres"><span class="fn-var">Mem_from_TRES</span> — Memory allocated (GB) parsed from <span
+                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
+                class="fn-var">mem=</span>.</li>
+        <li id="fn-allocgpu"><span class="fn-var">AllocGPU</span> — GPUs allocated parsed from <span
+                class="fn-var">AllocTRES</span> via <span class="fn-var">gres/gpu=</span>.</li>
+        <li id="fn-reqgpu"><span class="fn-var">ReqGPU</span> — GPUs requested parsed from <span
+                class="fn-var">ReqTRES</span> via <span class="fn-var">gres/gpu=</span> (fallback only).</li>
+    </ol>
+    <div class="muted" style="margin-top:.25rem">
+        Notes: “steps” means rows like <span class="fn-var">.batch</span>, <span class="fn-var">.0</span>, etc., which
+        roll up to their parent job ID (or array task ID like <span class="fn-var">12345_17</span>). GPU is billed on
+        allocation for now; memory prefers used (from <span class="fn-var">AveRSS</span>) and falls back to allocated.
+    </div>
+</details>
+
     {% endif %}
 
     {% if view == 'detail' %}
