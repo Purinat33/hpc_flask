@@ -9,6 +9,7 @@
 - Types are **PostgreSQL-ish** (actual SQLAlchemy models map 1:1).
 - `PK` = primary key, `FK` = foreign key, `UQ` = unique.
 - Timestamps are UTC unless otherwise noted.
+- **KPI**: Key Performance Indicator, a quantifiable measure of performance over time for a specific objective.
 
 ---
 
