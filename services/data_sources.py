@@ -170,8 +170,14 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
         df = pd.read_csv(path, sep="|", keep_default_na=False, dtype=str)
         if username:
             u = username.strip().lower()
-            # .str accessors are safe even if some entries are ""
-            df = df[df["User"].fillna("").str.strip().str.lower() == u]
+            # canonical parent key for every row
+            df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
+            # find parent rows (JobID == canonical) owned by this user
+            parents = df[df["JobID"].astype(str) == df["JobKey"]].copy()
+            parents["_u"] = parents["User"].fillna("").str.strip().str.lower()
+            keep = set(parents.loc[parents["_u"] == u, "JobKey"])
+            # keep all rows (parent + steps) belonging to those parents
+            df = df[df["JobKey"].isin(keep)].drop(columns=["JobKey"])
 
         if "End" in df.columns:
             df["End"] = pd.to_datetime(df["End"], errors="coerce")
