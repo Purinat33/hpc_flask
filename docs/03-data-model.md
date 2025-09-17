@@ -1,6 +1,6 @@
 # Data Model
 
-> Canonical entities, relationships, constraints, and lifecycle for the **HPC Billing Platform**. 
+> Canonical entities, relationships, constraints, and lifecycle for the **HPC Billing Platform**.
 
 ---
 
@@ -12,7 +12,7 @@ erDiagram
   USERS ||--o{ PAYMENTS : initiates
   RECEIPTS ||--o{ RECEIPT_ITEMS : contains
   PAYMENTS ||--o{ PAYMENT_EVENTS : emits
-  RATES ||--o{ RECEIPT_ITEMS : priced_by
+  RATES }o--|| RECEIPTS : snapshot_at_creation
   AUDIT_LOG }o--|| USERS : actor_username
   AUTH_THROTTLE }o--|| USERS : per_user_entries
   RECEIPTS ||--o{ PAYMENTS : settled_by
@@ -37,8 +37,13 @@ erDiagram
     string username FK
     string start
     string end
+    string pricing_tier
+    float  rate_cpu
+    float  rate_gpu
+    float  rate_mem
+    string rates_locked_at
     decimal total
-    string status
+    string status        "pending|paid|void"
     string paid_at
     string method
     string tx_ref
@@ -60,7 +65,7 @@ erDiagram
     string provider
     int    receipt_id FK
     string username  FK
-    string status
+    string status          "pending|succeeded|failed|canceled"
     string currency
     int    amount_cents
     string external_payment_id
@@ -77,8 +82,8 @@ erDiagram
     string external_event_id
     string event_type
     boolean signature_ok
-    text   raw_payload
-    string created_at
+    text   raw
+    string received_at
   }
 
   AUTH_THROTTLE {
@@ -106,20 +111,19 @@ erDiagram
     string hash
   }
 
-  %% FK notes (comments only; not parsed):
+  %% FKs (comment only):
   %% RECEIPTS.username -> USERS.username
   %% RECEIPT_ITEMS.receipt_id -> RECEIPTS.id
   %% PAYMENTS.receipt_id -> RECEIPTS.id
   %% PAYMENTS.username -> USERS.username
   %% PAYMENT_EVENTS.payment_id -> PAYMENTS.id
-
 ```
 
 **Notes**
 
-- A **Receipt** is a priced bundle of jobs for one user and a date window.
+- A **Receipt** is a priced bundle of jobs for one user and a date window. It now carries a **snapshot of tier and rates** (`pricing_tier`, `rate_cpu/gpu/mem`, `rates_locked_at`) taken at creation to ensure historical reproducibility.
 - Each **ReceiptItem** is one priced job; **`job_key` is globally unique** to prevent double billing across receipts.
-- **Payments** are optional; they finalize receipts via **webhooks** (**PaymentEvents**) and idempotent application.
+- **Payments** finalize receipts via **webhooks** (**PaymentEvents**) with idempotency on `(provider, external_event_id)`.
 - **AuditLog** forms a hash chain for tamper‐evident auditing.
 - **AuthThrottle** backs login throttling/lockout.
 
@@ -131,12 +135,12 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> draft
-  draft --> paid: payment_finalized
-  draft --> void: admin_void
-  paid --> void: admin_void_refund\n(optional, recorded in audit)
-  void --> [*]
+  [*] --> pending
+  pending --> paid: payment_finalized
+  pending --> void: admin_void
+  paid --> void: admin_void_refund\n(optional, audited)
   paid --> [*]
+  void --> [*]
 ```
 
 - Transitions are logged into **AuditLog**.
@@ -148,9 +152,11 @@ stateDiagram-v2
 stateDiagram-v2
   [*] --> pending: create_checkout
   pending --> succeeded: webhook(signature_ok && amount/currency match)
-  pending --> failed: webhook(failed) / timeout
+  pending --> failed: webhook(failed)/timeout
+  pending --> canceled: provider_cancel (optional)
   succeeded --> [*]
   failed --> [*]
+  canceled --> [*]
 ```
 
 - Webhook payloads are persisted as **PaymentEvents** with `(provider, external_event_id)` **unique** for replay protection.
@@ -168,7 +174,7 @@ stateDiagram-v2
 
   - `receipts.username → users.username`
   - `receipt_items.receipt_id → receipts.id`
-  - `payments.receipt_id → receipts.id` (CASCADE recommended for orphan cleanup)
+  - `payments.receipt_id → receipts.id` (CASCADE recommended)
   - `payments.username → users.username`
   - `payment_events.payment_id → payments.id`
 
@@ -177,38 +183,43 @@ stateDiagram-v2
   - `receipt_items.job_key` → **UNIQUE (global)** to prevent double billing.
   - `payment_events (provider, external_event_id)` → **UNIQUE** (idempotent webhook handling).
   - `auth_throttle (username, ip)` → **UNIQUE** index.
+  - _(Optional/Recommended)_ Partial unique on `(provider, idempotency_key)` where `idempotency_key IS NOT NULL` to dedupe checkout inits.
 
-- **Checks (enforced in store layer or DB)**
+- **Checks (DB or store layer)**
 
   - `users.role ∈ {'admin','user'}`
-  - `receipts.status ∈ {'draft','paid','void'}`
-  - `payments.status ∈ {'pending','succeeded','failed'}`
-  - `payments.currency` length 3 (ISO 4217).
+  - `receipts.status ∈ {'pending','paid','void'}`
+  - `payments.status ∈ {'pending','succeeded','failed','canceled'}`
+  - `payments.amount_cents ≥ 0`
+  - `payments.currency` length 3 (ISO 4217)
 
 - **Common indexes**
 
   - `receipts (username, created_at DESC)`
   - `receipts (status, created_at DESC)`
-  - `payment_events (provider, external_event_id)` unique index
-  - `receipt_items (receipt_id)` for load of a receipt
-  - `audit_log (ts DESC)` for export
+  - `receipt_items (receipt_id)` for loading a receipt
+  - `payment_events (provider, external_event_id)` unique
+  - `payments (receipt_id)`, `payments (status)`
+  - `audit_log (ts DESC)`
 
 ---
 
 ## 4) Canonical fields & derived values
 
-- **`job_key`** (ReceiptItem)
-  Canonicalized from Slurm JobID by dropping step/suffix parts (e.g., `12345.1` → `12345`). This is the **de‐duplication** key across all receipts.
-- **Resource hours** (ReceiptItem)
-  Derived during pricing:
+- **`job_key`** (ReceiptItem) — Canonicalized from Slurm JobID by dropping step/suffix parts (e.g., `12345.1` → `12345`). This is the **de‐duplication** key across all receipts.
 
-  - `cpu_core_hours` from `TotalCPU`/`AllocCPUs` × elapsed normalization
-  - `gpu_hours` parsed from `ReqTRES` (`gpu:X`)
-  - `mem_gb_hours` parsed from `ReqTRES` memory spec
+- **Resource hours** (ReceiptItem) — Derived during pricing (now **step-aware**):
 
-- **Costs**
-  `cost = cpu_core_hours * rates.cpu + gpu_hours * rates.gpu + mem_gb_hours * rates.mem`
-  Receipt `total` is the sum of item costs (rounded appropriately).
+  - **CPU** core-hours:
+    Σ `TotalCPU` (over **steps**) → fallback `CPUTimeRAW/3600` → fallback `AllocCPUS × Elapsed`.
+  - **MEM** GB-hours:
+    Σ `AveRSS(GB) × Elapsed` (over **steps**) → fallback `mem_from_TRES × Elapsed`.
+  - **GPU** hours:
+    `AllocGPU × Elapsed` (fallback `ReqGPU × Elapsed` when allocation missing).
+
+- **Costs** — With **snapshot rates captured on the receipt**:
+  `cost = cpu_core_hours * rate_cpu + gpu_hours * rate_gpu + mem_gb_hours * rate_mem`
+  Receipt `total` is the sum of item costs (rounded).
 
 ---
 
@@ -223,26 +234,28 @@ stateDiagram-v2
 
 - **tier** (`PK`) in `{mu, gov, private}`.
 - **cpu**, **gpu**, **mem** (float) with **updated_at** (ISO 8601).
-- Admin updates are **non-retroactive** (used for new pricing).
+- Admin updates are **non-retroactive**; receipts store **their own snapshot** at creation.
 
 ### 5.3 `receipts`
 
-- **id** (`PK`, auto), **username** (`FK`), **start**, **end**, **total** (decimal/NUMERIC), **status**, **paid_at**, **method**, **tx_ref**, **created_at**.
-- `status` lifecycle per state machine above.
+- **id** (`PK`, auto), **username** (`FK`), **start**, **end**, **total**, **status** (`pending|paid|void`), **paid_at**, **method**, **tx_ref**, **created_at**.
+- **Snapshot fields**: **pricing_tier**, **rate_cpu**, **rate_gpu**, **rate_mem**, **rates_locked_at** (ISO 8601).
+- Lifecycle per state machine above.
 
 ### 5.4 `receipt_items`
 
-- **receipt_id** (`FK`), **job_key** (**UNIQUE**), **job_id_display**, resource hours, **cost**.
-- Suggested composite primary key: `(receipt_id, job_key)` for locality; plus global `UNIQUE(job_key)` to block cross-receipt duplicates.
+- **receipt_id** (`FK`), **job_key** (**UNIQUE global**), **job_id_display**, resource hours, **cost**.
+- Composite PK pattern recommended: `(receipt_id, job_key)` for locality; keep global `UNIQUE(job_key)` to block cross-receipt duplicates.
 
 ### 5.5 `payments`
 
-- **id** (`PK`), **provider**, **receipt_id** (`FK`), **username** (`FK`), **status**, **currency** (3 letters), **amount_cents** (int), **external_payment_id**, **checkout_url**, **idempotency_key**, **created_at**, **updated_at**.
-- Idempotency key recommended on **initiation** to avoid duplicate checkouts.
+- **id** (`PK`), **provider**, **receipt_id** (`FK`), **username** (`FK`), **status** (`pending|succeeded|failed|canceled`), **currency** (3 letters), **amount_cents** (int), **external_payment_id**, **checkout_url**, **idempotency_key**, **created_at**, **updated_at**.
+- Index on `(receipt_id)`, `(status)`. Consider partial unique on `(provider, idempotency_key)` when present.
 
 ### 5.6 `payment_events`
 
-- **id** (`PK`), **payment_id** (`FK`), **provider**, **external_event_id** (**UNIQUE with provider**), **event_type**, **signature_ok** (bool), **raw_payload** (text), **created_at**.
+- **id** (`PK`), **payment_id** (`FK`), **provider**, **external_event_id** (**UNIQUE with provider**), **event_type**, **signature_ok** (bool), **raw** (text), **received_at**.
+- Enforces webhook **idempotency**.
 
 ### 5.7 `auth_throttle`
 
@@ -251,19 +264,19 @@ stateDiagram-v2
 
 ### 5.8 `audit_log`
 
-- **id** (`PK`), **ts**, **actor**, **ip**, **ua**, **method**, **path**, **action**, **target**, **status**, **extra**, **prev_hash**, **hash**.
-- Append-only; **`hash` = H(prev_hash || record)\`** for tamper evidence.
+- **id** (`PK`), **ts**, **actor**, **ip**, **ua**, **method**, **path**, **action**, **target**, **status**, **extra**, **prev_hash**, \*\*hash\`.
+- Append-only; **`hash = H(prev_hash || canonical_record)`** for tamper evidence.
 
 ---
 
 ## 6) Normalization & integrity
 
-- **3NF**: Rates separated by tier; receipt and items split; payments and events split.
+- **3NF**: Rates separated by tier; receipts carry a **snapshot** so historical totals are reproducible; items split from receipt; payments and events split.
 - **Idempotency**: Enforced at DB layer for `job_key` and `(provider, external_event_id)`.
 - **Transactions**:
 
-  - Receipt creation (header + items) → single transaction.
-  - Payment finalization (mark payment + mark receipt paid + audit) → single transaction.
+  - Receipt creation (header with snapshot + items) → one transaction.
+  - Payment finalization (event insert + payment update + receipt paid + audit) → one transaction.
 
 - **Deletion**: Prefer **voiding** receipts over hard deletes; rely on CASCADE only for dependent rows (e.g., receipt items) during admin cleanup.
 
@@ -272,7 +285,7 @@ stateDiagram-v2
 ## 7) Example queries (reference)
 
 ```sql
--- List latest receipts for a user
+-- Latest receipts for a user
 SELECT id, start, "end", total, status, created_at
 FROM receipts
 WHERE username = :u
@@ -298,6 +311,12 @@ WHERE p.receipt_id = :rid
 ORDER BY p.id DESC
 LIMIT 1;
 
+-- Webhook replay detector (should be 0 rows)
+SELECT provider, external_event_id, COUNT(*)
+FROM payment_events
+GROUP BY provider, external_event_id
+HAVING COUNT(*) > 1;
+
 -- Export audit
 SELECT * FROM audit_log ORDER BY id DESC;
 ```
@@ -307,7 +326,7 @@ SELECT * FROM audit_log ORDER BY id DESC;
 ## 8) Retention & privacy
 
 - **Users**: store only username and password hash; avoid PII.
-- **Receipts/Items/Payments**: retain for financial compliance (institution policy).
+- **Receipts/Items/Payments/Events**: retain per financial policy (institutional requirements).
 - **Audit logs**: retain per security policy; exportable to CSV.
 - **Payment events**: keep raw payloads for reconciliation; redact secrets where applicable.
 
@@ -315,10 +334,11 @@ SELECT * FROM audit_log ORDER BY id DESC;
 
 ## 9) Migration tips
 
-- Create unique index on **`receipt_items(job_key)`** early to stop duplicate billing.
-- Backfill `job_key` from historical `job_id_display` (apply the canonicalization rule).
-- Add `(provider, external_event_id)` **unique** index before enabling real webhooks.
-- If consolidating databases, migrate **users** first, then **rates**, then **receipts/items**, then **payments/events**, preserving IDs or mapping tables as needed.
+- Add **snapshot columns** to `receipts` and backfill from current `rates` for historical receipts with a best-effort `rates_locked_at` timestamp.
+- Extend `receipts.status` CHECK to include `'pending'|'paid'|'void'`.
+- Ensure **`receipt_items(job_key)` UNIQUE** exists to stop duplicate billing.
+- Add `(provider, external_event_id)` **UNIQUE** before enabling real webhooks.
+- Optional: partial unique index `(provider, idempotency_key)` **WHERE idempotency_key IS NOT NULL**.
 
 ---
 
@@ -330,7 +350,7 @@ erDiagram
   RECEIPTS ||--o{ RECEIPT_ITEMS : contains
   RECEIPTS ||--o{ PAYMENTS : leads_to
   PAYMENTS ||--o{ PAYMENT_EVENTS : emits
-  RATES ||--o{ RECEIPT_ITEMS : priced_by
+  RATES }o--|| RECEIPTS : snapshot
 ```
 
 ---
