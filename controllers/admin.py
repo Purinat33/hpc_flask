@@ -82,8 +82,55 @@ def admin_form():
         "top_users_values": [],
     }
 
-    # ---- DASHBOARD: always render dashboard.html, even on error ----
+    # helpers
+    def _safe_float(x, default=0.0):
+        try:
+            if x is None:
+                return default
+            s = str(x).strip().replace("฿", "").replace(",", "")
+            return float(s) if s else default
+        except Exception:
+            return default
+
+    def _ensure_col(df, name, default_val=""):
+        """Return a Series for df[name]; if missing, return a same-length Series of default_val."""
+        if name in df.columns:
+            return df[name]
+        return pd.Series([default_val] * len(df), index=df.index)
+
+    # ---- DASHBOARD ----
+    # ---- DASHBOARD ----
     if section == "dashboard":
+        import math
+
+        def _safe_float(x, default=0.0):
+            try:
+                if x is None:
+                    return default
+                s = str(x).strip().replace("฿", "").replace(",", "")
+                v = float(s) if s else default
+                return v if math.isfinite(v) else default
+            except Exception:
+                return default
+
+        def _ensure_col(df, name, default_val=0.0):
+            return df[name] if name in df.columns else pd.Series([default_val] * len(df), index=df.index)
+
+        def _clean_nums(seq, ndigits=2):
+            out = []
+            for x in seq:
+                try:
+                    v = float(x)
+                except Exception:
+                    v = 0.0
+                if not math.isfinite(v):
+                    v = 0.0
+                out.append(round(v, ndigits))
+            return out
+
+        def _clean_labels(seq):
+            return [("" if v is None else str(v)) for v in seq]
+
         try:
             # 90-day window ending at `before`
             end_d = before
@@ -95,7 +142,16 @@ def admin_form():
             notes.extend(ds_notes or [])
             if df is None:
                 df = pd.DataFrame()
-            df = compute_costs(df)
+            df = compute_costs(df).copy()
+
+            # Coerce numerics & fill NaN early (prevents NaN in sums)
+            num_cols = [
+                "Cost (฿)", "CPU_Core_Hours", "GPU_Hours",
+                "Mem_GB_Hours", "Mem_GB_Hours_Used", "Elapsed_Hours"
+            ]
+            for c in num_cols:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
             # Defensive End cutoff
             if "End" in df.columns:
@@ -103,72 +159,91 @@ def admin_form():
                 cutoff = pd.to_datetime(
                     end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
                 df = df[df["End"].notna() & (df["End"] <= cutoff)]
+            else:
+                df["End"] = pd.NaT  # keep column so code below doesn't explode
 
-            # Unbilled view
-            df["JobKey"] = df.get("JobID", "").astype(
-                str).map(canonical_job_id)
-            already = billed_job_ids()
+            # Unbilled view (safe JobKey creation)
+            jobid = _ensure_col(df, "JobID", "")
+            df["JobKey"] = jobid.astype(str).map(canonical_job_id)
+            already = set(billed_job_ids())
             df_unbilled = df[~df["JobKey"].isin(already)].copy()
 
             # KPIs
-            kpis["unbilled_cost"] = float(
-                df_unbilled["Cost (฿)"].sum()) if not df_unbilled.empty else 0.0
+            kpis["unbilled_cost"] = float(_safe_float(df_unbilled.get(
+                "Cost (฿)", 0).sum())) if not df_unbilled.empty else 0.0
 
             pending = admin_list_receipts(status="pending") or []
             kpis["pending_receivables"] = float(
-                sum(float(r.get("total", 0) or 0) for r in pending))
+                sum(_safe_float(r.get("total")) for r in pending))
 
             paid = admin_list_receipts(status="paid") or []
+
+            from zoneinfo import ZoneInfo
+
+            tz = ZoneInfo("Asia/Bangkok")
+            cutoff_30 = pd.Timestamp(end_d).replace(
+                tzinfo=None) - pd.Timedelta(days=30)
+
             paid_30 = 0.0
-            cutoff_30 = pd.to_datetime(end_d) - pd.Timedelta(days=30)
-            for r in paid:
-                ts = pd.to_datetime(r.get("paid_at"), errors="coerce")
-                if pd.notna(ts) and ts >= cutoff_30:
-                    paid_30 += float(r.get("total", 0) or 0)
+            for r in (admin_list_receipts(status="paid") or []):
+                ts = pd.to_datetime(
+                    r.get("paid_at"), errors="coerce", utc=True)
+                ts_local_naive = ts.tz_convert(tz).tz_localize(
+                    None) if pd.notna(ts) else pd.NaT
+                if pd.notna(ts_local_naive) and ts_local_naive >= cutoff_30:
+                    paid_30 += _safe_float(r.get("total"))
             kpis["paid_last_30d"] = float(paid_30)
-
             kpis["jobs_last_30d"] = 0
-            if not df.empty and "End" in df.columns:
-                kpis["jobs_last_30d"] = int((df["End"] >= cutoff_30).sum())
+            if not df.empty:
+                df_end = pd.to_datetime(df["End"], errors="coerce")
+                kpis["jobs_last_30d"] = int((df_end >= cutoff_30).sum())
 
-            # Series
-            if not df.empty and "End" in df.columns:
-                daily = df.groupby(df["End"].dt.date)[
-                    "Cost (฿)"].sum().sort_index()
-                series["daily_labels"] = [d.isoformat() for d in daily.index]
-                series["daily_cost"] = [round(float(v), 2)
-                                        for v in daily.values]
+            # Series (daily / tier / top) — ensure no NaN/inf leaks into JSON
+            if not df.empty:
+                if "End" in df.columns and "Cost (฿)" in df.columns:
+                    daily = (
+                        df.groupby(df["End"].dt.date)["Cost (฿)"]
+                        .sum(min_count=1)           # NaN if group is all-NaN
+                        .fillna(0)                  # make it 0
+                        .sort_index()
+                    )
+                    series["daily_labels"] = _clean_labels(
+                        [d.isoformat() for d in daily.index])
+                    series["daily_cost"] = _clean_nums(daily.values)
 
-                if "tier" in df.columns:
-                    tier_sum = df.groupby("tier", dropna=False)[
-                        "Cost (฿)"].sum().sort_values(ascending=False)
-                    series["tier_labels"] = [
-                        str(i).upper() for i in tier_sum.index]
-                    series["tier_values"] = [
-                        round(float(v), 2) for v in tier_sum.values]
+                if "tier" in df.columns and "Cost (฿)" in df.columns:
+                    tier_sum = (
+                        df.groupby("tier", dropna=False)["Cost (฿)"]
+                        .sum(min_count=1)
+                        .fillna(0)
+                        .sort_values(ascending=False)
+                    )
+                    series["tier_labels"] = _clean_labels(
+                        [str(i).upper() for i in tier_sum.index])
+                    series["tier_values"] = _clean_nums(tier_sum.values)
 
-                if "User" in df.columns:
-                    top = df.groupby("User")["Cost (฿)"].sum(
-                    ).sort_values(ascending=False).head(10)
-                    series["top_users_labels"] = list(top.index)
-                    series["top_users_values"] = [
-                        round(float(v), 2) for v in top.values]
+                if "User" in df.columns and "Cost (฿)" in df.columns:
+                    top = (
+                        df.groupby("User")["Cost (฿)"]
+                        .sum(min_count=1)
+                        .fillna(0)
+                        .sort_values(ascending=False)
+                        .head(10)
+                    )
+                    series["top_users_labels"] = _clean_labels(top.index)
+                    series["top_users_values"] = _clean_nums(top.values)
 
             # Totals chips
-            tot_cpu = float(
-                df.get("CPU_Core_Hours", pd.Series(dtype=float)).sum())
-            tot_gpu = float(df.get("GPU_Hours", pd.Series(dtype=float)).sum())
-            tot_mem = float(
-                (df["Mem_GB_Hours"].sum() if "Mem_GB_Hours" in df.columns
-                 else df.get("Mem_GB_Hours_Used", pd.Series(dtype=float)).sum())
-            )
-            tot_elapsed = float(
-                df.get("Elapsed_Hours", pd.Series(dtype=float)).sum())
+            tot_cpu = float(_ensure_col(df, "CPU_Core_Hours", 0).sum())
+            tot_gpu = float(_ensure_col(df, "GPU_Hours", 0).sum())
+            tot_mem = float((_ensure_col(df, "Mem_GB_Hours", 0).sum()
+                            if "Mem_GB_Hours" in df.columns
+                            else _ensure_col(df, "Mem_GB_Hours_Used", 0).sum()))
+            tot_elapsed = float(_ensure_col(df, "Elapsed_Hours", 0).sum())
 
         except Exception as e:
-            # Keep dashboard up with a visible note instead of falling through to admin/page.html
             notes.append(f"dashboard_error: {e!s}")
-        # Always render the dashboard template for this section
+
         return render_template(
             "admin/dashboard.html",
             current_user=current_user,
@@ -177,6 +252,7 @@ def admin_form():
             tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
             url_for=url_for,
         )
+
     try:
         if section == "usage":
             # -------- fetch RAW (parents + steps) --------
