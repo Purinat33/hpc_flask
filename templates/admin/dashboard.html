@@ -53,13 +53,27 @@
 
 <!-- Lightweight charts via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<!-- Put the data in JSON, not JS -->
+<script id="dash-data" type="application/json">
+{{ {
+  "daily_labels": series.daily_labels,
+  "daily_cost": series.daily_cost,
+  "tier_labels": series.tier_labels,
+  "tier_values": series.tier_values,
+  "top_users_labels": series.top_users_labels,
+  "top_users_values": series.top_users_values
+}|tojson }}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script>
-    const dailyLabels = {{ series.daily_labels| tojson }};
-    const dailyData = {{ series.daily_cost| tojson }};
-    const tierLabels = {{ series.tier_labels| tojson }};
-    const tierValues = {{ series.tier_values| tojson }};
-    const userLabels = {{ series.top_users_labels| tojson }};
-    const userValues = {{ series.top_users_values| tojson }};
+    const S = JSON.parse(document.getElementById('dash-data').textContent);
+    const dailyLabels = S.daily_labels || [];
+    const dailyData = S.daily_cost || [];
+    const tierLabels = S.tier_labels || [];
+    const tierValues = S.tier_values || [];
+    const userLabels = S.top_users_labels || [];
+    const userValues = S.top_users_values || [];
 
     new Chart(document.getElementById('dailyCost'), {
         type: 'line',
@@ -79,4 +93,5 @@
         options: { plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
     });
 </script>
+
 {% endblock %}
