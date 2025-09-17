@@ -32,16 +32,16 @@ admin_bp = Blueprint("admin", __name__)
 def admin_form():
     rates = rates_store.load_rates()
 
-    # section: rates | usage (all users) | myusage (this admin) | billing
-    section = (request.args.get("section") or "usage").lower()
+    # ---- parse & sanitize query params ----
+    section = (request.args.get("section") or "usage").strip().lower()
     if section not in {"rates", "usage", "billing", "myusage", "dashboard"}:
         section = "usage"
 
-    tier = (request.args.get("type") or "mu").lower()
+    tier = (request.args.get("type") or "mu").strip().lower()
     if tier not in rates:
         tier = "mu"
 
-    view = (request.args.get("view") or "detail").lower()
+    view = (request.args.get("view") or "detail").strip().lower()
     if section == "myusage":
         if view not in {"detail", "aggregate", "billed"}:
             view = "detail"
@@ -51,10 +51,9 @@ def admin_form():
 
     EPOCH_START = "1970-01-01"
     before = request.args.get("before") or date.today().isoformat()
-    start_d = EPOCH_START
-    end_d = before
+    start_d, end_d = EPOCH_START, before
 
-    # defaults
+    # ---- shared defaults for template context ----
     rows: list[dict] = []
     agg_rows: list[dict] = []
     grand_total = 0.0
@@ -68,120 +67,116 @@ def admin_form():
     sum_pending = 0.0
     sum_paid = 0.0
 
-    # for the raw (unaggregated) fetched data preview
     raw_cols: list[str] = []
     raw_rows: list[dict] = []
-    # style classes for header highlighting
     header_classes: dict[str, str] = {}
 
-    # Dedicated section for dashboard
-    kpis = {}
+    # Dashboard-only context
+    kpis: dict = {}
+    series = {
+        "daily_cost": [],
+        "daily_labels": [],
+        "tier_labels": [],
+        "tier_values": [],
+        "top_users_labels": [],
+        "top_users_values": [],
+    }
 
-    series = {"daily_cost": [], "daily_labels": [], "tier_labels": [],
-              "tier_values": [], "top_users_labels": [], "top_users_values": []}
-
-    try:
-        if section == "dashboard":
-            # Window: last 90 days ending at `before`
+    # ---- DASHBOARD: always render dashboard.html, even on error ----
+    if section == "dashboard":
+        try:
+            # 90-day window ending at `before`
             end_d = before
             start_d = (date.fromisoformat(before) -
                        timedelta(days=90)).isoformat()
 
-            # Pull jobs (all users), compute costs
-            df, data_source, notes = fetch_jobs_with_fallbacks(start_d, end_d)
+            df, data_source, ds_notes = fetch_jobs_with_fallbacks(
+                start_d, end_d)
+            notes.extend(ds_notes or [])
+            if df is None:
+                df = pd.DataFrame()
             df = compute_costs(df)
 
-            # Enforce End cutoff (defensive, same as other sections)
+            # Defensive End cutoff
             if "End" in df.columns:
                 df["End"] = pd.to_datetime(df["End"], errors="coerce")
                 cutoff = pd.to_datetime(
                     end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
                 df = df[df["End"].notna() & (df["End"] <= cutoff)]
 
-            # Build UNBILLED view (exclude already-billed job_keys)
-            df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
+            # Unbilled view
+            df["JobKey"] = df.get("JobID", "").astype(
+                str).map(canonical_job_id)
             already = billed_job_ids()
             df_unbilled = df[~df["JobKey"].isin(already)].copy()
 
             # KPIs
-            # 1) Unbilled cost right now
             kpis["unbilled_cost"] = float(
                 df_unbilled["Cost (฿)"].sum()) if not df_unbilled.empty else 0.0
 
-            # 2) Pending receivables (sum of pending receipts)
-            pending = admin_list_receipts(status="pending")
+            pending = admin_list_receipts(status="pending") or []
             kpis["pending_receivables"] = float(
-                sum(float(r["total"]) for r in pending)) if pending else 0.0
+                sum(float(r.get("total", 0) or 0) for r in pending))
 
-            # 3) Paid in last 30 days (by paid_at)
-            paid = admin_list_receipts(status="paid")
+            paid = admin_list_receipts(status="paid") or []
             paid_30 = 0.0
-            if paid:
-                cutoff_30 = pd.to_datetime(end_d) - pd.Timedelta(days=30)
-                for r in paid:
-                    ts = pd.to_datetime(r.get("paid_at"), errors="coerce")
-                    if pd.notna(ts) and ts >= cutoff_30:
-                        paid_30 += float(r["total"])
+            cutoff_30 = pd.to_datetime(end_d) - pd.Timedelta(days=30)
+            for r in paid:
+                ts = pd.to_datetime(r.get("paid_at"), errors="coerce")
+                if pd.notna(ts) and ts >= cutoff_30:
+                    paid_30 += float(r.get("total", 0) or 0)
             kpis["paid_last_30d"] = float(paid_30)
 
-            # 4) Jobs in last 30 days (all usage)
-            jobs_30d = 0
-            if not df.empty:
-                cutoff_30 = pd.to_datetime(end_d) - pd.Timedelta(days=30)
-                jobs_30d = int((df["End"] >= cutoff_30).sum())
-            kpis["jobs_last_30d"] = jobs_30d
+            kpis["jobs_last_30d"] = 0
+            if not df.empty and "End" in df.columns:
+                kpis["jobs_last_30d"] = int((df["End"] >= cutoff_30).sum())
 
-            # Time-series: daily total cost (all usage) over window
-            if not df.empty:
-                daily = (
-                    df.groupby(df["End"].dt.date)["Cost (฿)"]
-                    .sum()
-                    .sort_index()
-                )
+            # Series
+            if not df.empty and "End" in df.columns:
+                daily = df.groupby(df["End"].dt.date)[
+                    "Cost (฿)"].sum().sort_index()
                 series["daily_labels"] = [d.isoformat() for d in daily.index]
                 series["daily_cost"] = [round(float(v), 2)
                                         for v in daily.values]
 
-                # Mix by tier (pie)
-                tier = df.groupby("tier", dropna=False)[
-                    "Cost (฿)"].sum().sort_values(ascending=False)
-                series["tier_labels"] = [str(i).upper() for i in tier.index]
-                series["tier_values"] = [
-                    round(float(v), 2) for v in tier.values]
+                if "tier" in df.columns:
+                    tier_sum = df.groupby("tier", dropna=False)[
+                        "Cost (฿)"].sum().sort_values(ascending=False)
+                    series["tier_labels"] = [
+                        str(i).upper() for i in tier_sum.index]
+                    series["tier_values"] = [
+                        round(float(v), 2) for v in tier_sum.values]
 
-                # Top users by total cost (bar)
-                top = (
-                    df.groupby("User")["Cost (฿)"]
-                    .sum()
-                    .sort_values(ascending=False)
-                    .head(10)
-                )
-                series["top_users_labels"] = list(top.index)
-                series["top_users_values"] = [
-                    round(float(v), 2) for v in top.values]
+                if "User" in df.columns:
+                    top = df.groupby("User")["Cost (฿)"].sum(
+                    ).sort_values(ascending=False).head(10)
+                    series["top_users_labels"] = list(top.index)
+                    series["top_users_values"] = [
+                        round(float(v), 2) for v in top.values]
 
-            # Totals chips (optional)
-            tot_cpu = float(df["CPU_Core_Hours"].sum()
-                            ) if "CPU_Core_Hours" in df else 0.0
-            tot_gpu = float(df["GPU_Hours"].sum()
-                            ) if "GPU_Hours" in df else 0.0
-            tot_mem = float(df["Mem_GB_Hours"].sum()
-                            ) if "Mem_GB_Hours" in df else 0.0
-            tot_elapsed = float(df.get("Elapsed_Hours", 0).sum()
-                                ) if "Elapsed_Hours" in df else 0.0
-
-            # Render dedicated template
-            return render_template(
-                "admin/dashboard.html",
-                current_user=current_user,
-                before=before, start=start_d, end=end_d,
-                kpis=kpis, series=series, data_source=data_source, notes=notes,
-                tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
-                url_for=url_for,
+            # Totals chips
+            tot_cpu = float(
+                df.get("CPU_Core_Hours", pd.Series(dtype=float)).sum())
+            tot_gpu = float(df.get("GPU_Hours", pd.Series(dtype=float)).sum())
+            tot_mem = float(
+                (df["Mem_GB_Hours"].sum() if "Mem_GB_Hours" in df.columns
+                 else df.get("Mem_GB_Hours_Used", pd.Series(dtype=float)).sum())
             )
-    except Exception as e:
-        notes.append(str(e))
+            tot_elapsed = float(
+                df.get("Elapsed_Hours", pd.Series(dtype=float)).sum())
 
+        except Exception as e:
+            # Keep dashboard up with a visible note instead of falling through to admin/page.html
+            notes.append(f"dashboard_error: {e!s}")
+        # Always render the dashboard template for this section
+        return render_template(
+            "admin/dashboard.html",
+            current_user=current_user,
+            before=before, start=start_d, end=end_d,
+            kpis=kpis, series=series, data_source=data_source, notes=notes,
+            tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
+            url_for=url_for,
+        )
     try:
         if section == "usage":
             # -------- fetch RAW (parents + steps) --------
