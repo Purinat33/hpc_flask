@@ -376,9 +376,85 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
     <p class="muted">No jobs for the selected period.</p>
     {% endif %}
 
-    {% elif view == 'billed' %}
-    {# keep your existing billed tables unchanged #}
-    {{ super() }}
+{% elif view == 'billed' %}
+<h4>Billed items</h4>
+<p class="muted">
+    <span class="chip">Pending total: ฿{{ '%.2f'|format(sum_pending) }}</span>
+    <span class="chip">Paid total: ฿{{ '%.2f'|format(sum_paid) }}</span>
+</p>
+
+<h5>Pending</h5>
+{% if pending and pending|length > 0 %}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Receipt</th>
+                <th>Job</th>
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>Cost (฿)</th>
+                <th>Created</th>
+                <th>Period</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for i in pending %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=i['receipt_id']) }}">#{{ i['receipt_id'] }}</a></td>
+                <td>{{ i['job_id_display'] }}</td>
+                <td>{{ '%.2f'|format(i['cpu_core_hours']) }}</td>
+                <td>{{ '%.2f'|format(i['gpu_hours']) }}</td>
+                <td>{{ '%.2f'|format(i['mem_gb_hours']) }}</td>
+                <td>฿{{ '%.2f'|format(i['cost']) }}</td>
+                <td>{{ i['created_at'] }}</td>
+                <td>{{ i['start'] }} → {{ i['end'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="muted">No pending billed items.</p>
+{% endif %}
+
+<h5>Paid</h5>
+{% if paid and paid|length > 0 %}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Receipt</th>
+                <th>Job</th>
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs</th>
+                <th>Cost (฿)</th>
+                <th>Paid at</th>
+                <th>Period</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for i in paid %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=i['receipt_id']) }}">#{{ i['receipt_id'] }}</a></td>
+                <td>{{ i['job_id_display'] }}</td>
+                <td>{{ '%.2f'|format(i['cpu_core_hours']) }}</td>
+                <td>{{ '%.2f'|format(i['gpu_hours']) }}</td>
+                <td>{{ '%.2f'|format(i['mem_gb_hours']) }}</td>
+                <td>฿{{ '%.2f'|format(i['cost']) }}</td>
+                <td>{{ i['paid_at'] or '—' }}</td>
+                <td>{{ i['start'] }} → {{ i['end'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="muted">No paid billed items.</p>
+{% endif %}
+
     {% else %}
     <p class="muted">Unknown view.</p>
     {% endif %}

@@ -634,36 +634,30 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         <div class="card">
             <h3>{{ _("Pending Receipts")}}</h3>
             {% if pending and pending|length>0 %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>User</th>
-                        <th>Period</th>
-                        <th>Total (฿)</th>
-                        <th>Created</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in pending %}
-                    <tr>
-                        <td>#{{ r['id'] }}</td>
-                        <td>{{ r['username'] }}</td>
-                        <td>{{ r['start'] }} → {{ r['end'] }}</td>
-                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['created_at'] }}</td>
-                        <td>
-                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
-                                style="display:inline">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit">{{ _("Mark as paid") }}</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>User</th>
+            <th>Period</th>
+            <th>Total (฿)</th>
+            <th>Created</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in pending %}
+        <tr>
+            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+            <td>{{ r['username'] }}</td>
+            <td>{{ r['start'] }} → {{ r['end'] }}</td>
+            <td>฿{{ '%.2f'|format(r['total']) }}</td>
+            <td>{{ r['created_at'] }}</td>
+            <td>{{ r['status'] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
             {% else %}
             <p class="muted">Nothing pending 🎉</p>
             {% endif %}
