@@ -82,13 +82,13 @@ graph LR
   subgraph Controllers["Controllers (Blueprints)"]
     AUTH[auth]
     USER[user]
-    ADMIN[admin]
+    ADMIN["admin<br/>(rates • usage • billing • myusage • dashboard)"]
     API[api]
     PAY[payments]
   end
 
   subgraph Services
-    BILL[billing.py<br/>cost engine]
+    BILL["billing.py<br/>cost engine (step-aware)"]
     DS[data_sources.py<br/>slurm_rest.py]
     MET[metrics.py]
     REG[registry.py<br/>payment adapter registry]
@@ -131,8 +131,8 @@ graph LR
 
 **Responsibilities (mapping to files)**
 
-- **Controllers** (route layer): authentication & sessions (`auth.py`), user billing UI (`user.py`), admin console (`admin.py`), public/admin API (`api.py`), payment flows & webhook (`payments.py`).
-- **Services**: cost calculation (`billing.py`), Slurm ingestion (`data_sources.py`, `slurm_rest.py`), Prometheus metrics (`metrics.py`), dynamic payment provider binding (`registry.py`).
+- **Controllers** (route layer): authentication & sessions (`auth.py`), user billing UI (`user.py`), admin console (`admin.py`, incl. **dashboard**), public/admin API (`api.py`), payment flows & webhook (`payments.py`).
+- **Services**: cost calculation (**step-aware** in `billing.py`), Slurm ingestion (`data_sources.py`, `slurm_rest.py`), Prometheus metrics (`metrics.py`), dynamic payment provider binding (`registry.py`).
 - **Models/Stores**: SQLAlchemy models and persistence helpers (`schema.py`, `*store.py`), audit hash-chain (`audit_store.py`), login throttling (`security_throttle.py`), users & roles (`users_db.py`), rates CRUD (`rates_store.py`), receipts & items (`billing_store.py`), payments & events (`payments_store.py`).
 - **App wiring**: app factory, blueprints, CSRF, i18n, logging, health/ready (`app.py`).
 
@@ -170,7 +170,7 @@ erDiagram
   USERS ||--o{ PAYMENTS : "initiates"
   RECEIPTS ||--o{ RECEIPT_ITEMS : "contains"
   PAYMENTS ||--o{ PAYMENT_EVENTS : "emits"
-  RATES ||--o{ RECEIPT_ITEMS : "used to price"
+  RATES }o--|| RECEIPTS : "snapshot at creation (no FK)"
   AUDIT_LOG }o--|| USERS : "actor (username)"
   AUTH_THROTTLE }o--|| USERS : "per-user entries"
 
@@ -183,9 +183,9 @@ erDiagram
 
   RATES {
     string tier PK "mu|gov|private"
-    numeric cpu_rate
-    numeric gpu_rate
-    numeric mem_rate
+    numeric cpu
+    numeric gpu
+    numeric mem
     datetime updated_at
   }
 
@@ -194,8 +194,15 @@ erDiagram
     string username FK
     date start_date
     date end_date
+
+    string pricing_tier "mu|gov|private"
+    numeric rate_cpu
+    numeric rate_gpu
+    numeric rate_mem
+    datetime rates_locked_at
+
     numeric total_amount
-    string status "draft|paid|void"
+    string status "pending|paid|void"
     datetime paid_at
     string method
     string tx_ref
@@ -216,7 +223,7 @@ erDiagram
     int receipt_id FK
     string username FK
     string provider
-    string status "pending|succeeded|failed"
+    string status "pending|succeeded|failed|canceled"
     string currency
     int amount_cents
     string external_payment_id
@@ -244,7 +251,7 @@ erDiagram
 
   AUDIT_LOG {
     int id PK
-    datetime at
+    datetime ts
     string actor
     string action
     text extra
@@ -256,8 +263,8 @@ erDiagram
 **Notable constraints**
 
 - `RECEIPT_ITEMS.job_key` is **unique** across all receipts → prevents double billing.
-- `PAYMENT_EVENTS (provider, external_event_id)` is **unique** → idempotent webhook handling.
-- Role and status fields use CHECK-like guards in store layer.
+- `(PAYMENT_EVENTS.provider, PAYMENT_EVENTS.external_event_id)` is **unique** → idempotent webhook handling.
+- Receipt rows carry a **snapshot of rates** (`pricing_tier`, `rate_cpu/gpu/mem`, `rates_locked_at`) so historical totals remain reproducible even if current rates change.
 
 ---
 
@@ -298,14 +305,15 @@ sequenceDiagram
   participant U as User
   participant UI as /user
   participant DS as data_sources
-  participant BILL as billing
+  participant BILL as billing (step-aware)
   participant BDB as billing_store
 
   U->>UI: Select date window, "Fetch"
   UI->>DS: fetch_jobs_with_fallbacks(start,end,user?)
-  DS-->>UI: rows (User, JobID, Elapsed, TotalCPU, ReqTRES, End, State)
+  DS-->>UI: rows (incl. steps): User, JobID, Elapsed, End, State, TotalCPU, CPUTimeRAW, AllocTRES, ReqTRES, AveRSS
   UI->>BILL: compute_costs(rows)
-  BILL-->>UI: add CPU_Core_Hours, GPU_Hours, Mem_GB_Hours, tier, Cost(฿)
+  BILL-->>UI: add CPU_Core_Hours, GPU_Hours, Mem_GB_Hours_Used, tier, Cost(฿)
+  UI->>BDB: snapshot current rates → receipt.{pricing_tier,rate_* ,rates_locked_at}
   UI->>BDB: create_receipt_from_rows(rows+costs)
   BDB->>BDB: enforce UNIQUE(job_key)
   BDB-->>UI: Receipt(id,total)
@@ -358,29 +366,32 @@ sequenceDiagram
 
 ## 7) Costing logic (summary)
 
-- Parse Slurm fields into **resource hours**:
+- Parse Slurm fields into **resource hours** (now **step-aware**):
 
-  - CPU core-hours from `TotalCPU`/`AllocCPUs` + elapsed.
-  - GPU hours from `ReqTRES` parse (`gres/gpu` or `gpu:` patterns).
-  - Memory GB-hours from `ReqTRES` memory spec.
+  - **CPU core-hours**: Σ `TotalCPU`(steps) → fallback `CPUTimeRAW/3600` → fallback `AllocCPUS × Elapsed`.
+  - **Memory GB-hours**: Σ `AveRSS(GB) × Elapsed` (steps) → fallback `mem_from_TRES × Elapsed`.
+  - **GPU hours**: `AllocGPU × Elapsed` (fallback `ReqGPU × Elapsed` when allocation not present).
 
 - Select **tier** (e.g., `mu | gov | private`) per user rule.
-- Apply **tiered rates** → per-job `Cost (฿)`; sum per receipt.
+- Apply **snapshot rates on the receipt**:
+  `cost = cpu_core_hours*rate_cpu + gpu_hours*rate_gpu + mem_gb_hours*rate_mem`.
+  Changing current rates later **does not** change historical receipts.
 
 ---
 
 ## 8) Use cases
 
-| ID    | Actor    | Goal                 | Preconditions       | Main success                                           | Notes                                        |
-| ----- | -------- | -------------------- | ------------------- | ------------------------------------------------------ | -------------------------------------------- |
-| UC-01 | User     | View my usage        | Logged in           | Sees jobs in date window; can export CSV               | Skips already-billed jobs                    |
-| UC-02 | User     | Create a receipt     | UC-01               | Receipt with total is created; items frozen            | Prevents duplicates via `job_key`            |
-| UC-03 | User     | Pay a receipt        | UC-02               | Redirected to provider; after webhook → receipt = paid | Signature + amount/currency check            |
-| UC-04 | Admin    | Update rates         | Admin role          | New rates persist; new pricing uses them               | Version by timestamp; no retroactive changes |
-| UC-05 | Admin    | Inspect billing      | Admin role          | Filter by user/date/status                             | Export audit CSV                             |
-| UC-06 | Ops      | Health/ready checks  | App deployed        | `/healthz` 200; `/readyz` DB reachable                 | For Kubernetes/LB probes                     |
-| UC-07 | Ops      | Metrics scrape       | Metrics enabled     | Prometheus scrapes `/metrics`                          | Request & auth/billing counters              |
-| UC-08 | Security | Throttle brute force | Repeated bad logins | Account/IP temporarily locked                          | Neutral error messages                       |
+| ID    | Actor    | Goal                 | Preconditions       | Main success                                              | Notes                                                |
+| ----- | -------- | -------------------- | ------------------- | --------------------------------------------------------- | ---------------------------------------------------- |
+| UC-01 | User     | View my usage        | Logged in           | Sees jobs in date window; can export CSV                  | Skips already-billed jobs                            |
+| UC-02 | User     | Create a receipt     | UC-01               | Receipt with total is created; items frozen               | Prevents duplicates via `job_key`; rates snapshotted |
+| UC-03 | User     | Pay a receipt        | UC-02               | Redirected to provider; after webhook → receipt = paid    | Signature + amount/currency check                    |
+| UC-04 | Admin    | Update rates         | Admin role          | New rates persist; new pricing uses them                  | Version by timestamp; no retroactive changes         |
+| UC-05 | Admin    | Inspect billing      | Admin role          | Filter by user/date/status                                | Export audit CSV                                     |
+| UC-06 | Ops      | Health/ready checks  | App deployed        | `/healthz` 200; `/readyz` DB reachable                    | For Kubernetes/LB probes                             |
+| UC-07 | Ops      | Metrics scrape       | Metrics enabled     | Prometheus scrapes `/metrics`                             | Request & auth/billing counters                      |
+| UC-08 | Security | Throttle brute force | Repeated bad logins | Account/IP temporarily locked                             | Neutral error messages                               |
+| UC-09 | Admin    | Dashboard overview   | Admin role          | See KPIs (unbilled, pending, paid-30d, jobs-30d) + charts | `/admin?section=dashboard`                           |
 
 ---
 
