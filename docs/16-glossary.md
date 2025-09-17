@@ -50,18 +50,23 @@ Current tiered pricing used at **the time of receipt creation**.
 
 Header rows for priced bundles of jobs.
 
-| Column       | Type            | Notes                                 |
-| ------------ | --------------- | ------------------------------------- |
-| `id`         | `serial`        | **PK**.                               |
-| `username`   | `text`          | **FK** → `users.username`.            |
-| `start`      | `date`          | Usage window start (inclusive).       |
-| `end`        | `date`          | Usage window end (inclusive).         |
-| `total`      | `numeric(14,2)` | Sum of items’ `cost`.                 |
-| `status`     | `text`          | Enum: `pending` \| `paid`.            |
-| `method`     | `text`          | Free text (e.g., `online`, `manual`). |
-| `tx_ref`     | `text`          | Provider reference or note.           |
-| `paid_at`    | `timestamptz`   | Null until settled.                   |
-| `created_at` | `timestamptz`   | Default `now()`.                      |
+| Column            | Type            | Notes                                              |
+| ----------------- | --------------- | -------------------------------------------------- |
+| `id`              | `serial`        | **PK**.                                            |
+| `username`        | `text`          | **FK** → `users.username`.                         |
+| `start`           | `date`          | Usage window start (inclusive).                    |
+| `end`             | `date`          | Usage window end (inclusive).                      |
+| `total`           | `numeric(14,2)` | Sum of items’ `cost`.                              |
+| `pricing_tier`    | `text`          | Snapshot of tier at creation (mu / gov / private). |
+| `rate_cpu`        | `numeric(12,6)` | Snapshot: THB per CPU core-hour.                   |
+| `rate_gpu`        | `numeric(12,6)` | Snapshot: THB per GPU-hour.                        |
+| `rate_mem`        | `numeric(12,6)` | Snapshot: THB per GB-hour.                         |
+| `rates_locked_at` | `timestamptz`   | When the above rates were snapped.                 |
+| `status`          | `text`          | Enum: `pending` \| `paid`.                         |
+| `method`          | `text`          | Free text (e.g., `online`, `manual`).              |
+| `tx_ref`          | `text`          | Provider reference or note.                        |
+| `paid_at`         | `timestamptz`   | Null until settled.                                |
+| `created_at`      | `timestamptz`   | Default `now()`.                                   |
 
 **Indexes**:
 
@@ -69,6 +74,8 @@ Header rows for priced bundles of jobs.
 - `IDX_receipts_status_date(status, created_at desc)`
 
 **Lifecycle**: `pending → paid` (no public void in current UI).
+
+> **Rationale**: locking tier and per-unit rates at creation time guarantees historical immutability even if rates change later.
 
 ---
 
@@ -99,17 +106,20 @@ Line items (one row per job). This table **enforces no double billing**.
 
 One per checkout attempt for a receipt.
 
-| Column                      | Type          | Notes                                       |
-| --------------------------- | ------------- | ------------------------------------------- |
-| `id`                        | `serial`      | **PK**.                                     |
-| `receipt_id`                | `int`         | **FK** → `receipts.id`.                     |
-| `username`                  | `text`        | **FK** → `users.username` (owner).          |
-| `provider`                  | `text`        | e.g., `dummy`, `stripe`, `omise`.           |
-| `status`                    | `text`        | Enum: `pending` \| `succeeded` \| `failed`. |
-| `currency`                  | `text(3)`     | ISO code, e.g., `THB`.                      |
-| `amount_cents`              | `int`         | Expected amount.                            |
-| `external_payment_id`       | `text`        | Provider’s payment/intent id.               |
-| `created_at` / `updated_at` | `timestamptz` | Timestamps.                                 |
+| Column                | Type          | Notes                                                     |
+| --------------------- | ------------- | --------------------------------------------------------- |
+| `id`                  | `serial`      | **PK**.                                                   |
+| `receipt_id`          | `int`         | **FK** → `receipts.id`.                                   |
+| `username`            | `text`        | **FK** → `users.username` (owner).                        |
+| `provider`            | `text`        | e.g., `dummy`, `stripe`, `omise`.                         |
+| `status`              | `text`        | Enum: `pending` \| `succeeded` \| `failed` \| `canceled`. |
+| `currency`            | `text(3)`     | ISO code, e.g., `THB`.                                    |
+| `amount_cents`        | `int`         | Expected amount.                                          |
+| `external_payment_id` | `text`        | Provider payment/intent id (unique per provider).         |
+| `checkout_url`        | `text`        | Hosted checkout URL (if applicable).                      |
+| `idempotency_key`     | `text`        | Optional; dedupe checkout initiations.                    |
+| `created_at`          | `timestamptz` | Timestamp.                                                |
+| `updated_at`          | `timestamptz` | Timestamp.                                                |
 
 **Indexes**:
 
@@ -184,8 +194,8 @@ Per `(username, ip)` counters to rate-limit logins.
 ## 2) Enums & controlled vocab
 
 - `users.role` → `{ user, admin }`
-- `receipts.status` → `{ pending, paid }`
-- `payments.status` → `{ pending, succeeded, failed }`
+- `receipts.status` → `{ pending, paid, void }` _(“void” reserved; not exposed in current UI)_.
+- `payments.status` → `{ pending, succeeded, failed, canceled }`.
 - `rates.tier` → `{ mu, gov, private }`
 - `payments.currency` → ISO 4217 (e.g., `THB`)
 
@@ -246,6 +256,7 @@ erDiagram
 3. **Atomic transitions**: payment success **and** receipt paid must happen in the same DB transaction.
 4. **Minimal PII**: foreign keys use `username`; no emails/phones stored.
 5. **Audit integrity**: hash chain must be contiguous; store both `prev_hash` and `hash`.
+6. **Pricing immutability**: `receipts.{pricing_tier, rate_cpu, rate_gpu, rate_mem, rates_locked_at}` snapshot ensures totals don’t change when `rates` do.
 
 ---
 
@@ -302,6 +313,25 @@ SELECT ts, actor, action, target, status
 FROM audit_log
 ORDER BY id DESC
 LIMIT 200;
+```
+
+**G. Latest **succeeded** or **canceled** payment per receipt**
+
+```sql
+SELECT DISTINCT ON (receipt_id)
+  receipt_id, id, status, provider, external_payment_id, updated_at
+FROM payments
+WHERE receipt_id = $1
+ORDER BY receipt_id, updated_at DESC, id DESC;
+```
+
+**H. Receipts paid in the last 30 days:**
+
+```sql
+SELECT id, username, total, paid_at
+FROM receipts
+WHERE status = 'paid' AND paid_at >= now() - interval '30 days'
+ORDER BY paid_at DESC;
 ```
 
 ---

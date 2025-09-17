@@ -65,15 +65,15 @@ sequenceDiagram
   App->>DS: fetch_jobs(start,end,user?)
   alt slurmrestd available
     DS->>Slurm: GET /slurmrestd (query window)
-    Slurm-->>DS: jobs (User, JobID, Elapsed, TotalCPU, ReqTRES, End, State)
+    Slurm-->>DS: jobs (incl. steps): User, JobID, Elapsed, TotalCPU, CPUTimeRAW, AllocTRES, ReqTRES, AveRSS, End, State
   else fallback to sacct
-    DS->>Slurm: exec sacct --format=...
+    DS->>Slurm: exec sacct --format=... ("keeps steps")
     Slurm-->>DS: parsed rows
   else last resort CSV
     DS->>DS: read FALLBACK_CSV
   end
-  DS-->>App: normalized rows
-  App->>App: compute resource hours & price per job
+  DS-->>App: normalized rows (parents + steps)
+  App->>App: compute_costs(): step-aware CPU/MEM, GPU alloc, price per parent job
   App-->>U: 200 HTML (tables) or CSV if /me.csv
 ```
 
@@ -81,6 +81,12 @@ sequenceDiagram
 
 - Rows are normalized to a common schema regardless of source.
 - Pricing is deterministic and re-computed on demand for display.
+
+**Costing precedence (step-aware):**
+
+- **CPU**: Σ `TotalCPU` (steps) → `CPUTimeRAW/3600` → `AllocCPUS × Elapsed`
+- **MEM**: Σ `AveRSS(GB) × Elapsed` (steps) → `mem_from_TRES × Elapsed`
+- **GPU**: `AllocGPU × Elapsed` (fallback `ReqGPU × Elapsed`)
 
 ---
 

@@ -22,6 +22,7 @@
   - SQLAlchemy ORM (parameterized queries).
   - **Unique `job_key`** across all receipts prevents double-billing.
   - **Audit log** is hash-chained (tamper-evident).
+  - **Receipts store a pricing snapshot** (`pricing_tier`, `rate_cpu/gpu/mem`, `rates_locked_at`) so historical totals are immutable.
 
 - **Supply & runtime**
 
@@ -100,11 +101,17 @@ flowchart LR
 
 - **CSP** _(via reverse proxy—recommended)_:
 
-  - Start with report-only, then enforce:
+  - Prefer bundling vendor JS locally. If you keep the admin **dashboard** using CDN Chart.js, either host it yourself or allowlist with SRI:
 
     ```
-    Content-Security-Policy: default-src 'self'; img-src 'self' data:; frame-ancestors 'none';
+    Content-Security-Policy:
+      default-src 'self';
+      img-src 'self' data:;
+      script-src 'self' https://cdn.jsdelivr.net 'sha256-<SRI hash>';
+      frame-ancestors 'none';
     ```
+
+  - If you self-host Chart.js, you can keep `script-src 'self'` only.
 
 - **Clickjacking**: `X-Frame-Options: DENY` (or CSP `frame-ancestors 'none'`).
 - **Referrer leakage**: `Referrer-Policy: same-origin`.
@@ -220,6 +227,8 @@ for row in rows_ordered_by_id:
   - `ADMIN_PASSWORD` (first-run seeding only)
   - `PAYMENT_WEBHOOK_SECRET`
   - `SLURMRESTD_URL` + its auth token/certs
+
+- `METRICS_ENABLED` (set `0` to disable `/metrics` entirely in sensitive environments)
 
 **Never**
 
