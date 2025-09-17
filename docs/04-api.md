@@ -167,7 +167,7 @@ curl -b cookies.txt -X POST http://localhost:8000/me/receipt \
 
 | Method | Path                         | Auth  | CSRF | Purpose                                          |       |         |                                      |     |           |
 | -----: | ---------------------------- | ----- | ---- | ------------------------------------------------ | ----- | ------- | ------------------------------------ | --- | --------- |
-|    GET | `/admin`                     | admin | —    | Admin console. Query: \`section=rates            | usage | billing | myusage`, `before`, `view`, `type=mu | gov | private\` |
+|    GET | `/admin`                     | admin | —    | Admin console. Query: `section=rates | usage | billing | myusage | dashboard`, `before`, `view`, `type=mu | gov | private` |
 |   POST | `/admin`                     | admin | ✔︎   | Update rates via form fields: `type,cpu,gpu,mem` |       |         |                                      |     |           |
 |   POST | `/admin/receipts/<rid>/paid` | admin | ✔︎   | Mark a receipt “paid” (manual reconciliation)    |       |         |                                      |     |           |
 |    GET | `/admin/paid.csv`            | admin | —    | Export paid receipts (CSV)                       |       |         |                                      |     |           |
