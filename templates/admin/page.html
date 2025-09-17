@@ -662,6 +662,38 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <p class="muted">Nothing pending 🎉</p>
             {% endif %}
         </div>
+        <div class="card" style="margin-top:1rem">
+            <h3>Paid Receipts</h3>
+            {% if paid and paid|length>0 %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>User</th>
+                        <th>Period</th>
+                        <th>Total (฿)</th>
+                        <th>Paid at</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in paid %}
+                    <tr>
+                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                        <td>{{ r['username'] }}</td>
+                        <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                        <td>{{ r['paid_at'] or '—' }}</td>
+                        <td>{{ r['status'] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="muted">No paid receipts yet.</p>
+            {% endif %}
+        </div>
+
 
         <div class="card">
             <h3>{{ _("Download Payment History")}}</h3>
