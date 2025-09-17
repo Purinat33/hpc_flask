@@ -27,6 +27,11 @@
             href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Billing") }}</a>
 
         <a class="slink {{ 'on' if section=='audit' else '' }}" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
+        <a class="slink {{ 'on' if section=='dashboard' else '' }}"
+            href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">
+            {{ _("Dashboard") }}
+        </a>
+
     </aside>
 
     <!-- Main -->

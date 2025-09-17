@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<h2>{{ _("Admin Dashboard") }}</h2>
+<p class="muted">
+    {{ _("Completed before") }}:
+    <b>{{ end }}</b> •
+    {{ _("Data source") }}: <b>{{ data_source or "unknown" }}</b>
+    {% if notes and notes|length %} • <span title="{{ notes|join(' | ') }}">notes</span>{% endif %}
+</p>
+
+<div class="grid" style="grid-template-columns: repeat(4, minmax(180px,1fr)); gap:1rem;">
+    <div class="card">
+        <h3>Unbilled Cost</h3>
+        <div class="big">฿{{ '%.2f'|format(kpis.unbilled_cost or 0) }}</div>
+    </div>
+    <div class="card">
+        <h3>Pending Receivables</h3>
+        <div class="big">฿{{ '%.2f'|format(kpis.pending_receivables or 0) }}</div>
+    </div>
+    <div class="card">
+        <h3>Paid (last 30d)</h3>
+        <div class="big">฿{{ '%.2f'|format(kpis.paid_last_30d or 0) }}</div>
+    </div>
+    <div class="card">
+        <h3>Jobs (last 30d)</h3>
+        <div class="big">{{ kpis.jobs_last_30d or 0 }}</div>
+    </div>
+</div>
+
+<div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
+    <div class="card">
+        <h3>Daily Total Cost (90d)</h3>
+        <canvas id="dailyCost"></canvas>
+    </div>
+    <div class="card">
+        <h3>Cost by Tier</h3>
+        <canvas id="tierPie"></canvas>
+    </div>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+    <h3>Top 10 Users by Cost</h3>
+    <canvas id="topUsers"></canvas>
+</div>
+
+<!-- Optional totals chips -->
+<div class="muted" style="margin-top:.5rem;">
+    Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
+    Σ GPU hrs: {{ '%.2f'|format(tot_gpu) }} •
+    Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
+</div>
+
+<!-- Lightweight charts via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script>
+    const dailyLabels = {{ series.daily_labels| tojson }};
+    const dailyData = {{ series.daily_cost| tojson }};
+    const tierLabels = {{ series.tier_labels| tojson }};
+    const tierValues = {{ series.tier_values| tojson }};
+    const userLabels = {{ series.top_users_labels| tojson }};
+    const userValues = {{ series.top_users_values| tojson }};
+
+    new Chart(document.getElementById('dailyCost'), {
+        type: 'line',
+        data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } } }
+    });
+
+    new Chart(document.getElementById('tierPie'), {
+        type: 'pie',
+        data: { labels: tierLabels, datasets: [{ data: tierValues }] },
+        options: { plugins: { legend: { position: 'bottom' } } }
+    });
+
+    new Chart(document.getElementById('topUsers'), {
+        type: 'bar',
+        data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
+        options: { plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+    });
+</script>
+{% endblock %}
