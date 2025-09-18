@@ -19,6 +19,7 @@ from controllers.payments import webhook as payments_webhook
 from services.metrics import init_app as init_metrics, REQUEST_COUNT, REQUEST_LATENCY
 from sqlalchemy import text
 from flask import jsonify
+from services.jinja_tz import register_jinja_tz_filters
 babel = Babel()
 
 # --- Load .env exactly once, here ---
@@ -195,6 +196,7 @@ def create_app(test_config: dict | None = None):
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(payments_bp)
+    register_jinja_tz_filters(app)
 
     # Exempt Payment BP from CSRF
     csrf.exempt(payments_bp)

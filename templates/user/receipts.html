@@ -22,7 +22,7 @@
                 <td>{{ r['start'] }} → {{ r['end'] }}</td>
                 <td>{{ r['status'] }}</td>
                 <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                <td>{{ r['created_at'] }}</td>
+                <td>{{ r['created_at']|dt_local }}</td>
             </tr>
             {% endfor %}
         </tbody>

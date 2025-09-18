@@ -267,7 +267,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <tr>
                     <td>{{ r['JobID'] }}</td>
                     <td>{{ r['Elapsed'] }}</td>
-                    <td>{{ r['End'] }}</td>
+                    <td>{{ r['End']|dt_local }}</td>
                     <td>{{ r['State'] }}</td>
                     <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                     <td>{{ r['GPU_Count'] }}</td>
@@ -408,8 +408,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <td>{{ '%.2f'|format(i['gpu_hours']) }}</td>
                 <td>{{ '%.2f'|format(i['mem_gb_hours']) }}</td>
                 <td>฿{{ '%.2f'|format(i['cost']) }}</td>
-                <td>{{ i['created_at'] }}</td>
-                <td>{{ i['start'] }} → {{ i['end'] }}</td>
+                <td>{{ i['created_at']|dt_local }}</td>
+                <td>{{ i['start']|dt_local }} → {{ i['end']|dt_local }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -444,8 +444,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <td>{{ '%.2f'|format(i['gpu_hours']) }}</td>
                 <td>{{ '%.2f'|format(i['mem_gb_hours']) }}</td>
                 <td>฿{{ '%.2f'|format(i['cost']) }}</td>
-                <td>{{ i['paid_at'] or '—' }}</td>
-                <td>{{ i['start'] }} → {{ i['end'] }}</td>
+                <td>{{ i['paid_at']|dt_local or '—' }}</td>
+                <td>{{ i['start']|dt_local }} → {{ i['end']|dt_local }}</td>
             </tr>
             {% endfor %}
         </tbody>

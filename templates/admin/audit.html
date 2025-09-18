@@ -44,7 +44,7 @@
                 <tbody>
                     {% for r in rows %}
                     <tr>
-                        <td>{{ r.ts }}</td>
+                        <td>{{ r.ts|dt_local }}</td>
                         <td>{{ r.actor or '—' }}</td>
                         <td>{{ r.action }}</td>
                         <td>{{ r.target or '—' }}</td>

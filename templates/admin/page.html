@@ -348,7 +348,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                             <td>{{ r['User'] }}</td>
                             <td>{{ r['JobID'] }}</td>
                             <td>{{ r['Elapsed'] }}</td>
-                            <td>{{ r['End'] }}</td>
+                            <td>{{ r['End']|dt_local }}</td>
                             <td>{{ r['State'] }}</td>
                             <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                             <td>{{ r['GPU_Count'] }}</td>
@@ -516,7 +516,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                     <tr>
                         <td>{{ r['JobID'] }}</td>
                         <td>{{ r['Elapsed'] }}</td>
-                        <td>{{ r['End'] }}</td>
+                        <td>{{ r['End']|dt_local }}</td>
                         <td>{{ r['State'] }}</td>
                         <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                         <td>{{ r['GPU_Count'] }}</td>
@@ -584,7 +584,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                         <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                         <td>{{ r['start'] }} → {{ r['end'] }}</td>
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['created_at'] }}</td>
+                        <td>{{ r['created_at']|dt_local }}</td>
                         <td>
                             <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}"
                                 style="display:inline">
@@ -623,7 +623,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                         <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                         <td>{{ r['start'] }} → {{ r['end'] }}</td>
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['paid_at'] or '—' }}</td>
+                        <td>{{ r['paid_at']|dt_local or '—' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -657,7 +657,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <td>{{ r['username'] }}</td>
             <td>{{ r['start'] }} → {{ r['end'] }}</td>
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
-            <td>{{ r['created_at'] }}</td>
+            <td>{{ r['created_at']|dt_local }}</td>
             <td>{{ r['status'] }}</td>
         </tr>
         {% endfor %}
@@ -688,7 +688,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                         <td>{{ r['username'] }}</td>
                         <td>{{ r['start'] }} → {{ r['end'] }}</td>
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['paid_at'] or '—' }}</td>
+                        <td>{{ r['paid_at']|dt_local or '—' }}</td>
                         <td>{{ r['status'] }}</td>
                     </tr>
                     {% endfor %}
