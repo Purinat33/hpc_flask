@@ -47,6 +47,24 @@
     <canvas id="topUsers"></canvas>
 </div>
 
+<div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+    <div class="card">
+        <h3>Top Nodes by Jobs</h3>
+        <canvas id="nodesByJobs"></canvas>
+    </div>
+    <div class="card">
+        <h3>Top Nodes by CPU core-hrs</h3>
+        <canvas id="nodesByCPU"></canvas>
+    </div>
+    {% if series.node_gpu_labels|length %}
+    <div class="card">
+        <h3>Top Nodes by GPU-hrs</h3>
+        <canvas id="nodesByGPU"></canvas>
+    </div>
+    {% endif %}
+</div>
+
+
 
 <!-- Optional totals chips -->
 <div class="muted" style="margin-top:.5rem;">
@@ -56,6 +74,25 @@
 </div>
 
 <!-- Lightweight charts via CDN -->
+<script>
+    // define BEFORE any Chart(...) calls
+    const PRINT_MODE = !!(window.matchMedia && window.matchMedia('print').matches);
+    window.dashboardCharts = window.dashboardCharts || [];
+</script>
+
+<script>
+    function safeChart(id, cfg) {
+        try {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const c = new Chart(el, cfg);
+            (window.dashboardCharts ||= []).push(c);
+        } catch (e) { console.error("chart failed:", id, e); }
+    }
+    // then call safeChart('dailyCost', {...}), etc.
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script>
     const dailyLabels = {{ series.daily_labels| tojson }};
@@ -65,23 +102,74 @@
     const userLabels = {{ series.top_users_labels| tojson }};
     const userValues = {{ series.top_users_values| tojson }};
 
-    new Chart(document.getElementById('dailyCost'), {
+    // NEW node series
+    const nodeJobsLabels = {{ series.node_jobs_labels| tojson }};
+    const nodeJobsValues = {{ series.node_jobs_values| tojson }};
+    const nodeCPULabels = {{ series.node_cpu_labels| tojson }};
+    const nodeCPUValues = {{ series.node_cpu_values| tojson }};
+    const nodeGPULabels = {{ series.node_gpu_labels| tojson }};
+    const nodeGPUValues = {{ series.node_gpu_values| tojson }};
+
+    // keep a global list so we can re-render before print
+    window.dashboardCharts = window.dashboardCharts || [];
+
+    window.dashboardCharts.push(new Chart(document.getElementById('dailyCost'), {
         type: 'line',
         data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
-        options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } } }
-    });
+        options: {
+            animation: !PRINT_MODE, plugins: { legend: { display: false } },
+            scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
+        }
+    }));
 
-    new Chart(document.getElementById('tierPie'), {
+    window.dashboardCharts.push(new Chart(document.getElementById('tierPie'), {
         type: 'pie',
         data: { labels: tierLabels, datasets: [{ data: tierValues }] },
-        options: { plugins: { legend: { position: 'bottom' } } }
-    });
+        options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+    }));
 
-    new Chart(document.getElementById('topUsers'), {
+    window.dashboardCharts.push(new Chart(document.getElementById('topUsers'), {
         type: 'bar',
         data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
-        options: { plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-    });
+        options: {
+            animation: !PRINT_MODE, plugins: { legend: { display: false } },
+            indexAxis: 'y', scales: { x: { beginAtZero: true } }
+        }
+    }));
+
+    // --- NEW node charts (create only if have data) ---
+    if (nodeJobsLabels.length) {
+        window.dashboardCharts.push(new Chart(document.getElementById('nodesByJobs'), {
+            type: 'bar',
+            data: { labels: nodeJobsLabels, datasets: [{ label: 'Jobs', data: nodeJobsValues }] },
+            options: {
+                animation: !PRINT_MODE, plugins: { legend: { display: false } },
+                indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } }
+            }
+        }));
+    }
+
+    if (nodeCPULabels.length) {
+        window.dashboardCharts.push(new Chart(document.getElementById('nodesByCPU'), {
+            type: 'bar',
+            data: { labels: nodeCPULabels, datasets: [{ label: 'CPU core-hrs', data: nodeCPUValues }] },
+            options: {
+                animation: !PRINT_MODE, plugins: { legend: { display: false } },
+                indexAxis: 'y', scales: { x: { beginAtZero: true } }
+            }
+        }));
+    }
+
+    if (nodeGPULabels.length) {
+        window.dashboardCharts.push(new Chart(document.getElementById('nodesByGPU'), {
+            type: 'bar',
+            data: { labels: nodeGPULabels, datasets: [{ label: 'GPU-hrs', data: nodeGPUValues }] },
+            options: {
+                animation: !PRINT_MODE, plugins: { legend: { display: false } },
+                indexAxis: 'y', scales: { x: { beginAtZero: true } }
+            }
+        }));
+    }
 </script>
 
 <script>

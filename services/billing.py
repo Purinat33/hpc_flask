@@ -262,7 +262,8 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         "CPU_Core_Hours",
         "GPU_Count", "GPU_Hours",
         "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
-        "tier", "Cost (฿)"
+        "tier", "Cost (฿)",
+        "NodeList"
     ]
     for c in keep_cols:
         if c not in parents.columns:

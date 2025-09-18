@@ -80,6 +80,9 @@ def admin_form():
         "tier_values": [],
         "top_users_labels": [],
         "top_users_values": [],
+        "node_jobs_labels": [], "node_jobs_values": [],
+        "node_cpu_labels": [],  "node_cpu_values": [],
+        "node_gpu_labels": [],  "node_gpu_values": [],
     }
 
     # helpers
@@ -124,10 +127,12 @@ def admin_form():
         # cutoff (UTC-aware) + ensure End exists
         def _cutoff_df():
             if "End" in df.columns:
-                end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
+                end_series = pd.to_datetime(
+                    df["End"], errors="coerce", utc=True)
                 cutoff_utc = pd.Timestamp(
                     end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                out = df[end_series.notna() & (end_series <= cutoff_utc)].copy()
+                out = df[end_series.notna() & (
+                    end_series <= cutoff_utc)].copy()
                 out["End"] = end_series
                 return out
             out = df.copy()
@@ -149,7 +154,7 @@ def admin_form():
         kpis["unbilled_cost"] = cap(
             "kpi.unbilled_cost",
             lambda: float(_ensure_col(df_unbilled, "Cost (฿)", 0).sum()
-                        ) if not df_unbilled.empty else 0.0,
+                          ) if not df_unbilled.empty else 0.0,
             0.0,
         )
 
@@ -189,7 +194,8 @@ def admin_form():
         def _series_daily():
             if df.empty or "End" not in df.columns or "Cost (฿)" not in df.columns:
                 return ([], [])
-            daily = df.groupby(df["End"].dt.date)["Cost (฿)"].sum().sort_index()
+            daily = df.groupby(df["End"].dt.date)[
+                "Cost (฿)"].sum().sort_index()
             return [d.isoformat() for d in daily.index], [round(float(v), 2) for v in daily.values]
 
         series["daily_labels"], series["daily_cost"] = cap(
@@ -231,6 +237,74 @@ def admin_form():
         tot_elapsed = cap("totals.elapsed", lambda: float(
             _ensure_col(df, "Elapsed_Hours", 0).sum()), 0.0)
 
+        # --- Node “Top N” series + keep old top-1 chips ---
+        try:
+            top_k = min(max(int(request.args.get("nodes_top", 3)), 1), 10)
+
+            node_kpi = {}
+            if not df.empty and "NodeList" in df.columns:
+                from services.data_sources import expand_nodelist
+                df_nodes = df.copy()
+                df_nodes["__nodes"] = (
+                    df_nodes["NodeList"].fillna("").map(expand_nodelist)
+                )
+                df_nodes = df_nodes.explode("__nodes")
+                df_nodes = df_nodes[df_nodes["__nodes"].notna() & (
+                    df_nodes["__nodes"] != "")]
+
+                if not df_nodes.empty:
+                    # numeric safety
+                    for col in ("CPU_Core_Hours", "GPU_Hours"):
+                        if col in df_nodes.columns:
+                            df_nodes[col] = pd.to_numeric(
+                                df_nodes[col], errors="coerce").fillna(0.0)
+                        else:
+                            df_nodes[col] = 0.0
+
+                    # A) by unique jobs
+                    jobs_count = (
+                        df_nodes.groupby("__nodes")["JobID"].nunique()
+                        .sort_values(ascending=False)
+                    )
+                    if not jobs_count.empty:
+                        top_jobs = jobs_count.head(top_k)
+                        series["node_jobs_labels"] = list(top_jobs.index)
+                        series["node_jobs_values"] = [
+                            int(v) for v in top_jobs.values]
+                        # chip (top-1)
+                        node_kpi["most_used_by_jobs"] = {
+                            "node": jobs_count.index[0], "jobs": int(jobs_count.iloc[0])}
+
+                    # B) by CPU core-hours
+                    cpu_sum = (
+                        df_nodes.groupby("__nodes")["CPU_Core_Hours"].sum()
+                        .sort_values(ascending=False)
+                    )
+                    if not cpu_sum.empty:
+                        top_cpu = cpu_sum.head(top_k)
+                        series["node_cpu_labels"] = list(top_cpu.index)
+                        series["node_cpu_values"] = [
+                            round(float(v), 2) for v in top_cpu.values]
+                        node_kpi["most_used_by_cpu_core_hours"] = {
+                            "node": cpu_sum.index[0], "core_hours": float(round(cpu_sum.iloc[0], 2))}
+
+                    # C) by GPU hours (if any)
+                    gpu_sum = (
+                        df_nodes.groupby("__nodes")["GPU_Hours"].sum()
+                        .sort_values(ascending=False)
+                    )
+                    if gpu_sum.sum() > 0:
+                        top_gpu = gpu_sum.head(top_k)
+                        series["node_gpu_labels"] = list(top_gpu.index)
+                        series["node_gpu_values"] = [
+                            round(float(v), 2) for v in top_gpu.values]
+                        node_kpi["most_used_by_gpu_hours"] = {
+                            "node": gpu_sum.index[0], "gpu_hours": float(round(gpu_sum.iloc[0], 2))}
+
+            kpis["nodes"] = node_kpi
+        except Exception as e:
+            notes.append(f"node_kpi: {e}")
+
         return render_template(
             "admin/dashboard.html",
             current_user=current_user,
@@ -239,7 +313,6 @@ def admin_form():
             tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
             url_for=url_for,
         )
-
 
     try:
         if section == "usage":

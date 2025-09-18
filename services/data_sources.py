@@ -1,4 +1,6 @@
 # data_sources.py
+from shutil import which
+from functools import lru_cache
 from services.datetimex import ensure_utc_series, APP_TZ, local_day_end_utc
 import os
 import subprocess
@@ -88,7 +90,6 @@ def fetch_via_rest(start_date: str, end_date: str) -> pd.DataFrame:
     if not rows:
         raise RuntimeError("slurmrestd returned no jobs")
     return pd.DataFrame(rows)
-    return drop_steps(pd.DataFrame(rows))
 
 
 def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None) -> pd.DataFrame:
@@ -102,7 +103,8 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         "--state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE",
         "--format="
         "User,JobID,JobName,Elapsed,TotalCPU,CPUTime,CPUTimeRAW,"
-        "ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State"
+        "ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State,"
+        "NodeList,AllocNodes"
     ]
     if username:
         cmd += ["-u", username]
@@ -194,3 +196,76 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
     except Exception as e:
         notes.append(f"test.csv: {e}")
         raise
+
+
+def _expand_bracket_chunk(prefix: str, spec: str) -> list[str]:
+    out = []
+    for token in spec.split(","):
+        token = token.strip()
+        if "-" in token:
+            a, b = token.split("-", 1)
+            width = max(len(a), len(b))
+            for i in range(int(a), int(b) + 1):
+                out.append(f"{prefix}{i:0{width}d}")
+        else:
+            # preserve zero padding from token, if any
+            width = len(token)
+            out.append(f"{prefix}{int(token):0{width}d}")
+    return out
+
+
+# @lru_cache(maxsize=4096)
+# def expand_nodelist(nodelist: str) -> list[str]:
+#     n = (nodelist or "").strip()
+#     if not n or n.lower().startswith("none"):
+#         return []
+
+#     # 1) Fast paths that don't need Slurm
+#     # simple single host
+#     if "[" not in n and "," not in n:
+#         return [n]
+#     # simple comma-separated list: foo,bar,baz
+#     if "[" not in n and "," in n:
+#         return [p.strip() for p in n.split(",") if p.strip()]
+
+#     # bracketed forms like gpu[01-03,07], node[1-2], tau[1], alpha,beta[01-02]
+#     parts = []
+#     chunks = [c.strip() for c in n.split(",") if c.strip()]
+#     for chunk in chunks:
+#         m = re.match(r"^(?P<prefix>[^\[]+)\[(?P<spec>[^\]]+)\]$", chunk)
+#         if m:
+#             parts.extend(_expand_bracket_chunk(
+#                 m.group("prefix"), m.group("spec")))
+#         else:
+#             parts.append(chunk)
+#     if parts:
+#         return parts
+
+#     # 2) Last resort: if we're actually on a Slurm node, try scontrol
+#     if which("scontrol"):
+#         try:
+#             out = _run(["scontrol", "show", "hostnames", n])
+#             return [ln.strip() for ln in out.splitlines() if ln.strip()]
+#         except Exception:
+#             pass
+
+#     return []
+
+@lru_cache(maxsize=4096)
+def expand_nodelist(nodelist: str) -> list[str]:
+    n = (nodelist or "").strip()
+    if not n:
+        return []
+    try:
+        out = _run(["scontrol", "show", "hostnames", n])
+        names = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        return names or [n]           # <-- fallback to original token
+    except Exception:
+        # naive expansion: node[01-03] -> node01,node02,node03 ; else return the token
+        import re
+        m = re.match(r"^([^\[]+)\[(\d+)-(\d+)\]$", n)
+        if m:
+            prefix, a, b = m.group(1), int(m.group(2)), int(m.group(3))
+            width = len(m.group(2))
+            return [f"{prefix}{i:0{width}d}" for i in range(a, b+1)]
+        return [n]
