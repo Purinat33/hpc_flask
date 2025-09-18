@@ -258,6 +258,7 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
     # Keep a clean job-level view (one row per parent job)
     keep_cols = [
         "User", "JobID", "Elapsed", "End", "State",
+        "Elapsed_Hours",
         "CPU_Core_Hours",
         "GPU_Count", "GPU_Hours",
         "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",

@@ -367,7 +367,7 @@ def admin_form():
         "admin/page.html",
         section=section,
         all_rates=rates,
-        current=rates.get(tier, {"cpu": 0, "gpu": 0}),
+        current=rates.get(tier, {"cpu": 0, "gpu": 0, "memory": 0}),
         tier=tier,
         tiers=["mu", "gov", "private"],
         current_user=current_user,

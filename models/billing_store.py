@@ -300,15 +300,15 @@ def paid_receipts_csv():
     for r in rows:
         w.writerow([
             r["id"], r["username"],
-            r["start"].isoformat().replace("+00:00", "Z"),
-            r["end"].isoformat().replace("+00:00", "Z"),
+            r["start"].isoformat(),
+            r["end"].isoformat(),
             f"{float(r['total']):.2f}", r["status"],
-            r["created_at"].isoformat().replace("+00:00", "Z"),
+            r["created_at"].isoformat(),
             (r["paid_at"].isoformat().replace(
                 "+00:00", "Z") if r["paid_at"] else ""),
             r.get("pricing_tier", ""), r.get("rate_cpu", ""), r.get(
                 "rate_gpu", ""), r.get("rate_mem", ""),
-            r["rates_locked_at"].isoformat().replace("+00:00", "Z"),
+            r["rates_locked_at"].isoformat(),
         ])
     out.seek(0)
     return ("paid_receipts_history.csv", out.read())
