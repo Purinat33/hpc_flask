@@ -33,6 +33,21 @@
         </a>
 
     </aside>
+    <style>
+        /* make the three columns line up, bottom-aligned */
+.grid2.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: .75rem 1rem;
+  align-items: end;  /* bottom-align inputs and buttons */
+}
+
+.field { display: flex; flex-direction: column; }
+.field > label { margin-bottom: .25rem; }
+
+.actions { display: flex; gap: .5rem; align-self: end; }
+
+    </style>
 
     <!-- Main -->
     <main>
@@ -110,47 +125,38 @@
         <div class="card">
             <h3>{{ _("Usage Preview")}} (slurmrestd → sacct → test.csv)</h3>
 
-            <form method="get">
-                <div class="grid2">
-                    <div>
-                        <label>Jobs completed before
-                            <input type="date" name="before" value="{{ before }}">
-                        </label>
-                    </div>
-                        <div>
-                            <form method="get" autocomplete="off">
-                            <label for="q-inp">Filter by user</label>
-                            <input id="q-inp"
-                                    name="q"
-                                    type="search"
-                                    placeholder="Start typing a username"
-                                    list="userlist"
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    autocapitalize="off"
-                                    autocorrect="off"
-                                    data-1p-ignore="true"
-                                    data-lpignore="true">
-                            <datalist id="userlist">
-                                {% for u in all_users %}
-                                <option value="{{ u }}">
-                                    {% endfor %}
-                            </datalist>
-                        </form>
-                        </div>
-                    <div>
-                        <label>&nbsp;
-                            <button type="submit">Fetch Usage</button>
-                            <!-- NEW: Reset Search -->
-                            <button type="button" id="reset-q" class="btn-secondary" style="margin-left:.5rem">
-                                Reset Search
-                            </button>
-                        </label>
-                    </div>
-                </div>
-                <input type="hidden" name="section" value="usage">
-                <input type="hidden" name="type" value="{{ tier }}">
-            </form>
+<form method="get" autocomplete="off" id="usage-form">
+    <div class="grid2 controls">
+        <!-- Col 1: date -->
+        <div class="field">
+            <label for="before">Jobs completed before</label>
+            <input id="before" type="date" name="before" value="{{ before }}">
+        </div>
+
+        <!-- Col 2: user filter (NO nested form) -->
+        <div class="field">
+            <label for="q-inp">Filter by user</label>
+            <input id="q-inp" name="q" type="search" value="{{ q or '' }}" placeholder="Start typing a username"
+                list="userlist" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
+                data-1p-ignore="true" data-lpignore="true">
+            <datalist id="userlist">
+                {% for u in all_users %}
+                <option value="{{ u }}"></option>
+                {% endfor %}
+            </datalist>
+        </div>
+
+        <!-- Col 3: actions (NO label wrapper) -->
+        <div class="actions">
+            <button type="submit">Fetch Usage</button>
+            <button type="button" id="reset-q" class="btn-secondary">Reset Search</button>
+        </div>
+    </div>
+
+    <input type="hidden" name="section" value="usage">
+    <input type="hidden" name="type" value="{{ tier }}">
+</form>
+
 
             <div class="right muted">
                 Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{%
@@ -749,8 +755,11 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 </div>
 <script>
     (function () {
-        // --- Datalist "show on focus" helper (unchanged) ---
-        const inp = document.querySelector('input[name="q"][list="userlist"]');
+        const form = document.getElementById('usage-form');
+        const inp = document.getElementById('q-inp');
+        const resetBtn = document.getElementById('reset-q');
+
+        // Show datalist on focus (your original helper)
         if (inp) {
             inp.addEventListener('focus', function () {
                 if (!this.value) {
@@ -762,31 +771,18 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             });
         }
 
-        // --- NEW: Reset Search button ---
-        const resetBtn = document.getElementById('reset-q');
-        if (resetBtn) {
+        // Reset search: clear q and submit without ?q=
+        if (resetBtn && form && inp) {
             resetBtn.addEventListener('click', function () {
-                const form = resetBtn.closest('form');
-                if (!form) return;
-
-                // Clear the input for the user’s view
-                if (inp) inp.value = '';
-
-                // Submit WITHOUT sending ?q= (remove name temporarily)
-                let restored = false, origName = '';
-                if (inp && inp.name) {
-                    origName = inp.name;
-                    inp.removeAttribute('name');
-                    restored = true;
-                }
-
+                inp.value = '';
+                const orig = inp.name;
+                inp.removeAttribute('name');  // keep URL clean
                 form.submit();
-
-                // Restore the name for any future interactions (not strictly needed after submit)
-                if (restored) inp.name = origName;
+                inp.name = orig;              // restore for future interactions
             });
         }
     })();
 </script>
+
 
 {% endblock %}
