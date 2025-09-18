@@ -104,6 +104,8 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         "--format="
         "User,JobID,JobName,Elapsed,TotalCPU,CPUTime,CPUTimeRAW,"
         "ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State,"
+        "ExitCode,DerivedExitCode,"
+        "ConsumedEnergyRaw,ConsumedEnergy,"
         "NodeList,AllocNodes"
     ]
     if username:

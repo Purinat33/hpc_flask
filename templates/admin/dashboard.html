@@ -64,6 +64,47 @@
     {% endif %}
 </div>
 
+<!-- <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+    <div class="card">
+        <h3>Energy by User (kJ)</h3>
+        <canvas id="energyUser"></canvas>
+    </div>
+    <div class="card">
+        <h3>Energy per CPU-hour by User</h3>
+        <canvas id="energyEffUser"></canvas>
+    </div>
+    <div class="card">
+        <h3>Energy by Node (kJ)</h3>
+        <canvas id="energyNode"></canvas>
+    </div>
+</div> -->
+
+<div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+    <div class="card">
+        <h3>Success vs Fail — User</h3>
+        <canvas id="succUser"></canvas>
+    </div>
+    <!-- <div class="card">
+        <h3>Success vs Fail — Partition</h3>
+        <canvas id="succPart"></canvas>
+    </div>
+    <div class="card">
+        <h3>Success vs Fail — QoS</h3>
+        <canvas id="succQos"></canvas>
+    </div> -->
+</div>
+
+<div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
+    <!-- <div class="card">
+        <h3>Top Failure Exit Codes</h3>
+        <canvas id="failExit"></canvas>
+    </div> -->
+    <div class="card">
+        <h3>Failure Reasons</h3>
+        <canvas id="failReasons"></canvas>
+    </div>
+</div>
+
 
 
 <!-- Optional totals chips -->
@@ -73,117 +114,185 @@
     Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
 </div>
 
-<!-- Lightweight charts via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script>
-    // define BEFORE any Chart(...) calls
-    const PRINT_MODE = !!(window.matchMedia && window.matchMedia('print').matches);
-    window.dashboardCharts = window.dashboardCharts || [];
-</script>
+    // Define BEFORE constructing charts
+    const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
 
-<script>
-    function safeChart(id, cfg) {
+    // Jinja-safe pulls (always JSON, never undefined)
+    const dailyLabels = {{ series.get('daily_labels', []) | tojson | safe }};
+    const dailyData = {{ series.get('daily_cost', []) | tojson | safe }};
+    const tierLabels = {{ series.get('tier_labels', []) | tojson | safe }};
+    const tierValues = {{ series.get('tier_values', []) | tojson | safe }};
+    const userLabels = {{ series.get('top_users_labels', []) | tojson | safe }};
+    const userValues = {{ series.get('top_users_values', []) | tojson | safe }};
+
+    const nodeJobsLabels = {{ series.get('node_jobs_labels', []) | tojson | safe }};
+    const nodeJobsValues = {{ series.get('node_jobs_values', []) | tojson | safe }};
+    const nodeCPULabels = {{ series.get('node_cpu_labels', []) | tojson | safe }};
+    const nodeCPUValues = {{ series.get('node_cpu_values', []) | tojson | safe }};
+    const nodeGPULabels = {{ series.get('node_gpu_labels', []) | tojson | safe }};
+    const nodeGPUValues = {{ series.get('node_gpu_values', []) | tojson | safe }};
+
+    const energyUserLabels = {{ series.get('energy_user_labels', []) | tojson | safe }};
+    const energyUserValues = {{ series.get('energy_user_values', []) | tojson | safe }};
+    const energyEffUserLabels = {{ series.get('energy_eff_user_labels', []) | tojson | safe }};
+    const energyEffUserValues = {{ series.get('energy_eff_user_values', []) | tojson | safe }};
+    const energyNodeLabels = {{ series.get('energy_node_labels', []) | tojson | safe }};
+    const energyNodeValues = {{ series.get('energy_node_values', []) | tojson | safe }};
+
+    const succUserLabels = {{ series.get('succ_user_labels', []) | tojson | safe }};
+    const succUserSuccess = {{ series.get('succ_user_success', []) | tojson | safe }};
+    const succUserFail = {{ series.get('succ_user_fail', []) | tojson | safe }};
+    const succPartLabels = {{ series.get('succ_part_labels', []) | tojson | safe }};
+    const succPartSuccess = {{ series.get('succ_part_success', []) | tojson | safe }};
+    const succPartFail = {{ series.get('succ_part_fail', []) | tojson | safe }};
+    const succQosLabels = {{ series.get('succ_qos_labels', []) | tojson | safe }};
+    const succQosSuccess = {{ series.get('succ_qos_success', []) | tojson | safe }};
+    const succQosFail = {{ series.get('succ_qos_fail', []) | tojson | safe }};
+    const failExitLabels = {{ series.get('fail_exit_labels', []) | tojson | safe }};
+    const failExitValues = {{ series.get('fail_exit_values', []) | tojson | safe }};
+    const failStateLabels = {{ series.get('fail_state_labels', []) | tojson | safe }};
+    const failStateValues = {{ series.get('fail_state_values', []) | tojson | safe }};
+
+    // Keep track of charts and make each build safe (one error won't kill others)
+    window.dashboardCharts = window.dashboardCharts || [];
+    function safeChart(buildFn, name) {
         try {
-            const el = document.getElementById(id);
-            if (!el) return;
-            const c = new Chart(el, cfg);
-            (window.dashboardCharts ||= []).push(c);
-        } catch (e) { console.error("chart failed:", id, e); }
+            const ch = buildFn();
+            if (ch) window.dashboardCharts.push(ch);
+        } catch (e) {
+            console.warn("Chart failed:", name, e);
+        }
     }
-    // then call safeChart('dailyCost', {...}), etc.
-</script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-<script>
-    const dailyLabels = {{ series.daily_labels| tojson }};
-    const dailyData = {{ series.daily_cost| tojson }};
-    const tierLabels = {{ series.tier_labels| tojson }};
-    const tierValues = {{ series.tier_values| tojson }};
-    const userLabels = {{ series.top_users_labels| tojson }};
-    const userValues = {{ series.top_users_values| tojson }};
+    function stackedBar(el, labels, succ, fail, name) {
+        if (!labels.length) return;
+        safeChart(() => new Chart(document.getElementById(el), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Success', data: succ, stack: 's' },
+                    { label: 'Fail', data: fail, stack: 's' },
+                ]
+            },
+            options: {
+                animation: !PRINT_MODE,
+                plugins: { legend: { position: 'bottom' } },
+                indexAxis: 'y',
+                scales: { x: { beginAtZero: true } }
+            }
+        }), name);
+    }
 
-    // NEW node series
-    const nodeJobsLabels = {{ series.node_jobs_labels| tojson }};
-    const nodeJobsValues = {{ series.node_jobs_values| tojson }};
-    const nodeCPULabels = {{ series.node_cpu_labels| tojson }};
-    const nodeCPUValues = {{ series.node_cpu_values| tojson }};
-    const nodeGPULabels = {{ series.node_gpu_labels| tojson }};
-    const nodeGPUValues = {{ series.node_gpu_values| tojson }};
+    // --- Daily total cost (line) ---
+    if (dailyLabels.length && dailyData.length) {
+        safeChart(() => new Chart(document.getElementById('dailyCost'), {
+            type: 'line',
+            data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
+            options: {
+                animation: !PRINT_MODE,
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
+            }
+        }), 'dailyCost');
+    }
 
-    // keep a global list so we can re-render before print
-    window.dashboardCharts = window.dashboardCharts || [];
+    // --- Cost by Tier (pie) ---   <-- this was missing
+    if (tierLabels.length && tierValues.length) {
+        safeChart(() => new Chart(document.getElementById('tierPie'), {
+            type: 'pie',
+            data: { labels: tierLabels, datasets: [{ data: tierValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+        }), 'tierPie');
+    }
 
-    window.dashboardCharts.push(new Chart(document.getElementById('dailyCost'), {
-        type: 'line',
-        data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
-        options: {
-            animation: !PRINT_MODE, plugins: { legend: { display: false } },
-            scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
-        }
-    }));
+    // --- Top Users by Cost (bar) ---   <-- this was missing
+    if (userLabels.length && userValues.length) {
+        safeChart(() => new Chart(document.getElementById('topUsers'), {
+            type: 'bar',
+            data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'topUsers');
+    }
 
-    window.dashboardCharts.push(new Chart(document.getElementById('tierPie'), {
-        type: 'pie',
-        data: { labels: tierLabels, datasets: [{ data: tierValues }] },
-        options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
-    }));
-
-    window.dashboardCharts.push(new Chart(document.getElementById('topUsers'), {
-        type: 'bar',
-        data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
-        options: {
-            animation: !PRINT_MODE, plugins: { legend: { display: false } },
-            indexAxis: 'y', scales: { x: { beginAtZero: true } }
-        }
-    }));
-
-    // --- NEW node charts (create only if have data) ---
+    // --- Node charts ---   <-- these were missing
     if (nodeJobsLabels.length) {
-        window.dashboardCharts.push(new Chart(document.getElementById('nodesByJobs'), {
+        safeChart(() => new Chart(document.getElementById('nodesByJobs'), {
             type: 'bar',
             data: { labels: nodeJobsLabels, datasets: [{ label: 'Jobs', data: nodeJobsValues }] },
-            options: {
-                animation: !PRINT_MODE, plugins: { legend: { display: false } },
-                indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } }
-            }
-        }));
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } } }
+        }), 'nodesByJobs');
     }
-
     if (nodeCPULabels.length) {
-        window.dashboardCharts.push(new Chart(document.getElementById('nodesByCPU'), {
+        safeChart(() => new Chart(document.getElementById('nodesByCPU'), {
             type: 'bar',
             data: { labels: nodeCPULabels, datasets: [{ label: 'CPU core-hrs', data: nodeCPUValues }] },
-            options: {
-                animation: !PRINT_MODE, plugins: { legend: { display: false } },
-                indexAxis: 'y', scales: { x: { beginAtZero: true } }
-            }
-        }));
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'nodesByCPU');
     }
-
     if (nodeGPULabels.length) {
-        window.dashboardCharts.push(new Chart(document.getElementById('nodesByGPU'), {
+        safeChart(() => new Chart(document.getElementById('nodesByGPU'), {
             type: 'bar',
             data: { labels: nodeGPULabels, datasets: [{ label: 'GPU-hrs', data: nodeGPUValues }] },
-            options: {
-                animation: !PRINT_MODE, plugins: { legend: { display: false } },
-                indexAxis: 'y', scales: { x: { beginAtZero: true } }
-            }
-        }));
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'nodesByGPU');
     }
-</script>
 
-<script>
-    // If you create charts dynamically, flag “print mode” to disable animations.
-    const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
-    // Example: when constructing charts, pass { animation: !PRINT_MODE } in options.
+    // --- Energy charts (will be empty if energy is disabled) ---
+    if (energyUserLabels.length) {
+        safeChart(() => new Chart(document.getElementById('energyUser'), {
+            type: 'bar',
+            data: { labels: energyUserLabels, datasets: [{ label: 'kJ', data: energyUserValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'energyUser');
+    }
+    if (energyEffUserLabels.length) {
+        safeChart(() => new Chart(document.getElementById('energyEffUser'), {
+            type: 'bar',
+            data: { labels: energyEffUserLabels, datasets: [{ label: 'kJ / CPU-hr', data: energyEffUserValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'energyEffUser');
+    }
+    if (energyNodeLabels.length) {
+        safeChart(() => new Chart(document.getElementById('energyNode'), {
+            type: 'bar',
+            data: { labels: energyNodeLabels, datasets: [{ label: 'kJ', data: energyNodeValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'energyNode');
+    }
 
-    // Also re-render just before print (covers browsers that evaluate after layout)
+    // --- Throughput / reliability ---
+    stackedBar('succUser', succUserLabels, succUserSuccess, succUserFail, 'succUser');
+    stackedBar('succPart', succPartLabels, succPartSuccess, succPartFail, 'succPart');
+    stackedBar('succQos', succQosLabels, succQosSuccess, succQosFail, 'succQos');
+
+    if (failExitLabels.length) {
+        safeChart(() => new Chart(document.getElementById('failExit'), {
+            type: 'bar',
+            data: { labels: failExitLabels, datasets: [{ label: 'Count', data: failExitValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+        }), 'failExit');
+    }
+
+    if (failStateLabels.length) {
+        safeChart(() => new Chart(document.getElementById('failReasons'), {
+            type: 'doughnut',
+            data: { labels: failStateLabels, datasets: [{ data: failStateValues }] },
+            options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+        }), 'failReasons');
+    }
+
+    // Re-render before print
     window.addEventListener('beforeprint', () => {
         if (window.dashboardCharts && Array.isArray(window.dashboardCharts)) {
             for (const ch of window.dashboardCharts) { try { ch.update('none'); } catch (e) { } }
         }
     });
 </script>
+
 
 <style>
     @media print {

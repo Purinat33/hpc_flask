@@ -146,75 +146,87 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # Ensure core columns exist
-    for c in ["User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "AllocTRES", "AveRSS", "CPUTimeRAW"]:
+    # Ensure core columns exist (plus new ones we’ll keep)
+    base_cols = [
+        "User", "JobID", "Elapsed", "TotalCPU", "ReqTRES", "AllocTRES",
+        "AveRSS", "CPUTimeRAW", "End", "State",
+        # NEW: keep for throughput/reliability
+        "Partition", "QOS", "ExitCode", "DerivedExitCode",
+        # NEW: energy
+        "ConsumedEnergyRaw", "ConsumedEnergy",
+        # We’ll also keep NodeList for node metrics
+        "NodeList"
+    ]
+    for c in base_cols:
         if c not in df:
             df[c] = ""
 
     # Parse times
     df["Elapsed_Hours"] = df["Elapsed"].map(hms_to_hours)
     df["TotalCPU_Hours"] = df["TotalCPU"].map(hms_to_hours)
-    # CPUTimeRAW is seconds integer; be robust
     df["CPUTimeRAW_Hours"] = pd.to_numeric(
         df["CPUTimeRAW"], errors="coerce").fillna(0) / 3600.0
 
-    # Mark parent vs step and define parent key
+    # Parent/step split
     df["ParentID"] = df["JobID"].map(canonical_job_id)
     df["is_step"] = df["JobID"].astype(str) != df["ParentID"]
-
-    # ---------- Step-level “used” metrics ----------
     steps = df[df["is_step"]].copy()
     parents = df[~df["is_step"]].copy()
 
-    # Memory used at step = AveRSS_GB * Elapsed_hours (approx time-avg usage)
+    # ---- Step-level “used” metrics ----
     steps["AveRSS_GB"] = steps["AveRSS"].map(_rss_to_gb)
     steps["Mem_GB_Hours_Used_step"] = steps["AveRSS_GB"] * \
         steps["Elapsed_Hours"]
-
-    # CPU used at step: prefer TotalCPU, then CPUTimeRAW
     steps["CPU_Core_Hours_Used_step"] = np.where(
         steps["TotalCPU_Hours"] > 0, steps["TotalCPU_Hours"], steps["CPUTimeRAW_Hours"]
     )
 
-    # Aggregate steps → parent
+    # NEW: Energy series helper (use whichever sacct field exists)
+    def _energy_series(d: pd.DataFrame) -> pd.Series:
+        eraw = pd.to_numeric(d.get("ConsumedEnergyRaw"), errors="coerce")
+        ealt = pd.to_numeric(d.get("ConsumedEnergy"), errors="coerce")
+        if eraw is None and ealt is None:
+            return pd.Series(0.0, index=d.index, dtype="float64")
+        if eraw is None:
+            out = ealt
+        elif ealt is None:
+            out = eraw
+        else:
+            out = eraw.fillna(ealt)
+        return out.fillna(0.0).astype("float64")
+
+    steps["Energy_kJ_step"] = _energy_series(steps)
+
     agg = steps.groupby("ParentID").agg(
         CPU_Core_Hours_Used_steps=("CPU_Core_Hours_Used_step", "sum"),
         Mem_GB_Hours_Used_steps=("Mem_GB_Hours_Used_step", "sum"),
-        # we could also bring MaxRSS across steps if you want efficiency reporting:
-        MaxRSS_GB=("AveRSS_GB", "max")
+        MaxRSS_GB=("AveRSS_GB", "max"),
+        Energy_kJ_steps=("Energy_kJ_step", "sum"),  # NEW
     ).reset_index()
 
-    # Merge aggregates back to parent rows
     parents = parents.merge(
         agg, how="left", left_on="JobID", right_on="ParentID")
-    parents["CPU_Core_Hours_Used_steps"] = parents["CPU_Core_Hours_Used_steps"].fillna(
-        0)
-    parents["Mem_GB_Hours_Used_steps"] = parents["Mem_GB_Hours_Used_steps"].fillna(
-        0)
+    for c in ["CPU_Core_Hours_Used_steps", "Mem_GB_Hours_Used_steps", "Energy_kJ_steps"]:
+        parents[c] = parents[c].fillna(0.0)
 
-    # Prefer AllocTRES for allocations; fallback to ReqTRES
+    # Prefer AllocTRES for allocations
     parents["_TRES_CPU"] = parents.apply(
-        _prefer_alloc_over_req, axis=1, result_type=None, args=("cpu",))
+        _prefer_alloc_over_req, axis=1, args=("cpu",))
     parents["_TRES_GPU"] = parents.apply(
-        _prefer_alloc_over_req, axis=1, result_type=None, args=("gres/gpu",))
+        _prefer_alloc_over_req, axis=1, args=("gres/gpu",))
     parents["_TRES_MEM"] = parents.apply(
-        _prefer_alloc_over_req, axis=1, result_type=None, args=("mem",))
+        _prefer_alloc_over_req, axis=1, args=("mem",))
 
     parents["AllocCPUS"] = parents["_TRES_CPU"].map(extract_cpu_count)
     parents["GPU_Count"] = parents["_TRES_GPU"].map(extract_gpu_count)
     parents["Memory_GB"] = parents["_TRES_MEM"].map(extract_mem_gb)
 
-    # Allocation-based resource-hours (still used for GPU + fallback)
     parents["GPU_Hours_Alloc"] = parents["GPU_Count"] * \
         parents["Elapsed_Hours"]
     parents["Mem_GB_Hours_Alloc"] = parents["Memory_GB"] * \
         parents["Elapsed_Hours"]
 
-    # Final CPU used (per job):
-    # 1) sum of step TotalCPU (or CPUTimeRAW) if > 0
-    # 2) else parent's TotalCPU_Hours if > 0
-    # 3) else CPUTimeRAW_Hours
-    # 4) else AllocCPUS * Elapsed
+    # CPU used cascade
     parents["CPU_Core_Hours"] = np.where(
         parents["CPU_Core_Hours_Used_steps"] > 0,
         parents["CPU_Core_Hours_Used_steps"],
@@ -229,19 +241,26 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         )
     )
 
-    # Final Memory used: prefer step-based used; fallback to allocated
+    # Memory used cascade
     parents["Mem_GB_Hours_Used"] = np.where(
         parents["Mem_GB_Hours_Used_steps"] > 0,
         parents["Mem_GB_Hours_Used_steps"],
         parents["Mem_GB_Hours_Alloc"]
     )
 
-    # GPU: remain allocation-based unless you later integrate DCGM/NVML
     parents["GPU_Hours"] = parents["GPU_Hours_Alloc"]
+
+    # NEW: Energy per parent (prefer explicit parent energy; else sum of steps)
+    parents["Energy_kJ_parent"] = _energy_series(parents)
+    parents["Energy_kJ"] = np.where(
+        parents["Energy_kJ_parent"] > 0, parents["Energy_kJ_parent"], parents["Energy_kJ_steps"]
+    ).astype("float64")
+    parents["Energy_per_CPU_hour"] = (
+        parents["Energy_kJ"] / parents["CPU_Core_Hours"].replace(0, np.nan)
+    ).fillna(0.0).round(4)
 
     # Tier + Cost
     parents["tier"] = parents["User"].map(classify_user_type)
-
     rates = rates_store.load_rates()
 
     def row_cost(r):
@@ -263,7 +282,11 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         "GPU_Count", "GPU_Hours",
         "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
         "tier", "Cost (฿)",
-        "NodeList"
+        "NodeList",
+        # NEW: energy + efficiency
+        "Energy_kJ", "Energy_per_CPU_hour",
+        # NEW: reliability dims
+        "Partition", "QOS", "ExitCode", "DerivedExitCode",
     ]
     for c in keep_cols:
         if c not in parents.columns:

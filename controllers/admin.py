@@ -83,6 +83,16 @@ def admin_form():
         "node_jobs_labels": [], "node_jobs_values": [],
         "node_cpu_labels": [],  "node_cpu_values": [],
         "node_gpu_labels": [],  "node_gpu_values": [],
+        # energy
+        "energy_user_labels": [], "energy_user_values": [],
+        "energy_node_labels": [], "energy_node_values": [],
+        "energy_eff_user_labels": [], "energy_eff_user_values": [],
+        # throughput / reliability
+        "succ_user_labels": [], "succ_user_success": [], "succ_user_fail": [],
+        "succ_part_labels": [], "succ_part_success": [], "succ_part_fail": [],
+        "succ_qos_labels":  [], "succ_qos_success":  [], "succ_qos_fail":  [],
+        "fail_exit_labels": [], "fail_exit_values": [],
+        "fail_state_labels": [], "fail_state_values": [],
     }
 
     # helpers
@@ -304,6 +314,136 @@ def admin_form():
             kpis["nodes"] = node_kpi
         except Exception as e:
             notes.append(f"node_kpi: {e}")
+
+        # --- Energy & Throughput series (NEW) ---
+        try:
+            # Energy per user (top 10)
+            def _energy_user():
+                if df.empty or "Energy_kJ" not in df.columns or "User" not in df.columns:
+                    return ([], [])
+                s = df.groupby("User")["Energy_kJ"].sum(
+                ).sort_values(ascending=False).head(10)
+                return list(s.index), [round(float(v), 2) for v in s.values]
+
+            series["energy_user_labels"], series["energy_user_values"] = cap(
+                "series.energy_user", _energy_user, ([], [])
+            )
+
+            # Energy efficiency per user: kJ per CPU-hour (ratio-of-sums)
+            def _energy_eff_user():
+                if df.empty or "Energy_kJ" not in df.columns or "CPU_Core_Hours" not in df.columns:
+                    return ([], [])
+                g = df.groupby("User").agg(energy=("Energy_kJ", "sum"),
+                                           cpu=("CPU_Core_Hours", "sum"))
+                g = g[g["cpu"] > 0]
+                eff = (g["energy"] / g["cpu"]
+                       ).sort_values(ascending=False).head(10)
+                return list(eff.index), [round(float(v), 3) for v in eff.values]
+
+            series["energy_eff_user_labels"], series["energy_eff_user_values"] = cap(
+                "series.energy_eff_user", _energy_eff_user, ([], [])
+            )
+
+            # Energy per node (top 10) — reuse exploded df_nodes if you created it; else build locally
+            def _energy_node_top():
+                if df.empty or "NodeList" not in df.columns or "Energy_kJ" not in df.columns:
+                    return ([], [])
+                from services.data_sources import expand_nodelist
+                d = df.copy()
+                d["__nodes"] = d["NodeList"].fillna("").map(expand_nodelist)
+                d = d.explode("__nodes")
+                d = d[d["__nodes"].notna() & (d["__nodes"] != "")]
+                if d.empty:
+                    return ([], [])
+                d["Energy_kJ"] = pd.to_numeric(
+                    d["Energy_kJ"], errors="coerce").fillna(0.0)
+                s = d.groupby("__nodes")["Energy_kJ"].sum(
+                ).sort_values(ascending=False).head(10)
+                return list(s.index), [round(float(v), 2) for v in s.values]
+
+            series["energy_node_labels"], series["energy_node_values"] = cap(
+                "series.energy_node", _energy_node_top, ([], [])
+            )
+
+            # ---- Throughput / reliability ----
+
+            def _succ_fail_by(col: str):
+                if df.empty or col not in df.columns or "State" not in df.columns:
+                    return ([], [], [])
+                g = (
+                    df.groupby([col, "State"])["JobID"]
+                    .nunique()
+                    .unstack(fill_value=0)
+                )
+                success = g["COMPLETED"] if "COMPLETED" in g.columns else (
+                    g.sum(axis=1) * 0)
+                total = g.sum(axis=1)
+                fail = (total - success).astype(int)
+                # focus on busiest groups
+                top_idx = total.sort_values(ascending=False).head(10).index
+                return (
+                    list(top_idx),
+                    [int(success.loc[i]) for i in top_idx],
+                    [int(fail.loc[i]) for i in top_idx],
+                )
+
+            series["succ_user_labels"], series["succ_user_success"], series["succ_user_fail"] = cap(
+                "series.succ_user", lambda: _succ_fail_by("User"), ([], [], [])
+            )
+            series["succ_part_labels"], series["succ_part_success"], series["succ_part_fail"] = cap(
+                "series.succ_part", lambda: _succ_fail_by(
+                    "Partition"), ([], [], [])
+            )
+            series["succ_qos_labels"], series["succ_qos_success"], series["succ_qos_fail"] = cap(
+                "series.succ_qos", lambda: _succ_fail_by("QOS"), ([], [], [])
+            )
+
+            # Top failure exit codes (use DerivedExitCode then ExitCode), only for non-COMPLETED
+            def _fail_exit_top():
+                if "State" not in df.columns:
+                    return ([], [])
+                codes = df.get("DerivedExitCode")
+                if codes is None or codes.empty:
+                    codes = df.get("ExitCode")
+                codes = codes.fillna("")
+                mask = df["State"].fillna("").ne("COMPLETED")
+                c = codes[mask].replace("", pd.NA).dropna()
+                if c.empty:
+                    return ([], [])
+                s = c.value_counts().head(10)
+                return list(s.index), [int(v) for v in s.values]
+
+            series["fail_exit_labels"], series["fail_exit_values"] = cap(
+                "series.fail_exit", _fail_exit_top, ([], [])
+            )
+
+            # Failure reason share: PREEMPTED / TIMEOUT / OTHER_FAILS (counts)
+            def _fail_state_share():
+                if "State" not in df.columns:
+                    return ([], [])
+                s = df["State"].fillna("")
+                pre = int((s == "PREEMPTED").sum())
+                tout = int((s == "TIMEOUT").sum())
+                non_ok = int((s != "COMPLETED").sum())
+                other = max(non_ok - pre - tout, 0)
+                return (["PREEMPTED", "TIMEOUT", "OTHER_FAILS"], [pre, tout, other])
+
+            series["fail_state_labels"], series["fail_state_values"] = cap(
+                "series.fail_states", _fail_state_share, ([], [])
+            )
+
+            def _hide_if_all_zero(labels_key, values_key):
+                vals = series.get(values_key, [])
+                if not vals or sum(float(v or 0) for v in vals) == 0:
+                    series[labels_key], series[values_key] = [], []
+
+            _hide_if_all_zero("energy_user_labels", "energy_user_values")
+            _hide_if_all_zero("energy_eff_user_labels",
+                              "energy_eff_user_values")
+            _hide_if_all_zero("energy_node_labels", "energy_node_values")
+
+        except Exception as e:
+            notes.append(f"energy_throughput_series: {e}")
 
         return render_template(
             "admin/dashboard.html",
