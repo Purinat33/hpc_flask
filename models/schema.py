@@ -31,8 +31,8 @@ class Receipt(Base):
     # who / period
     username: Mapped[str] = mapped_column(
         String, nullable=False)  # optional FK to users.username
-    start: Mapped[datetime] = mapped_column(Date, nullable=False)
-    end:   Mapped[datetime] = mapped_column(Date, nullable=False)
+    start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end:   Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # NEW: snapshot of pricing inputs locked at creation-time
     pricing_tier:  Mapped[str] = mapped_column(

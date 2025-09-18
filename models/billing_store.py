@@ -1,4 +1,9 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
+from services.datetimex import now_utc, APP_TZ
+from sqlalchemy import select, delete
+from zoneinfo import ZoneInfo
+from typing import Iterable, Tuple, List
+from datetime import date, datetime, time, timezone
 import re
 from datetime import date, datetime, timezone
 from typing import Iterable, Tuple, List, Dict
@@ -9,6 +14,7 @@ from models.base import session_scope
 from models.schema import Receipt, ReceiptItem
 from models import rates_store
 from services.datetimex import now_utc, to_iso_z
+import re
 
 
 def canonical_job_id(s: str) -> str:
@@ -110,24 +116,54 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
         )
 
 
+def _tz_from_app() -> ZoneInfo:
+    # APP_TZ may be a string ("Asia/Bangkok") or a tzinfo (pytz/zoneinfo).
+    tzname = getattr(APP_TZ, "key", None) or getattr(
+        APP_TZ, "zone", None) or (APP_TZ if isinstance(APP_TZ, str) else "UTC")
+    return ZoneInfo(str(tzname))
+
+
+def _day_start_utc(d: date) -> datetime:
+    # local day start → UTC
+    tz = _tz_from_app()
+    return datetime.combine(d, time(0, 0, 0), tzinfo=tz).astimezone(timezone.utc)
+
+
+def _day_end_utc(d: date) -> datetime:
+    # local day end → UTC (inclusive boundary)
+    tz = _tz_from_app()
+    return datetime.combine(d, time(23, 59, 59), tzinfo=tz).astimezone(timezone.utc)
+
+
 def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable[dict]) -> Tuple[int, float, list[dict]]:
+    """
+    `start` / `end` are ISO dates (YYYY-MM-DD) coming from UI.
+    We store *precise* UTC instants:
+      start = local 00:00:00 converted to UTC
+      end   = local 23:59:59 converted to UTC
+    """
     now = _now_utc()
-    rows = list(rows)  # we'll scan them twice
+    rows = list(rows)
     inserted: List[dict] = []
     total = 0.0
 
-    # --- determine tier & snapshot current rates
-    # prefer the first non-empty 'tier' in the rows; default to 'mu'
+    # Determine tier & snapshot rates
     tier = next((str((r.get("tier") or "")).lower()
                 for r in rows if r.get("tier")), "mu")
-    # {'cpu': ..., 'gpu': ..., 'mem': ...}
     snap = rates_store.get_rate_for_tier(tier)
+
+    # Build precise UTC bounds
+    start_dt_utc = _day_start_utc(date.fromisoformat(start))
+    end_dt_utc = _day_end_utc(date.fromisoformat(end))
 
     with session_scope() as s:
         r = Receipt(
-            username=username, start=date.fromisoformat(start), end=date.fromisoformat(end),
-            total=0.0, status="pending", created_at=now,
-            # NEW snapshot fields:
+            username=username,
+            start=start_dt_utc,
+            end=end_dt_utc,
+            total=0.0,
+            status="pending",
+            created_at=now,
             pricing_tier=tier,
             rate_cpu=float(snap["cpu"]),
             rate_gpu=float(snap["gpu"]),
@@ -135,7 +171,7 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
             rates_locked_at=now,
         )
         s.add(r)
-        s.flush()  # to get r.id
+        s.flush()  # obtain r.id
 
         for row in rows:
             job_key = canonical_job_id(str(row["JobID"]))
@@ -146,7 +182,8 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
                 cost=float(row.get("Cost (฿)", 0.0)),
                 cpu_core_hours=float(row.get("CPU_Core_Hours", 0.0)),
                 gpu_hours=float(row.get("GPU_Hours", 0.0)),
-                mem_gb_hours=float(row.get("Mem_GB_Hours", 0.0)),
+                # ✅ use used-hours to match UI/logic
+                mem_gb_hours=float(row.get("Mem_GB_Hours_Used", 0.0)),
             )
             s.add(item)
             total += float(item.cost)
@@ -258,12 +295,13 @@ def paid_receipts_csv():
     w.writerow([
         "id", "username", "start", "end",
         "total_THB", "status", "created_at", "paid_at",
-        # NEW:
         "pricing_tier", "rate_cpu", "rate_gpu", "rate_mem", "rates_locked_at",
     ])
     for r in rows:
         w.writerow([
-            r["id"], r["username"], r["start"].isoformat(), r["end"].isoformat(),
+            r["id"], r["username"],
+            r["start"].isoformat().replace("+00:00", "Z"),
+            r["end"].isoformat().replace("+00:00", "Z"),
             f"{float(r['total']):.2f}", r["status"],
             r["created_at"].isoformat().replace("+00:00", "Z"),
             (r["paid_at"].isoformat().replace(

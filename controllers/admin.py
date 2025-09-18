@@ -472,14 +472,17 @@ def create_self_receipt():
     start_d, end_d = "1970-01-01", before
 
     df, _, _ = fetch_jobs_with_fallbacks(
-        start_d, end_d, username=current_user.username)
+        start_d, end_d, username=current_user.username
+    )
     df = compute_costs(df)
 
+    # UTC-aware cutoff to match the rest of the app
     if "End" in df.columns:
-        df["End"] = pd.to_datetime(df["End"], errors="coerce")
-        cutoff = pd.to_datetime(
-            end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        df = df[df["End"].notna() & (df["End"] <= cutoff)]
+        end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
+        cutoff_utc = pd.Timestamp(end_d, tz="UTC") + \
+            pd.Timedelta(hours=23, minutes=59, seconds=59)
+        df = df[end_series.notna() & (end_series <= cutoff_utc)]
+        df["End"] = end_series
 
     df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
     df = df[~df["JobKey"].isin(billed_job_ids())]
