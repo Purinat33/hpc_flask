@@ -1,11 +1,11 @@
 # models/schema.py
 from sqlalchemy import (
-    PrimaryKeyConstraint, String, Text, Integer, Float, DateTime, ForeignKey, CheckConstraint,
+    PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models.base import Base
-
+from datetime import datetime, date
 # --- USERS (users.sqlite3)
 
 
@@ -15,8 +15,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(
         String, nullable=False)  # ('admin','user')
-    created_at: Mapped[str] = mapped_column(
-        String, nullable=False)  # stored as ISO8601Z text
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
     __table_args__ = (
         CheckConstraint("role in ('admin','user')", name="ck_users_role"),
     )
@@ -31,10 +31,8 @@ class Receipt(Base):
     # who / period
     username: Mapped[str] = mapped_column(
         String, nullable=False)  # optional FK to users.username
-    start: Mapped[str] = mapped_column(
-        String, nullable=False)     # ISO8601 text
-    end:   Mapped[str] = mapped_column(
-        String, nullable=False)     # ISO8601 text
+    start: Mapped[datetime] = mapped_column(Date, nullable=False)
+    end:   Mapped[datetime] = mapped_column(Date, nullable=False)
 
     # NEW: snapshot of pricing inputs locked at creation-time
     pricing_tier:  Mapped[str] = mapped_column(
@@ -45,15 +43,17 @@ class Receipt(Base):
         Float,  nullable=False)   # THB per GPU-hour
     rate_mem:      Mapped[float] = mapped_column(
         Float,  nullable=False)   # THB per GB-hour
-    rates_locked_at: Mapped[str] = mapped_column(
-        String, nullable=False)   # ISO8601 when we snapped them
+    rates_locked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
 
     # totals / lifecycle
     total:   Mapped[float] = mapped_column(Float,  nullable=False, default=0.0)
     status:  Mapped[str] = mapped_column(
         String, nullable=False, default="pending")
-    created_at: Mapped[str] = mapped_column(String, nullable=False)
-    paid_at:    Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    paid_at:    Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
     method:     Mapped[str | None] = mapped_column(String)
     tx_ref:     Mapped[str | None] = mapped_column(String)
 
@@ -64,7 +64,6 @@ class Receipt(Base):
         CheckConstraint("pricing_tier in ('mu','gov','private')",
                         name="ck_receipts_tier"),
     )
-
 
 
 class ReceiptItem(Base):
@@ -97,7 +96,8 @@ class Rate(Base):
     cpu: Mapped[float] = mapped_column(Float, nullable=False)
     gpu: Mapped[float] = mapped_column(Float, nullable=False)
     mem: Mapped[float] = mapped_column(Float, nullable=False)
-    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
 
 
 class Payment(Base):
@@ -115,8 +115,10 @@ class Payment(Base):
     external_payment_id: Mapped[str | None] = mapped_column(String)
     checkout_url: Mapped[str | None] = mapped_column(Text)
     idempotency_key: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[str] = mapped_column(String, nullable=False)
-    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
     __table_args__ = (
         CheckConstraint("amount_cents >= 0", name="ck_payments_amount_ge_0"),
         CheckConstraint(
@@ -144,7 +146,8 @@ class PaymentEvent(Base):
     raw: Mapped[str] = mapped_column(Text, nullable=False)
     signature_ok: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0)
-    received_at: Mapped[str] = mapped_column(String, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
     __table_args__ = (
         UniqueConstraint("provider", "external_event_id",
                          name="uq_paymentevents_provider_external"),
@@ -156,7 +159,8 @@ class PaymentEvent(Base):
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ts: Mapped[str] = mapped_column(String, nullable=False)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
     actor: Mapped[str | None] = mapped_column(String)
     ip: Mapped[str | None] = mapped_column(String)
     ua: Mapped[str | None] = mapped_column(String)
@@ -175,9 +179,11 @@ class AuthThrottle(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String, nullable=False)
     ip: Mapped[str] = mapped_column(String, nullable=False)
-    window_start: Mapped[str | None] = mapped_column(String)
+    window_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
     fail_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    locked_until: Mapped[str | None] = mapped_column(String)
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
 
 
 Index("idx_auth_throttle_user_ip", AuthThrottle.username,

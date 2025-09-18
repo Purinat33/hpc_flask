@@ -1,10 +1,11 @@
 # data_sources.py
+from services.datetimex import ensure_utc_series, APP_TZ, local_day_end_utc
 import os
 import subprocess
 import pandas as pd
 import requests
 from io import StringIO
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from flask import current_app, has_app_context
 from services.billing import canonical_job_id
 import re
@@ -116,10 +117,10 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
     df = pd.read_csv(StringIO(out), sep="|")
 
     if "End" in df.columns:
-        df["End"] = pd.to_datetime(df["End"], errors="coerce")
-        cutoff = pd.to_datetime(end_date) + \
-            pd.Timedelta(hours=23, minutes=59, seconds=59)
-        df = df[df["End"].notna() & (df["End"] <= cutoff)]
+        # sacct End is local cluster time without tz; localize then convert to UTC
+        df["End"] = ensure_utc_series(df["End"], assume_local=APP_TZ)
+        cutoff_utc = local_day_end_utc(date.fromisoformat(end_date))
+        df = df[df["End"].notna() & (df["End"] <= cutoff_utc)]
 
     return df
 
@@ -180,10 +181,14 @@ def fetch_jobs_with_fallbacks(start_date: str, end_date: str, username: str | No
             df = df[df["JobKey"].isin(keep)].drop(columns=["JobKey"])
 
         if "End" in df.columns:
-            df["End"] = pd.to_datetime(df["End"], errors="coerce")
-            cutoff = pd.to_datetime(end_date) + \
-                pd.Timedelta(hours=23, minutes=59, seconds=59)
-            df = df[df["End"].notna() & (df["End"] <= cutoff)]
+            # try parse with tz-aware; if no tz, assume local then UTC
+            s = pd.to_datetime(df["End"], errors="coerce", utc=False)
+            if getattr(s.dtype, "tz", None) is None:
+                s = s.dt.tz_localize(APP_TZ)
+            df["End"] = s.dt.tz_convert("UTC")
+
+            cutoff_utc = local_day_end_utc(date.fromisoformat(end_date))
+            df = df[df["End"].notna() & (df["End"] <= cutoff_utc)]
         # df = drop_steps(df)
         return df, "test.csv", notes
     except Exception as e:

@@ -1,6 +1,6 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Iterable, Tuple, List, Dict
 
 from sqlalchemy import select, func, update, delete
@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from models.base import session_scope
 from models.schema import Receipt, ReceiptItem
 from models import rates_store
+from services.datetimex import now_utc, to_iso_z
 
 
 def canonical_job_id(s: str) -> str:
@@ -24,6 +25,10 @@ def canonical_job_id(s: str) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _now_utc() -> datetime:
+    return now_utc()
 
 
 def billed_job_ids() -> set[str]:
@@ -106,7 +111,7 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
 
 
 def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable[dict]) -> Tuple[int, float, list[dict]]:
-    now = _now_iso()
+    now = _now_utc()
     rows = list(rows)  # we'll scan them twice
     inserted: List[dict] = []
     total = 0.0
@@ -120,7 +125,7 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
 
     with session_scope() as s:
         r = Receipt(
-            username=username, start=start, end=end,
+            username=username, start=date.fromisoformat(start), end=date.fromisoformat(end),
             total=0.0, status="pending", created_at=now,
             # NEW snapshot fields:
             pricing_tier=tier,
@@ -166,7 +171,7 @@ def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None)
         if not r:
             return
         r.status = "paid"
-        r.paid_at = _now_iso()
+        r.paid_at = _now_utc()
         r.method = method
         r.tx_ref = tx_ref
         s.add(r)
@@ -211,22 +216,20 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
             q = q.where(Receipt.status == status)
         q = q.order_by(Receipt.created_at.desc(), Receipt.id.desc())
         rows = s.execute(q).scalars().all()
-        return [{
-            "id": r.id,
-            "username": r.username,
-            "start": r.start,
-            "end": r.end,
-            "total": float(r.total),
-            "status": r.status,
-            "created_at": r.created_at,
-            "paid_at": r.paid_at,
-            # NEW:
-            "pricing_tier": r.pricing_tier,
-            "rate_cpu": float(r.rate_cpu),
-            "rate_gpu": float(r.rate_gpu),
-            "rate_mem": float(r.rate_mem),
-            "rates_locked_at": r.rates_locked_at,
-        } for r in rows]
+        out = []
+        for r in rows:
+            out.append({
+                "id": r.id, "username": r.username,
+                "start": r.start,         # date
+                "end": r.end,             # date
+                "total": float(r.total), "status": r.status,
+                # datetime (UTC)
+                "created_at": r.created_at, "paid_at": r.paid_at,
+                "pricing_tier": r.pricing_tier,
+                "rate_cpu": float(r.rate_cpu), "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
+                "rates_locked_at": r.rates_locked_at,
+            })
+        return out
 
 
 def mark_receipt_paid(receipt_id: int, admin_user: str) -> bool:
@@ -239,7 +242,7 @@ def mark_receipt_paid(receipt_id: int, admin_user: str) -> bool:
         if r.status != "pending":
             return False
         r.status = "paid"
-        r.paid_at = _now_iso()
+        r.paid_at = _now_utc()
         r.method = admin_user or "admin"
         r.tx_ref = None
         s.add(r)
@@ -260,11 +263,14 @@ def paid_receipts_csv():
     ])
     for r in rows:
         w.writerow([
-            r["id"], r["username"], r["start"], r["end"],
-            f"{float(r['total']):.2f}", r["status"], r["created_at"], r["paid_at"] or "",
+            r["id"], r["username"], r["start"].isoformat(), r["end"].isoformat(),
+            f"{float(r['total']):.2f}", r["status"],
+            r["created_at"].isoformat().replace("+00:00", "Z"),
+            (r["paid_at"].isoformat().replace(
+                "+00:00", "Z") if r["paid_at"] else ""),
             r.get("pricing_tier", ""), r.get("rate_cpu", ""), r.get(
                 "rate_gpu", ""), r.get("rate_mem", ""),
-            r.get("rates_locked_at", ""),
+            r["rates_locked_at"].isoformat().replace("+00:00", "Z"),
         ])
     out.seek(0)
     return ("paid_receipts_history.csv", out.read())
