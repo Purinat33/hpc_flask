@@ -38,11 +38,13 @@ def _as_aware(dt):
     return None  # unknown type
 
 
-def dt_local(value, tz_name: str | None = None, fmt: str = "%Y-%m-%d %H:%M:%S %Z"):
+def dt_local(value, tz_name: str | None = None, fmt: str | None = None):
     dt = _as_aware(value)
     if not dt:
         return ""
     tz = ZoneInfo(tz_name) if tz_name else _tz_from_app()
+    # Default: no zone suffix
+    fmt = fmt or "%Y-%m-%d %H:%M:%S"
     return dt.astimezone(tz).strftime(fmt)
 
 
