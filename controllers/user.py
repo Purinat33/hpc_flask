@@ -49,10 +49,10 @@ def view_receipt(rid: int):
 def my_usage():
     if getattr(current_user, "is_admin", False):
         return redirect(url_for("admin.admin_form"))
+
     EPOCH_START = "1970-01-01"
     before = request.args.get("before") or date.today().isoformat()
-    start_d = EPOCH_START
-    end_d = before
+    start_d, end_d = EPOCH_START, before
 
     view = (request.args.get("view") or "detail").lower()
     if view not in {"detail", "aggregate", "billed"}:
@@ -60,44 +60,57 @@ def my_usage():
 
     rows, agg_rows = [], []
     data_source = None
-    notes = []
+    notes: list[str] = []
     total_cost = 0.0
-    pending = paid = []
+    pending: list[dict] = []
+    paid: list[dict] = []
     sum_pending = sum_paid = 0.0
 
     raw_cols: list[str] = []
     raw_rows: list[dict] = []
     header_classes: dict[str, str] = {}
 
+    # helper to always return a Series (prevents int.sum() crashes)
+    def _ensure_col(df, name, default_val=0):
+        if name in df.columns:
+            return df[name]
+        return pd.Series([default_val] * len(df), index=df.index)
+
     try:
         if view in {"detail", "aggregate"}:
             # RAW fetch
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
-                start_d, end_d, username=current_user.username)
-            if not df_raw.empty and "End" in df_raw.columns:
-                df_raw["End"] = pd.to_datetime(df_raw["End"], errors="coerce")
-                cutoff = pd.to_datetime(
-                    end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df_raw = df_raw[df_raw["End"].notna() & (
-                    df_raw["End"] <= cutoff)]
-            raw_cols = list(df_raw.columns) if not df_raw.empty else []
-            raw_rows = df_raw.head(200).to_dict(
-                orient="records") if not df_raw.empty else []
+                start_d, end_d, username=current_user.username
+            )
 
-            # header style mapping for RAW table
-            header_classes = {c: "" for c in raw_cols}
-            for c in raw_cols:
-                if c == "TotalCPU":
-                    header_classes[c] = "hl-primary"
-                elif c == "CPUTimeRAW":
-                    header_classes[c] = "hl-fallback1"
-                elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
-                    header_classes[c] = "hl-fallback2"
-                elif c == "AveRSS":
-                    header_classes[c] = "hl-primary"
+            # UTC-aware cutoff (prevents "Invalid comparison between dtype=datetime64[ns, UTC] and Timestamp")
+            if not df_raw.empty and "End" in df_raw.columns:
+                end_series = pd.to_datetime(
+                    df_raw["End"], errors="coerce", utc=True)
+                cutoff_utc = pd.Timestamp(
+                    end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                df_raw = df_raw[end_series.notna() & (
+                    end_series <= cutoff_utc)]
+                df_raw["End"] = end_series
+
+            if not df_raw.empty:
+                raw_cols = list(df_raw.columns)
+                raw_rows = df_raw.head(200).to_dict(orient="records")
+
+                header_classes = {c: "" for c in raw_cols}
+                for c in raw_cols:
+                    if c == "TotalCPU":
+                        header_classes[c] = "hl-primary"
+                    elif c == "CPUTimeRAW":
+                        header_classes[c] = "hl-fallback1"
+                    elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
+                        header_classes[c] = "hl-fallback2"
+                    elif c == "AveRSS":
+                        header_classes[c] = "hl-primary"
 
             # Computed (parent-aggregated)
-            df = compute_costs(df_raw.copy())
+            df = compute_costs(
+                df_raw.copy() if df_raw is not None else pd.DataFrame())
 
             # Hide jobs that are already billed/pending
             if not df.empty:
@@ -105,7 +118,6 @@ def my_usage():
                 already = billed_job_ids()
                 df = df[~df["JobKey"].isin(already)]
 
-            # detailed rows
             if view == "detail":
                 cols = [
                     "JobID", "Elapsed", "End", "State",
@@ -117,19 +129,17 @@ def my_usage():
                     if c not in df.columns:
                         df[c] = ""
                 rows = df[cols].to_dict(orient="records")
-                total_cost = float(df["Cost (฿)"].sum()
-                                   ) if not df.empty else 0.0
+                total_cost = float(_ensure_col(df, "Cost (฿)", 0).sum())
 
-            # aggregate (single row)
             if view == "aggregate" and not df.empty:
                 agg_row = {
                     "user": current_user.username,
                     "tier": (df["tier"].mode()[0] if not df["tier"].mode().empty else ""),
                     "jobs": int(len(df)),
-                    "CPU_Core_Hours": float(df["CPU_Core_Hours"].sum()),
-                    "GPU_Hours": float(df["GPU_Hours"].sum()),
-                    "Mem_GB_Hours_Used": float(df["Mem_GB_Hours_Used"].sum()),
-                    "Cost (฿)": float(df["Cost (฿)"].sum()),
+                    "CPU_Core_Hours": float(_ensure_col(df, "CPU_Core_Hours", 0).sum()),
+                    "GPU_Hours": float(_ensure_col(df, "GPU_Hours", 0).sum()),
+                    "Mem_GB_Hours_Used": float(_ensure_col(df, "Mem_GB_Hours_Used", 0).sum()),
+                    "Cost (฿)": float(_ensure_col(df, "Cost (฿)", 0).sum()),
                 }
                 agg_rows = [agg_row]
 
@@ -148,12 +158,11 @@ def my_usage():
         "user/usage.html",
         current_user=current_user,
         start=start_d, end=end_d, view=view, before=before,
-        rows=rows,                 # detailed
-        agg_rows=agg_rows,         # aggregate
-        pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,  # billed
+        rows=rows,
+        agg_rows=agg_rows,
+        pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,
         data_source=data_source, notes=notes,
         total_cost=total_cost,
-        # NEW: raw table + header styles
         raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
         url_for=url_for
     )
@@ -162,15 +171,9 @@ def my_usage():
 @user_bp.get("/me.csv")
 @login_required
 def my_usage_csv():
-
-    end_d = request.args.get("end") or date.today().isoformat()
-    start_d = request.args.get("start") or (
-        date.today() - timedelta(days=7)).isoformat()
-
+    # keep the same "full-history until before" semantics as the UI
     before = request.args.get("before") or date.today().isoformat()
-    start_d = "1970-01-01"
-    end_d = before
-    # fetch -> compute_costs -> output CSV (unchanged)
+    start_d, end_d = "1970-01-01", before
 
     df, _, _ = fetch_jobs_with_fallbacks(
         start_d, end_d, username=current_user.username)
@@ -188,31 +191,26 @@ def my_usage_csv():
 @user_bp.post("/me/receipt")
 @login_required
 def create_receipt():
-    end_d = request.form.get("end") or date.today().isoformat()
-    start_d = request.form.get("start") or (
-        date.today() - timedelta(days=7)).isoformat()
+    # Same windowing as the page: everything until `before`
     before = request.form.get("before") or date.today().isoformat()
-    start_d = "1970-01-01"
-    end_d = before
-    # re-fetch -> compute_costs -> filter out billed -> create_receipt_from_rows(username, start_d, end_d, ...)
+    start_d, end_d = "1970-01-01", before
 
-    # Re-fetch, recompute, hide billed (server-side safety)
     df, _, _ = fetch_jobs_with_fallbacks(
         start_d, end_d, username=current_user.username)
     df = compute_costs(df)
 
-    # Defensively enforce the "before" cutoff here too
+    # UTC-aware cutoff to match fetchers and avoid tz compare errors
     if "End" in df.columns:
-        df["End"] = pd.to_datetime(df["End"], errors="coerce")
-        cutoff = pd.to_datetime(
-            end_d) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        df = df[df["End"].notna() & (df["End"] <= cutoff)]
+        end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
+        cutoff_utc = pd.Timestamp(end_d, tz="UTC") + \
+            pd.Timedelta(hours=23, minutes=59, seconds=59)
+        df = df[end_series.notna() & (end_series <= cutoff_utc)]
+        df["End"] = end_series
 
     df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
     df = df[~df["JobKey"].isin(billed_job_ids())]
 
     if df.empty:
-        # flash("No unbilled jobs to create a receipt from.")
         audit(
             action="receipt.create.noop",
             target=f"user={current_user.username}",
@@ -223,11 +221,8 @@ def create_receipt():
         return redirect(url_for("user.my_usage", start=start_d, end=end_d))
 
     rid, total, items = create_receipt_from_rows(
-        current_user.username, start_d, end_d, df.to_dict(orient="records"))
-    msg = f"Created receipt #{rid} for ฿{total:.2f}"
-    if items:
-        msg += f" (Add {len(items)} to billed job(s))"
-    # flash(msg)
+        current_user.username, start_d, end_d, df.to_dict(orient="records")
+    )
     audit(
         action="receipt.create",
         target=f"receipt={rid}",
