@@ -73,6 +73,7 @@ def admin_form():
     raw_cols: list[str] = []
     raw_rows: list[dict] = []
     header_classes: dict[str, str] = {}
+    all_users: list[str] = []
 
     # Dashboard-only context
     kpis: dict = {}
@@ -463,26 +464,38 @@ def admin_form():
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
                 start_d, end_d)
 
-            # normalize + cutoff + FILTER BY USER (partial, case-insensitive)
-            # --- before building raw_rows ---
-            if q_user and {"User", "JobID"}.issubset(df_raw.columns):
-                # Build canonical parent key
-                df_raw["JobKey"] = df_raw["JobID"].astype(
-                    str).map(canonical_job_id)
+            if not df_raw.empty:
+                if "End" in df_raw.columns:
+                    end_series = pd.to_datetime(
+                        df_raw["End"], errors="coerce", utc=True)
+                    cutoff_utc = pd.Timestamp(end_d, tz="UTC") + \
+                        pd.Timedelta(hours=23, minutes=59, seconds=59)
+                    df_raw = df_raw[end_series.notna() & (
+                        end_series <= cutoff_utc)]
+                    df_raw["End"] = end_series
 
-                # Consider only parent rows when matching user
-                parents = df_raw[df_raw["JobID"].astype(
-                    str) == df_raw["JobKey"]].copy()
-                user_str = parents["User"].astype(str).fillna("")
-                keep_keys = set(
-                    parents.loc[user_str.str.contains(
-                        q_user, case=False, regex=False), "JobKey"]
-                )
+                # NEW: build the complete user list BEFORE applying q filter
+                if "User" in df_raw.columns:
+                    all_users = sorted(
+                        u for u in df_raw["User"].astype(str).fillna("").str.strip().unique()
+                        if u
+                    )
 
-                # Keep ALL rows (parent + steps) for matching parents
-                df_raw = df_raw[df_raw["JobKey"].isin(
-                    keep_keys)].drop(columns=["JobKey"])
-                # build raw table AFTER filtering
+                # filter by partial username (parent-based) AFTER collecting all_users
+                if q_user and "User" in df_raw.columns and "JobID" in df_raw.columns:
+                    df_raw["JobKey"] = df_raw["JobID"].astype(
+                        str).map(canonical_job_id)
+                    parents = df_raw[df_raw["JobID"].astype(
+                        str) == df_raw["JobKey"]].copy()
+                    user_str = parents["User"].astype(str).fillna("")
+                    keep_keys = set(
+                        parents.loc[user_str.str.contains(
+                            q_user, case=False, regex=False), "JobKey"]
+                    )
+                    df_raw = df_raw[df_raw["JobKey"].isin(
+                        keep_keys)].drop(columns=["JobKey"])
+
+                # raw table AFTER filtering
                 raw_cols = list(df_raw.columns)
                 raw_rows = df_raw.head(200).to_dict(orient="records")
 
@@ -646,7 +659,7 @@ def admin_form():
         sum_pending=sum_pending,
         sum_paid=sum_paid,
         raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
-        url_for=url_for, q=q_user,
+        url_for=url_for, q=q_user, all_users=all_users,
     )
 
 

@@ -118,11 +118,35 @@
                         </label>
                     </div>
                         <div>
-                            <label>Filter by user
-                                <input type="text" name="q" value="{{ q or '' }}" placeholder="e.g. alice, bob, .ac.th">
-                            </label>
+                            <form method="get" autocomplete="off">
+                            <label for="q-inp">Filter by user</label>
+                            <input id="q-inp"
+                                    name="q"
+                                    type="search"
+                                    placeholder="Start typing a username"
+                                    list="userlist"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    autocapitalize="off"
+                                    autocorrect="off"
+                                    data-1p-ignore="true"
+                                    data-lpignore="true">
+                            <datalist id="userlist">
+                                {% for u in all_users %}
+                                <option value="{{ u }}">
+                                    {% endfor %}
+                            </datalist>
+                        </form>
                         </div>
-                    <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
+                    <div>
+                        <label>&nbsp;
+                            <button type="submit">Fetch Usage</button>
+                            <!-- NEW: Reset Search -->
+                            <button type="button" id="reset-q" class="btn-secondary" style="margin-left:.5rem">
+                                Reset Search
+                            </button>
+                        </label>
+                    </div>
                 </div>
                 <input type="hidden" name="section" value="usage">
                 <input type="hidden" name="type" value="{{ tier }}">
@@ -320,10 +344,16 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 
 
             <div class="tabs">
-                <a class="{{ 'on' if view=='detail' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q) }}">Detailed</a>
-                <a class="{{ 'on' if view=='aggregate' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q) }}">Aggregate</a>
+                <a class="{{ 'on' if view=='detail' else '' }}" href="{{ q
+                     and url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q)
+                     or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">
+                    Detailed
+                </a>
+                <a class="{{ 'on' if view=='aggregate' else '' }}" href="{{ q
+                     and url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q)
+                     or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">
+                    Aggregate
+                </a>
             </div>
 
             {% if view == 'detail' %}
@@ -717,4 +747,46 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 
     </main>
 </div>
+<script>
+    (function () {
+        // --- Datalist "show on focus" helper (unchanged) ---
+        const inp = document.querySelector('input[name="q"][list="userlist"]');
+        if (inp) {
+            inp.addEventListener('focus', function () {
+                if (!this.value) {
+                    const v = this.value;
+                    this.value = ' ';
+                    this.dispatchEvent(new Event('input', { bubbles: true }));
+                    setTimeout(() => { this.value = v; }, 10);
+                }
+            });
+        }
+
+        // --- NEW: Reset Search button ---
+        const resetBtn = document.getElementById('reset-q');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function () {
+                const form = resetBtn.closest('form');
+                if (!form) return;
+
+                // Clear the input for the user’s view
+                if (inp) inp.value = '';
+
+                // Submit WITHOUT sending ?q= (remove name temporarily)
+                let restored = false, origName = '';
+                if (inp && inp.name) {
+                    origName = inp.name;
+                    inp.removeAttribute('name');
+                    restored = true;
+                }
+
+                form.submit();
+
+                // Restore the name for any future interactions (not strictly needed after submit)
+                if (restored) inp.name = origName;
+            });
+        }
+    })();
+</script>
+
 {% endblock %}
