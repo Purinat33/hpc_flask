@@ -117,6 +117,11 @@
                             <input type="date" name="before" value="{{ before }}">
                         </label>
                     </div>
+                        <div>
+                            <label>Filter by user
+                                <input type="text" name="q" value="{{ q or '' }}" placeholder="e.g. alice, bob, .ac.th">
+                            </label>
+                        </div>
                     <div><label>&nbsp;<button type="submit">Fetch Usage</button></label></div>
                 </div>
                 <input type="hidden" name="section" value="usage">
@@ -316,9 +321,9 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 
             <div class="tabs">
                 <a class="{{ 'on' if view=='detail' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">Detailed</a>
+                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q) }}">Detailed</a>
                 <a class="{{ 'on' if view=='aggregate' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">Aggregate</a>
+                    href="{{ url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q) }}">Aggregate</a>
             </div>
 
             {% if view == 'detail' %}

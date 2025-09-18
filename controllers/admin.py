@@ -53,6 +53,9 @@ def admin_form():
     before = request.args.get("before") or date.today().isoformat()
     start_d, end_d = EPOCH_START, before
 
+    # NEW: optional partial-user filter (case-insensitive)
+    q_user = (request.args.get("q") or "").strip()
+
     # ---- shared defaults for template context ----
     rows: list[dict] = []
     agg_rows: list[dict] = []
@@ -460,18 +463,26 @@ def admin_form():
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
                 start_d, end_d)
 
-            if not df_raw.empty and "End" in df_raw.columns:
-                end_series = pd.to_datetime(
-                    df_raw["End"], errors="coerce", utc=True)
-                cutoff_utc = pd.Timestamp(
-                    end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df_raw = df_raw[end_series.notna() & (
-                    end_series <= cutoff_utc)]
-                df_raw["End"] = end_series
+            # normalize + cutoff + FILTER BY USER (partial, case-insensitive)
+            # --- before building raw_rows ---
+            if q_user and {"User", "JobID"}.issubset(df_raw.columns):
+                # Build canonical parent key
+                df_raw["JobKey"] = df_raw["JobID"].astype(
+                    str).map(canonical_job_id)
 
-                raw_cols = list(df_raw.columns)
-                raw_rows = df_raw.head(200).to_dict(orient="records")
-            elif not df_raw.empty:
+                # Consider only parent rows when matching user
+                parents = df_raw[df_raw["JobID"].astype(
+                    str) == df_raw["JobKey"]].copy()
+                user_str = parents["User"].astype(str).fillna("")
+                keep_keys = set(
+                    parents.loc[user_str.str.contains(
+                        q_user, case=False, regex=False), "JobKey"]
+                )
+
+                # Keep ALL rows (parent + steps) for matching parents
+                df_raw = df_raw[df_raw["JobKey"].isin(
+                    keep_keys)].drop(columns=["JobKey"])
+                # build raw table AFTER filtering
                 raw_cols = list(df_raw.columns)
                 raw_rows = df_raw.head(200).to_dict(orient="records")
 
@@ -635,7 +646,7 @@ def admin_form():
         sum_pending=sum_pending,
         sum_paid=sum_paid,
         raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
-        url_for=url_for,
+        url_for=url_for, q=q_user,
     )
 
 
