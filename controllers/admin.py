@@ -100,96 +100,136 @@ def admin_form():
 
     # ---- DASHBOARD ----
     if section == "dashboard":
-        try:
-            # 90-day window ending at `before`
-            end_d = before
-            start_d = (date.fromisoformat(before) -
-                       timedelta(days=90)).isoformat()
+        # small helper: run a callable; on error, append a note and return default
+        def cap(name, fn, default):
+            try:
+                return fn()
+            except Exception as e:
+                notes.append(f"dashboard.{name}: {e!s}")
+                return default
 
-            df, data_source, ds_notes = fetch_jobs_with_fallbacks(
-                start_d, end_d)
-            notes.extend(ds_notes or [])
-            if df is None:
-                df = pd.DataFrame()
-            df = compute_costs(df)
+        # window
+        end_d = before
+        start_d = (date.fromisoformat(before) - timedelta(days=90)).isoformat()
 
-            # Enforce end cutoff in **UTC-aware** terms
+        # fetch + cost
+        df, data_source, ds_notes = cap(
+            "fetch",
+            lambda: fetch_jobs_with_fallbacks(start_d, end_d),
+            (pd.DataFrame(), None, []),
+        )
+        notes.extend(ds_notes or [])
+        df = cap("compute_costs", lambda: compute_costs(df), pd.DataFrame())
+
+        # cutoff (UTC-aware) + ensure End exists
+        def _cutoff_df():
             if "End" in df.columns:
-                end_series = pd.to_datetime(
-                    df["End"], errors="coerce", utc=True)
+                end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
                 cutoff_utc = pd.Timestamp(
                     end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                df = df[end_series.notna() & (end_series <= cutoff_utc)]
-                df["End"] = end_series
-            else:
-                df["End"] = pd.NaT
+                out = df[end_series.notna() & (end_series <= cutoff_utc)].copy()
+                out["End"] = end_series
+                return out
+            out = df.copy()
+            out["End"] = pd.NaT
+            return out
 
-            # Unbilled view
-            jobid = _ensure_col(df, "JobID", "")
-            df["JobKey"] = jobid.astype(str).map(canonical_job_id)
+        df = cap("cutoff", _cutoff_df, df)
+
+        # unbilled view
+        def _unbilled():
+            d = df.copy()
+            d["JobKey"] = d["JobID"].astype(str).map(canonical_job_id)
             already = set(billed_job_ids())
-            df_unbilled = df[~df["JobKey"].isin(already)].copy()
+            return d[~d["JobKey"].isin(already)]
 
-            # KPIs
-            kpis["unbilled_cost"] = (
-                float(_ensure_col(df_unbilled, "Cost (฿)", 0).sum()
-                      ) if not df_unbilled.empty else 0.0
-            )
+        df_unbilled = cap("unbilled", _unbilled, pd.DataFrame())
 
-            pending = admin_list_receipts(status="pending") or []
-            kpis["pending_receivables"] = float(
-                sum(_safe_float(r.get("total")) for r in pending))
+        # ---- KPIs ----
+        kpis["unbilled_cost"] = cap(
+            "kpi.unbilled_cost",
+            lambda: float(_ensure_col(df_unbilled, "Cost (฿)", 0).sum()
+                        ) if not df_unbilled.empty else 0.0,
+            0.0,
+        )
 
-            paid = admin_list_receipts(status="paid") or []
-            cutoff_30_utc = pd.Timestamp(
-                end_d, tz="UTC") - pd.Timedelta(days=30)
-            paid_30 = 0.0
-            for r in paid:
-                ts = pd.to_datetime(
-                    r.get("paid_at"), errors="coerce", utc=True)
-                if pd.notna(ts) and ts >= cutoff_30_utc:
-                    paid_30 += _safe_float(r.get("total"))
-            kpis["paid_last_30d"] = float(paid_30)
+        pending = cap("q.pending_receipts", lambda: admin_list_receipts(
+            status="pending") or [], [])
+        kpis["pending_receivables"] = cap(
+            "kpi.pending_receivables",
+            lambda: float(sum(_safe_float(r.get("total")) for r in pending)),
+            0.0,
+        )
 
-            kpis["jobs_last_30d"] = int(
-                (df["End"] >= cutoff_30_utc).sum()) if "End" in df.columns else 0
+        paid = cap("q.paid_receipts", lambda: admin_list_receipts(
+            status="paid") or [], [])
+        kpis["paid_last_30d"] = cap(
+            "kpi.paid_last_30d",
+            lambda: (
+                sum(
+                    _safe_float(r.get("total"))
+                    for r in paid
+                    if pd.notna(pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True))
+                    and pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True)
+                    >= (pd.Timestamp(end_d, tz="UTC") - pd.Timedelta(days=30))
+                )
+            ),
+            0.0,
+        )
 
-            # Series
-            if not df.empty:
-                if "End" in df.columns and "Cost (฿)" in df.columns:
-                    daily = df.groupby(df["End"].dt.date)[
-                        "Cost (฿)"].sum().sort_index()
-                    series["daily_labels"] = [d.isoformat()
-                                              for d in daily.index]
-                    series["daily_cost"] = [
-                        round(float(v), 2) for v in daily.values]
+        kpis["jobs_last_30d"] = cap(
+            "kpi.jobs_last_30d",
+            lambda: int(
+                (df["End"] >= (pd.Timestamp(end_d, tz="UTC") - pd.Timedelta(days=30))).sum())
+            if "End" in df.columns else 0,
+            0,
+        )
 
-                if "tier" in df.columns and "Cost (฿)" in df.columns:
-                    tier_sum = df.groupby("tier", dropna=False)[
-                        "Cost (฿)"].sum().sort_values(ascending=False)
-                    series["tier_labels"] = [
-                        str(i).upper() for i in tier_sum.index]
-                    series["tier_values"] = [
-                        round(float(v), 2) for v in tier_sum.values]
+        # ---- Series ----
+        def _series_daily():
+            if df.empty or "End" not in df.columns or "Cost (฿)" not in df.columns:
+                return ([], [])
+            daily = df.groupby(df["End"].dt.date)["Cost (฿)"].sum().sort_index()
+            return [d.isoformat() for d in daily.index], [round(float(v), 2) for v in daily.values]
 
-                if "User" in df.columns and "Cost (฿)" in df.columns:
-                    top = df.groupby("User")["Cost (฿)"].sum(
-                    ).sort_values(ascending=False).head(10)
-                    series["top_users_labels"] = list(top.index)
-                    series["top_users_values"] = [
-                        round(float(v), 2) for v in top.values]
+        series["daily_labels"], series["daily_cost"] = cap(
+            "series.daily", _series_daily, ([], []))
 
-            # Totals chips (use _ensure_col to avoid int.sum())
-            tot_cpu = float(_ensure_col(df, "CPU_Core_Hours", 0).sum())
-            tot_gpu = float(_ensure_col(df, "GPU_Hours", 0).sum())
-            tot_mem = float(
-                (_ensure_col(df, "Mem_GB_Hours", 0).sum()
-                 if "Mem_GB_Hours" in df.columns else _ensure_col(df, "Mem_GB_Hours_Used", 0).sum())
-            )
-            tot_elapsed = float(_ensure_col(df, "Elapsed_Hours", 0).sum())
+        def _series_tier():
+            if df.empty or "tier" not in df.columns or "Cost (฿)" not in df.columns:
+                return ([], [])
+            tier_sum = df.groupby("tier", dropna=False)[
+                "Cost (฿)"].sum().sort_values(ascending=False)
+            return [str(i).upper() for i in tier_sum.index], [round(float(v), 2) for v in tier_sum.values]
 
-        except Exception as e:
-            notes.append(f"dashboard_error: {e!s}")
+        series["tier_labels"], series["tier_values"] = cap(
+            "series.tier", _series_tier, ([], []))
+
+        def _series_top_users():
+            if df.empty or "User" not in df.columns or "Cost (฿)" not in df.columns:
+                return ([], [])
+            top = df.groupby("User")["Cost (฿)"].sum(
+            ).sort_values(ascending=False).head(10)
+            return list(top.index), [round(float(v), 2) for v in top.values]
+
+        series["top_users_labels"], series["top_users_values"] = cap(
+            "series.top_users", _series_top_users, ([], []))
+
+        # ---- Totals chips ----
+        tot_cpu = cap("totals.cpu", lambda: float(
+            _ensure_col(df, "CPU_Core_Hours", 0).sum()), 0.0)
+        tot_gpu = cap("totals.gpu", lambda: float(
+            _ensure_col(df, "GPU_Hours", 0).sum()), 0.0)
+        tot_mem = cap(
+            "totals.mem",
+            lambda: float(
+                _ensure_col(df, "Mem_GB_Hours", 0).sum()
+                if "Mem_GB_Hours" in df.columns else _ensure_col(df, "Mem_GB_Hours_Used", 0).sum()
+            ),
+            0.0,
+        )
+        tot_elapsed = cap("totals.elapsed", lambda: float(
+            _ensure_col(df, "Elapsed_Hours", 0).sum()), 0.0)
 
         return render_template(
             "admin/dashboard.html",
@@ -199,6 +239,7 @@ def admin_form():
             tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
             url_for=url_for,
         )
+
 
     try:
         if section == "usage":

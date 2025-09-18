@@ -7,6 +7,9 @@
     <b>{{ end }}</b> •
     {{ _("Data source") }}: <b>{{ data_source or "unknown" }}</b>
     {% if notes and notes|length %} • <span title="{{ notes|join(' | ') }}">notes</span>{% endif %}
+    <div class="toolbar no-print" style="display:flex;justify-content:flex-end;gap:.5rem;">
+        <button type="button" onclick="window.print()">Export as PDF</button>
+    </div>
 </p>
 
 <div class="grid" style="grid-template-columns: repeat(4, minmax(180px,1fr)); gap:1rem;">
@@ -44,6 +47,7 @@
     <canvas id="topUsers"></canvas>
 </div>
 
+
 <!-- Optional totals chips -->
 <div class="muted" style="margin-top:.5rem;">
     Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
@@ -79,4 +83,62 @@
         options: { plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
     });
 </script>
+
+<script>
+    // If you create charts dynamically, flag “print mode” to disable animations.
+    const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
+    // Example: when constructing charts, pass { animation: !PRINT_MODE } in options.
+
+    // Also re-render just before print (covers browsers that evaluate after layout)
+    window.addEventListener('beforeprint', () => {
+        if (window.dashboardCharts && Array.isArray(window.dashboardCharts)) {
+            for (const ch of window.dashboardCharts) { try { ch.update('none'); } catch (e) { } }
+        }
+    });
+</script>
+
+<style>
+    @media print {
+        @page {
+            size: A4 portrait;
+            margin: 10mm;
+        }
+
+        /* Hide chrome/nav/buttons when printing */
+        .no-print,
+        nav,
+        .sidebar,
+        .tabs,
+        .slink,
+        .btn,
+        .toolbar {
+            display: none !important;
+        }
+
+        /* Make the main column full-width */
+        .layout {
+            display: block !important;
+        }
+
+        /* Let tables fully expand when printing */
+        .table-wrap {
+            max-height: none !important;
+            overflow: visible !important;
+            border: 0;
+        }
+
+        /* Avoid breaking cards mid-page */
+        .card {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+
+        /* Don’t append URLs after links */
+        a[href]:after {
+            content: "";
+        }
+    }
+</style>
+
+
 {% endblock %}
