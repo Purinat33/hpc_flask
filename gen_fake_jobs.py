@@ -81,7 +81,7 @@ STEP_NAMES = ["bash", "python", "R", "srun", "sh"]
 
 STATE_WEIGHTS = {"COMPLETED": 75, "FAILED": 10, "TIMEOUT": 6,
                  "PREEMPTED": 5, "CANCELLED by 749000022": 4}
-STEP_COUNT_WEIGHTS = {1: 35, 2: 35, 3: 22, 4: 8}
+STEP_COUNT_WEIGHTS = {0: 20, 1: 35, 2: 30, 3: 12, 4: 3}
 
 
 def next_jobid(start=320000):
@@ -178,6 +178,8 @@ def make_parent_row(user: str, jobid: str, end_dt: datetime):
 
 
 def make_step_rows(parent: dict, n_steps: int):
+    if n_steps <= 0:
+        return []
     rows = []
     elapsed_parent_s = parse_elapsed_seconds(parent["Elapsed"])
     remaining = elapsed_parent_s
@@ -279,6 +281,9 @@ def main():
     ap.add_argument("--start", default="2024-01-01")
     ap.add_argument("--end", default=datetime.now().date().isoformat())
     ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--pct_parent_only", type=float, default=20.0,
+                    help="percent of jobs with NO steps (0..100)")
+
     args = ap.parse_args()
 
     random.seed(args.seed)
@@ -287,6 +292,11 @@ def main():
     start_dt = parse_date(args.start)
     end_dt = parse_date(args.end)
     span_s = max(1, int((end_dt - start_dt).total_seconds()))
+    parent_only = (random.random() < (args.pct_parent_only / 100.0))
+    n_steps = 0 if parent_only else weighted_choice(
+        {1: 45, 2: 35, 3: 15, 4: 5})
+    if n_steps > 0:
+        rows.extend(make_step_rows(p, n_steps))
 
     rows = []
     for _ in range(args.parents):
@@ -295,7 +305,8 @@ def main():
         p = make_parent_row(random.choice(users), next(jobids), end_dt_job)
         rows.append(p)
         n_steps = weighted_choice(STEP_COUNT_WEIGHTS)
-        rows.extend(make_step_rows(p, n_steps))
+        if n_steps > 0:
+            rows.extend(make_step_rows(p, n_steps))
 
     # write pipe-delimited with header
     with open(args.outfile, "w", encoding="utf-8", newline="") as f:
