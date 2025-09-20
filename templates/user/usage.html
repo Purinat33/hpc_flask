@@ -145,6 +145,33 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 .fn-list li { margin: .25rem 0; }
 .fn-var { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
+  details.collapsible {
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    padding: .5rem .75rem;
+    background: #fff;
+    margin-top: 2rem;
+  }
+  details.collapsible > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: baseline;
+    gap: .25rem;
+  }
+  /* custom caret */
+  details.collapsible > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: .35rem;
+    transform: translateY(-.05em);
+  }
+  details.collapsible[open] > summary::before {
+    content: "▾";
+  }
+  .collapsible-body { margin-top: .5rem; }
+
 </style>
 
 
@@ -459,4 +486,228 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
     <p class="muted">Unknown view.</p>
     {% endif %}
 </div>
+<details id="billing-transparency" class="collapsible">
+    <summary>
+        <h2 style="display:inline;">How We Compute Usage &amp; Billing</h2>
+        <small class="muted" style="margin-left:.5rem;">(Transparency Note)</small>
+    </summary>
+
+    <div class="collapsible-body">
+        <hr>
+        <h3>Data Collection</h3>
+        <ul>
+            <li>We query <code>sacct</code> with: <code>--parsable2</code>, <code>-S</code> (start date), <code>-E</code>
+                (end date), <code>-L</code>, and a fixed set of fields (see example below) [1].</li>
+            <li>We include terminal states such as <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELLED</code>,
+                <code>TIMEOUT</code>, <code>PREEMPTED</code>, <code>NODE_FAIL</code>, <code>BOOT_FAIL</code>,
+                <code>DEADLINE</code> [1].
+            </li>
+            <li>If your account is permitted (per Slurm’s <code>PrivateData</code>/privacy configuration), we add
+                <code>--allusers</code>; otherwise, we fetch only your own jobs [1],[2].
+            </li>
+        </ul>
+        
+        <h3>Fields We Use</h3>
+        <p>We request and interpret the following Slurm fields:</p>
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Meaning (per Slurm)</th>
+                    <th>How We Use It</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>Elapsed</code></td>
+                    <td>Wall-clock run time for the job/step, format <em>[days-]HH:MM:SS[.ms]</em> [1].</td>
+                    <td>Converted to hours (<em>elapsed_h</em>). Used with allocated resources to infer time-based usage.
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>TotalCPU</code></td>
+                    <td>Sum of user+system CPU time across tasks for the job/step (may exceed elapsed due to parallelism)
+                        [1].</td>
+                    <td>Preferred CPU usage signal. We sum step <code>TotalCPU</code> (excluding the <code>.batch</code>
+                        wrapper) when available.</td>
+                </tr>
+                <tr>
+                    <td><code>CPUTime</code> / <code>CPUTimeRAW</code></td>
+                    <td>CPU time in formatted/seconds form respectively [1].</td>
+                    <td>Fallback for CPU usage when <code>TotalCPU</code> is missing or zero (we use
+                        <code>CPUTimeRAW/3600</code>).
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>ReqTRES</code>, <code>AllocTRES</code></td>
+                    <td>Requested/allocated Trackable RESources (e.g., <code>cpu=</code>, <code>mem=</code>,
+                        <code>gres/gpu=</code>) [3].
+                    </td>
+                    <td>Used to obtain CPU count, GPU count, and memory capacity for allocation-based calculations and
+                        fallbacks.</td>
+                </tr>
+                <tr>
+                    <td><code>AveRSS</code>, <code>MaxRSS</code></td>
+                    <td>Average / maximum resident set size (per step/job aggregation) [1].</td>
+                    <td><code>AveRSS</code> per step × step elapsed gives “used memory GB-hours”. If unavailable, we fall
+                        back to allocated memory.</td>
+                </tr>
+                <tr>
+                    <td>Meta: <code>User</code>, <code>JobID</code>, <code>JobName</code>, <code>End</code>,
+                        <code>State</code>, <code>ExitCode</code>, <code>NodeList</code>, <code>AllocNodes</code>
+                    </td>
+                    <td>Identification, status, and auditability fields [1],[4].</td>
+                    <td>Used for grouping parent/steps, filtering, and traceability (not priced directly).</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>Billing Formula</h3>
+        <p>The per-job (parent) cost is computed as:</p>
+        <pre><code>Cost = (CPU_core_hours × cpu_rate)
+             + (GPU_hours × gpu_rate)
+             + (Memory_GB_hours_used × mem_rate)</code></pre>
+        <ul>
+            <li><strong>CPU_core_hours</strong>:
+                <ul>
+                    <li>Primary: sum of <code>TotalCPU</code> (hours) over job steps (excluding <code>.batch</code>).</li>
+                    <li>Fallbacks: sum of <code>CPUTimeRAW</code> over steps; else parent <code>TotalCPU</code>; else
+                        <code>AllocCPUS × elapsed_h</code>.
+                    </li>
+                </ul>
+            </li>
+            <li><strong>GPU_hours</strong>: <code>(GPU count from AllocTRES or ReqTRES) × elapsed_h</code>.</li>
+            <li><strong>Memory_GB_hours_used</strong>:
+                <ul>
+                    <li>Primary: sum over steps of <code>AveRSS(GB) × step_elapsed_h</code>.</li>
+                    <li>Fallback: <code>(allocated memory GB) × elapsed_h</code>.</li>
+                </ul>
+            </li>
+            <li>Rates (<code>cpu_rate</code>, <code>gpu_rate</code>, <code>mem_rate</code>) are published per tier and
+                versioned in this service.</li>
+        </ul>
+        
+        <h3>FAQ</h3>
+        <dl>
+            <dt>Why are some values zero?</dt>
+            <dd>
+                If <code>TotalCPU</code> and <code>CPUTimeRAW</code> are not reported for steps and allocations are also
+                unavailable,
+                CPU may evaluate to 0 until a fallback applies. Similarly, if <code>AveRSS</code> is missing and no
+                <code>mem=</code> is present in TRES, memory usage may appear as 0. See field fallbacks above [1],[3].
+            </dd>
+        
+            <dt>What are job “steps” and why do they matter?</dt>
+            <dd>
+                Slurm records a parent job row plus one or more step rows (e.g., <code>12345.batch</code>,
+                <code>12345.0</code>, <code>12345.1</code>).
+                We group steps under their parent and aggregate usage so the parent’s cost includes all step activity
+                [1],[4].
+            </dd>
+        
+            <dt>Why exclude <code>.batch</code> from CPU sums?</dt>
+            <dd>
+                The <code>.batch</code> step is a wrapper and can duplicate accounting; excluding it avoids double counting.
+                This is a common operational choice informed by how Slurm reports step accounting [1].
+            </dd>
+        
+            <dt>Why can CPU usage exceed elapsed time?</dt>
+            <dd>
+                <code>TotalCPU</code> represents cumulative CPU time across concurrent tasks; in parallel workloads it can
+                exceed wall-clock elapsed (that is expected) [1].
+            </dd>
+        
+            <dt>What about time zones and date filters?</dt>
+            <dd>
+                <code>End</code> timestamps are interpreted in the cluster’s local time. The requested end date includes
+                jobs finishing on that date (up to 23:59:59) [1],[2].
+            </dd>
+        </dl>
+        
+        <h3>Worked Example (Made-Up Numbers)</h3>
+        <p>Below is an illustrative <code>sacct</code>-style extract (pipe-delimited). Values are intentionally simple for
+            clarity.</p>
+        {% set example_raw %}
+        User|JobID|JobName|Elapsed|TotalCPU|CPUTime|CPUTimeRAW|ReqTRES|AllocTRES|AveRSS|MaxRSS|TRESUsageInTot|TRESUsageOutTot|End|State|ExitCode|DerivedExitCode|ConsumedEnergyRaw|ConsumedEnergy|NodeList|AllocNodes
+        alice|1001|train|02:01:00|00:00:00|0000:00:00|0|cpu=4,mem=8G,gres/gpu=1|cpu=4,mem=8G,gres/gpu=1|||||2025-09-20T12:00:00|COMPLETED|0:0|0:0|||node01|1
+        |1001.batch|batch|02:01:00|00:00:10|0000:00:00|0||cpu=4,gres/gpu=1,mem=0,node=1|0K|0K||||COMPLETED|0:0|0:0|||node01|1
+        |1001.0|step0|01:00:00|25:00:00|0000:00:00|0||cpu=4,gres/gpu=1,mem=0,node=1|4G|4G||||COMPLETED|0:0|0:0|||node01|1
+        |1001.1|step1|01:01:00|25:00:00|0000:00:00|0||cpu=4,gres/gpu=1,mem=0,node=1|4G|4G||||COMPLETED|0:0|0:0|||node01|1
+        {% endset %}
+        
+        {% set lines = example_raw.strip().splitlines() %}
+        {% set rows = [] %}
+        {% for line in lines %}
+        {% set _ = rows.append(line.split('|')) %}
+        {% endfor %}
+        {% set header = rows[0] %}
+        {% set body = rows[1:] %}
+        
+        <details class="raw">
+            <summary>Show example raw output as a table</summary>
+            <div class="table-wrap" style="margin-top:.5rem;">
+                <table>
+                    <thead>
+                        <tr>
+                            {% for h in header %}
+                            <th>{{ h }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in body %}
+                        <tr>
+                            {% for cell in r %}
+                            <td>{{ cell }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+
+        
+        <p><strong>Rates (example):</strong> <code>cpu_rate = ฿1 / core-hour</code>, <code>gpu_rate = ฿5 / GPU-hour</code>,
+            <code>mem_rate = ฿0.50 / GB-hour</code>.
+        </p>
+        <ol>
+            <li><strong>Elapsed (parent)</strong>: <code>02:01:00</code> = 2&nbsp;h&nbsp;1&nbsp;m &rarr; <em>elapsed_h</em>
+                = 2.0167&nbsp;h.</li>
+            <li><strong>CPU_core_hours</strong>: sum step <code>TotalCPU</code> (exclude <code>.batch</code>):
+                <code>25:00:00</code> + <code>25:00:00</code> = 50&nbsp;h.
+            </li>
+            <li><strong>GPU_hours</strong>: <code>gres/gpu=1</code> × 2.0167&nbsp;h = 2.0167&nbsp;GPU-h.</li>
+            <li><strong>Memory_GB_hours_used</strong>: steps’ <code>AveRSS</code> 4&nbsp;GB each:
+                <ul>
+                    <li>Step0: 4&nbsp;GB × 1.00&nbsp;h = 4&nbsp;GB-h</li>
+                    <li>Step1: 4&nbsp;GB × 1.0167&nbsp;h ≈ 4.0668&nbsp;GB-h</li>
+                    <li>Total ≈ 8.0668&nbsp;GB-h (fallback would be 8&nbsp;GB × 2.0167&nbsp;h ≈ 16.1336&nbsp;GB-h if AveRSS
+                        were missing)</li>
+                </ul>
+            </li>
+        </ol>
+        
+        <p><strong>Cost:</strong></p>
+        <pre><code>CPU: 50.0000 × 1      = ฿50.00
+        GPU: 2.0167 × 5        = ฿10.08
+        MEM: 8.0668 × 0.50     = ฿4.03
+        -----------------------------
+        Total                  ≈ ฿64.11
+        </code></pre>
+            <h3>References</h3>
+            <ol>
+                <li><a href="https://slurm.schedmd.com/sacct.html" rel="noopener noreferrer">Slurm sacct(1) — command, fields,
+                        formats, filters</a></li>
+                <li><a href="https://slurm.schedmd.com/accounting.html" rel="noopener noreferrer">Slurm Accounting —
+                        configuration, privacy (<code>PrivateData</code>), usage</a></li>
+                <li><a href="https://slurm.schedmd.com/tres.html" rel="noopener noreferrer">Trackable RESources (TRES) — CPU,
+                        memory, GPUs</a></li>
+                <li><a href="https://slurm.schedmd.com/sacct.html#SECTION_OUTPUT-FIELDS" rel="noopener noreferrer">sacct Output
+                        Fields — definitions for <code>TotalCPU</code>, <code>AveRSS</code>, etc.</a></li>
+                <li><a href="https://slurm.schedmd.com/" rel="noopener noreferrer">Slurm Official Documentation Home</a></li>
+            </ol>
+            <!-- === your existing section content ends here === -->
+            </div>
+            </details>
 {% endblock %}
