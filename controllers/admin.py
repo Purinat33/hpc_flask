@@ -1,3 +1,4 @@
+from services.accounting import derive_journal, trial_balance, income_statement, balance_sheet
 from flask import jsonify
 from datetime import timedelta
 from services.pricing_sim import build_pricing_components, simulate_vs_current
@@ -855,3 +856,106 @@ def simulate_rates_json():
         return jsonify(out), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+@admin_bp.get("/admin/ledger")
+@login_required
+@admin_required
+def ledger_page():
+    # window from query (?start=YYYY-MM-DD&end=YYYY-MM-DD); default last 90d up to 'before'
+    before = (request.args.get("before") or date.today().isoformat()).strip()
+    end_d = before
+    start_d = (date.fromisoformat(before) - timedelta(days=365)).isoformat()
+
+    start_q = (request.args.get("start") or start_d).strip()
+    end_q = (request.args.get("end") or end_d).strip()
+
+    j = derive_journal(start_q, end_q)
+    tb = trial_balance(j)
+    pnl = income_statement(j)
+    bs = balance_sheet(j)
+
+    # Render a simple one-pager; no need for a new template if you prefer:
+    return render_template(
+        "admin/ledger.html",
+        start=start_q, end=end_q,
+        journal=j.to_dict(orient="records"),
+        tb=tb.to_dict(orient="records"),
+        tb_meta={
+            "sum_debits": tb.attrs.get("sum_debits", 0.0),
+            "sum_credits": tb.attrs.get("sum_credits", 0.0),
+            "out_of_balance": tb.attrs.get("out_of_balance", 0.0),
+        },
+        pnl=pnl.to_dict(orient="records")[0] if not pnl.empty else {
+            "Revenue": 0, "Expenses": 0, "Net_Income": 0},
+        bs=bs.to_dict(orient="records")[0] if not bs.empty else {
+            "Assets": 0, "Liabilities": 0, "Equity_Including_PnL": 0, "Check(Assets - L-E)": 0
+        },
+        today=date.today().isoformat(),
+    )
+
+
+@admin_bp.get("/admin/ledger.csv")
+@login_required
+@admin_required
+def ledger_csv():
+    before = (request.args.get("before") or date.today().isoformat()).strip()
+    end_d = before
+    start_d = (date.fromisoformat(before) - timedelta(days=90)).isoformat()
+
+    start_q = (request.args.get("start") or start_d).strip()
+    end_q = (request.args.get("end") or end_d).strip()
+
+    j = derive_journal(start_q, end_q)
+    out = io.StringIO()
+    j.to_csv(out, index=False)
+    out.seek(0)
+    fname = f"journal_{start_q}_{end_q}.csv"
+    return Response(out.read(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+# --- Export endpoints (CSV / Xero) ---
+@admin_bp.get("/admin/export/ledger.csv")
+@login_required
+@admin_required
+def export_ledger_csv():
+    from services.accounting_export import build_general_ledger_csv
+    start = (request.args.get("start") or "1970-01-01").strip()
+    end = (request.args.get("end") or date.today().isoformat()).strip()
+    fname, csv_text = build_general_ledger_csv(start, end)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
+@admin_bp.get("/admin/export/xero_bank.csv")
+@login_required
+@admin_required
+def export_xero_bank_csv():
+    from services.accounting_export import build_xero_bank_csv
+    start = (request.args.get("start") or "1970-01-01").strip()
+    end = (request.args.get("end") or date.today().isoformat()).strip()
+    fname, csv_text = build_xero_bank_csv(start, end)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
+@admin_bp.get("/admin/export/xero_sales.csv")
+@login_required
+@admin_required
+def export_xero_sales_csv():
+    from services.accounting_export import build_xero_sales_csv
+    start = (request.args.get("start") or "1970-01-01").strip()
+    end = (request.args.get("end") or date.today().isoformat()).strip()
+    fname, csv_text = build_xero_sales_csv(start, end)
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )

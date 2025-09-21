@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Ledger (Derived){% endblock %}
+{% block content %}
+<h2>Ledger (Derived, read-only)</h2>
+<p class="muted">
+    Window: <b>{{ start }}</b> → <b>{{ end }}</b> •
+    <div class="toolbar">
+        <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download CSV</button></a>
+
+        <a class="btn" href="{{ url_for('admin.export_ledger_csv', start='1970-01-01', end=today) }}"><button>Download
+        General Ledger (CSV)</button></a>
+        <a class="btn" href="{{ url_for('admin.export_xero_bank_csv', start='1970-01-01', end=today) }}"><button>Download
+        Xero Bank CSV</button></a>
+        <a class="btn" href="{{ url_for('admin.export_xero_sales_csv', start='1970-01-01', end=today) }}"><button>Download
+        Xero Sales CSV</button></a>
+    </div>
+</p>
+
+<div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem;">
+    <div class="card">
+        <h3>Trial Balance</h3>
+        <small>Σ Debits: {{ tb_meta.sum_debits }} • Σ Credits: {{ tb_meta.sum_credits }} • Δ: {{ tb_meta.out_of_balance
+            }}</small>
+        <div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:.5rem;">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Account</th>
+                        <th>Type</th>
+                        <th class="num">Debits</th>
+                        <th class="num">Credits</th>
+                        <th class="num">Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in tb %}
+                    <tr>
+                        <td>{{ r.account_id }} — {{ r.account_name }}</td>
+                        <td>{{ r.account_type }}</td>
+                        <td class="num">{{ '%.2f'|format(r.debits or 0) }}</td>
+                        <td class="num">{{ '%.2f'|format(r.credits or 0) }}</td>
+                        <td class="num">{{ '%.2f'|format(r.balance or 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Income Statement</h3>
+        <table class="table table-sm">
+            <tbody>
+                <tr>
+                    <td>Revenue</td>
+                    <td class="num">฿{{ '%.2f'|format(pnl.Revenue or 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Expenses</td>
+                    <td class="num">฿{{ '%.2f'|format(pnl.Expenses or 0) }}</td>
+                </tr>
+                <tr>
+                    <th>Net Income</th>
+                    <th class="num">฿{{ '%.2f'|format(pnl.Net_Income or 0) }}</th>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3 style="margin-top:1rem;">Balance Sheet (Snapshot)</h3>
+        <table class="table table-sm">
+            <tbody>
+                <tr>
+                    <td>Assets</td>
+                    <td class="num">฿{{ '%.2f'|format(bs.Assets or 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Liabilities</td>
+                    <td class="num">฿{{ '%.2f'|format(bs.Liabilities or 0) }}</td>
+                </tr>
+                <tr>
+                    <td>Equity + P&L</td>
+                    <td class="num">฿{{ '%.2f'|format(bs.Equity_Including_PnL or 0) }}</td>
+                </tr>
+                <tr>
+                    <th>Check (A − L − E)</th>
+                    <th class="num">{{ '%.2f'|format(bs["Check(Assets - L-E)"] or 0) }}</th>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>Journal (lines)</h3>
+        <div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:.5rem;">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Ref</th>
+                        <th>Memo</th>
+                        <th>Account</th>
+                        <th class="num">Dr</th>
+                        <th class="num">Cr</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for l in journal %}
+                    <tr>
+                        <td>{{ l.date }}</td>
+                        <td>{{ l.ref }}</td>
+                        <td>{{ l.memo }}</td>
+                        <td>{{ l.account_id }} — {{ l.account_name }}</td>
+                        <td class="num">{{ '%.2f'|format(l.debit or 0) }}</td>
+                        <td class="num">{{ '%.2f'|format(l.credit or 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .num {
+        text-align: right;
+    }
+
+    .table-wrap {
+        border: 1px solid #eee;
+        border-radius: 6px;
+    }
+</style>
+{% endblock %}

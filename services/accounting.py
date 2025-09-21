@@ -1,0 +1,201 @@
+# services/accounting.py
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Iterable, List, Dict, Tuple
+from datetime import datetime, date
+import pandas as pd
+
+from models.billing_store import admin_list_receipts, get_receipt_with_items
+
+# ---- Chart of accounts (IDs are strings for portability) ----
+# Account types: ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
+
+
+def chart_of_accounts() -> List[Dict]:
+    return [
+        {"id": "1000", "name": "Cash/Bank",            "type": "ASSET"},
+        {"id": "1100", "name": "Accounts Receivable",  "type": "ASSET"},
+        {"id": "2000", "name": "Unearned Revenue",
+            "type": "LIABILITY"},  # reserved
+        {"id": "3000", "name": "Retained Earnings",    "type": "EQUITY"},
+        {"id": "4000", "name": "Service Revenue",      "type": "INCOME"},
+        {"id": "5000", "name": "Cost of Service",
+            "type": "EXPENSE"},     # reserved
+    ]
+
+
+# Quick lookup helpers
+_ACC = {a["id"]: a for a in chart_of_accounts()}
+_ACC_BY_NAME = {a["name"]: a for a in chart_of_accounts()}
+
+
+def _acc(name: str) -> str:
+    return _ACC_BY_NAME[name]["id"]
+
+# ---- Journal model (derived, not persisted) ----
+# One journal "entry" has multiple "lines": (date, ref, memo, account_id, debit, credit)
+
+
+def _mk_line(d: str, ref: str, memo: str, account_id: str, debit: float = 0.0, credit: float = 0.0) -> Dict:
+    return {
+        "date": d, "ref": ref, "memo": memo,
+        "account_id": account_id,
+        "account_name": _ACC[account_id]["name"],
+        "account_type": _ACC[account_id]["type"],
+        "debit": round(float(debit or 0.0), 2),
+        "credit": round(float(credit or 0.0), 2),
+    }
+
+
+def _entry_receipt_issue(r: dict) -> List[Dict]:
+    """
+    When a receipt is created (status 'pending' in your system),
+    recognize revenue and A/R.
+    Dr 1100 A/R; Cr 4000 Service Revenue
+    """
+    total = float(r.get("total") or 0.0)
+    if total <= 0:
+        return []
+    d = (r.get("created_at") or r.get("start") or r.get("end"))
+    d_iso = _to_date_iso(d)
+    ref = f"R{r['id']}"
+    memo = f"Receipt issued for {r.get('username', '?')}"
+    return [
+        _mk_line(d_iso, ref, memo, _acc("Accounts Receivable"), debit=total),
+        _mk_line(d_iso, ref, memo, _acc("Service Revenue"),     credit=total),
+    ]
+
+
+def _entry_receipt_paid(r: dict) -> List[Dict]:
+    """
+    When receipt is marked 'paid':
+    Dr 1000 Cash/Bank; Cr 1100 A/R
+    """
+    if r.get("status") != "paid":
+        return []
+    total = float(r.get("total") or 0.0)
+    if total <= 0:
+        return []
+    d = (r.get("paid_at") or r.get("created_at") or r.get("end"))
+    d_iso = _to_date_iso(d)
+    ref = f"R{r['id']}"
+    memo = f"Receipt paid by {r.get('username', '?')}"
+    return [
+        _mk_line(d_iso, ref, memo, _acc("Cash/Bank"),            debit=total),
+        _mk_line(d_iso, ref, memo, _acc("Accounts Receivable"),  credit=total),
+    ]
+
+
+def _to_date_iso(x) -> str:
+    if isinstance(x, datetime):
+        return x.date().isoformat()
+    if isinstance(x, date):
+        return x.isoformat()
+    try:
+        return pd.to_datetime(x, utc=True).date().isoformat()
+    except Exception:
+        return date.today().isoformat()
+
+
+def derive_journal(start: str, end: str) -> pd.DataFrame:
+    """
+    Build a journal from existing receipts (no schema changes).
+    Includes both 'issue' and 'paid' postings where applicable.
+    """
+    # Pull all receipts within window (by created_at for issue; by paid_at for payment)
+    # We'll fetch both pending and paid, then filter lines by date window.
+    rows = admin_list_receipts(status=None)  # all
+    lines: List[Dict] = []
+
+    for r in rows:
+        # Issue lines (date: created_at)
+        issue_lines = _entry_receipt_issue(r)
+        lines.extend(issue_lines)
+        # Payment lines (date: paid_at)
+        pay_lines = _entry_receipt_paid(r)
+        lines.extend(pay_lines)
+
+    if not lines:
+        return pd.DataFrame(columns=["date", "ref", "memo", "account_id", "account_name", "account_type", "debit", "credit"])
+
+    j = pd.DataFrame(lines)
+    # Keep only within window
+    j = j[(j["date"] >= start) & (j["date"] <= end)].copy()
+    # Stable ordering: by date, ref, credit first for readability
+    j.sort_values(by=["date", "ref", "account_id"], inplace=True)
+    return j.reset_index(drop=True)
+
+# ---- Reports derived from the journal ----
+
+
+def trial_balance(journal: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sum debits/credits per account and compute ending balance by account type.
+    Balance sign convention:
+      ASSET/EXPENSE: balance = debits - credits
+      LIABILITY/EQUITY/INCOME: balance = credits - debits
+    """
+    if journal.empty:
+        return pd.DataFrame(columns=["account_id", "account_name", "account_type", "debits", "credits", "balance"])
+
+    g = journal.groupby(["account_id", "account_name", "account_type"], dropna=False).agg(
+        debits=("debit", "sum"),
+        credits=("credit", "sum")
+    ).reset_index()
+
+    def _balance(row):
+        t = row["account_type"]
+        if t in ("ASSET", "EXPENSE"):
+            return row["debits"] - row["credits"]
+        return row["credits"] - row["debits"]
+
+    g["balance"] = g.apply(_balance, axis=1).round(2)
+    # TB check (should be zero): sum(debit) == sum(credit)
+    g.attrs["sum_debits"] = round(float(journal["debit"].sum()), 2)
+    g.attrs["sum_credits"] = round(float(journal["credit"].sum()), 2)
+    g.attrs["out_of_balance"] = round(
+        g.attrs["sum_debits"] - g.attrs["sum_credits"], 2)
+    return g
+
+
+def income_statement(journal: pd.DataFrame) -> pd.DataFrame:
+    """
+    Simple P&L from journal (derived only).
+    Revenue: 4000 Service Revenue (credits - debits)
+    Expenses: 5000 Cost of Service (debits - credits) [reserved]
+    """
+    if journal.empty:
+        return pd.DataFrame([{"Revenue": 0.0, "Expenses": 0.0, "Net_Income": 0.0}])
+
+    tb = trial_balance(journal)
+    # already (credits - debits)
+    rev = tb[tb["account_type"] == "INCOME"]["balance"].sum()
+    # for EXPENSE we computed debits - credits
+    exp = tb[tb["account_type"] == "EXPENSE"]["balance"].sum()
+    # tb.balance for EXPENSE is debits-credits, so it’s already positive if expense > 0
+    revenue = round(float(rev), 2)
+    expenses = round(float(exp), 2)
+    net = round(revenue - expenses, 2)
+    return pd.DataFrame([{"Revenue": revenue, "Expenses": expenses, "Net_Income": net}])
+
+
+def balance_sheet(journal: pd.DataFrame) -> pd.DataFrame:
+    """
+    Snapshot-style: Assets vs Liabilities+Equity from trial balance balances.
+    (This is a simplified view without retained earnings rollforward.)
+    """
+    tb = trial_balance(journal)
+    assets = tb[tb["account_type"] == "ASSET"]["balance"].sum()
+    liab = tb[tb["account_type"] == "LIABILITY"]["balance"].sum()
+    equity = tb[tb["account_type"] == "EQUITY"]["balance"].sum()
+    income = tb[tb["account_type"] == "INCOME"]["balance"].sum()
+    exp = tb[tb["account_type"] == "EXPENSE"]["balance"].sum()
+
+    # Fold P&L into equity for snapshot: Equity + (Income - Expense)
+    equity_adj = equity + (income - exp)
+    return pd.DataFrame([{
+        "Assets": round(float(assets), 2),
+        "Liabilities": round(float(liab), 2),
+        "Equity_Including_PnL": round(float(equity_adj), 2),
+        "Check(Assets - L-E)": round(float(assets - (liab + equity_adj)), 2)
+    }])
