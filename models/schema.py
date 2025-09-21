@@ -188,3 +188,17 @@ class AuthThrottle(Base):
 
 Index("idx_auth_throttle_user_ip", AuthThrottle.username,
       AuthThrottle.ip, unique=True)
+
+
+class UserTierOverride(Base):
+    __tablename__ = "user_tier_overrides"
+    username: Mapped[str] = mapped_column(String, primary_key=True)
+    tier: Mapped[str] = mapped_column(
+        String, nullable=False)  # 'mu'|'gov'|'private'
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("tier in ('mu','gov','private')",
+                        name="ck_user_tier_overrides_tier"),
+    )

@@ -6,7 +6,7 @@ import pandas as pd
 from models.rates_store import load_rates
 from datetime import datetime
 from models import rates_store
-
+from models.tiers_store import load_overrides_dict
 # -----------------------------------------------------
 
 
@@ -259,8 +259,15 @@ def compute_costs(df: pd.DataFrame) -> pd.DataFrame:
         parents["Energy_kJ"] / parents["CPU_Core_Hours"].replace(0, np.nan)
     ).fillna(0.0).round(4)
 
+    # --- BEFORE assigning `tier`: load overrides once ---
+    overrides = load_overrides_dict()
+
+    def _effective_tier(user: str) -> str:
+        u = (str(user or "").strip().lower())
+        return overrides.get(u) or classify_user_type(u)
+
     # Tier + Cost
-    parents["tier"] = parents["User"].map(classify_user_type)
+    parents["tier"] = parents["User"].map(_effective_tier)
     rates = rates_store.load_rates()
 
     def row_cost(r):

@@ -38,7 +38,7 @@ def admin_form():
 
     # ---- parse & sanitize query params ----
     section = (request.args.get("section") or "usage").strip().lower()
-    if section not in {"rates", "usage", "billing", "myusage", "dashboard"}:
+    if section not in {"rates", "usage", "billing", "myusage", "dashboard", "tiers"}:
         section = "usage"
 
     tier = (request.args.get("type") or "mu").strip().lower()
@@ -642,6 +642,46 @@ def admin_form():
             pending = admin_list_receipts(status="pending")
             paid = admin_list_receipts(status="paid")
 
+        elif section == "tiers":
+            from models.tiers_store import load_overrides_dict
+            from services.billing import classify_user_type
+            from models.base import session_scope
+            from models.schema import User
+
+            notes = []
+
+            # 1) Get all app users from DB
+            with session_scope() as s:
+                db_users = [u[0] for u in s.query(User.username).all()]
+
+            # 2) Load overrides so we show overridden names even if not in DB (defensive)
+            ov = load_overrides_dict()
+
+            # 3) Build the candidate username set (DB users ∪ overridden names)
+            usernames = sorted(set(db_users) | set(ov.keys()), key=str.lower)
+
+            # 4) Build rows: prefer override; otherwise fall back to classifier
+            def current_tier_for(u: str) -> str:
+                # prefer override if exists
+                t = ov.get(u.strip().lower())
+                return t if t else classify_user_type(u)
+
+            tier_rows = [
+                {"username": u, "tier": current_tier_for(
+                    u), "overridden": (u.strip().lower() in ov)}
+                for u in usernames
+            ]
+
+            return render_template(
+                "admin/tiers.html",
+                current_user=current_user,
+                rows=tier_rows,
+                notes=notes,
+                tiers=["mu", "gov", "private"],
+                url_for=url_for,
+                section="tiers",
+            )
+
     except Exception as e:
         notes.append(str(e))
 
@@ -959,3 +999,42 @@ def export_xero_sales_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
+
+
+# controllers/admin.py (add a POST handler to save)
+@admin_bp.post("/admin/tiers")
+@login_required
+@fresh_login_required
+@admin_required
+def save_tiers():
+    """
+    Form posts fields like: tier_<username>=mu|gov|private
+    Only changed values need to be posted; we'll upsert what we see.
+    """
+    from models.tiers_store import upsert_override, clear_override
+    from services.billing import classify_user_type
+
+    changed = 0
+    removed = 0
+
+    # Iterate over submitted fields and commit overrides
+    for k, v in request.form.items():
+        if not k.startswith("tier_"):
+            continue
+        username = k[len("tier_"):].strip()
+        desired = (v or "").strip().lower()
+        if desired not in {"mu", "gov", "private"}:
+            continue
+
+        # If desired equals the classifier’s natural tier, remove override (keeps DB minimal)
+        natural = classify_user_type(username)
+        if desired == natural:
+            clear_override(username)
+            removed += 1
+        else:
+            upsert_override(username, desired)
+            changed += 1
+
+    audit("tiers.save",
+          target=f"changed={changed},removed={removed}", status=200)
+    return redirect(url_for("admin.admin_form", section="tiers"))

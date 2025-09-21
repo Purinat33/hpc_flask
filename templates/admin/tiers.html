@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}User Tier Overrides{% endblock %}
+{% block content %}
+<h2>User Tier Overrides</h2>
+<p class="muted">Pick a tier per user. If you pick the same tier as the natural classifier, we remove the override.</p>
+
+<form method="post" action="{{ url_for('admin.save_tiers') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <table>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Tier</th>
+                <th>Overridden?</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>{{ r.username }}</td>
+                <td>
+                    {% for t in tiers %}
+                    <label style="margin-right:12px;">
+                        <input type="radio" name="tier_{{ r.username }}" value="{{ t }}" {{ 'checked' if r.tier==t
+                            else '' }}>
+                        {{ t.upper() }}
+                    </label>
+                    {% endfor %}
+                </td>
+                <td>{{ 'YES' if r.overridden else 'NO' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p><button type="submit">Save</button></p>
+</form>
+
+{% if notes and notes|length %}
+<div class="card">
+    <h3>Notes</h3>
+    <ul>{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+{% endblock %}
