@@ -137,6 +137,7 @@
         <!-- Col 2: user filter (NO nested form) -->
         <div class="field">
             <label for="q-inp">Filter by user</label>
+            <small id="q-counter" class="muted" style="display:block;margin-top:.25rem"></small>
             <input id="q-inp" name="q" type="search" value="{{ q or '' }}" placeholder="Start typing a username"
                 list="userlist" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
                 data-1p-ignore="true" data-lpignore="true">
@@ -365,8 +366,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 
             {% if view == 'detail' %}
             {% if rows and rows|length>0 %}
-            <div class="table-wrap">
-                <table>
+            <div class="table-wrap" id="usage-detail-wrap">
+                <table id="usage-detail">
                     <thead>
                         <tr>
                             <th>User</th>
@@ -420,7 +421,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <summary>Show raw fetched data (parents + steps)</summary>
                 {% if raw_cols and raw_rows %}
                 <div class="table-wrap">
-                    <table>
+                    <table id="usage-raw">
                         <thead>
                             <tr>
                                 {% for c in raw_cols %}
@@ -448,7 +449,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             {% else %}
             {% if agg_rows and agg_rows|length>0 %}
             <p class="muted"><span class="chip">Grand total: ฿{{ '%.2f'|format(grand_total) }}</span></p>
-            <table>
+            <table id="usage-agg">
                 <thead>
                     <tr>
                         <th>User</th>
@@ -755,10 +756,121 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
     </main>
 </div>
 <script>
+
+    function syncTabLinks(q) {
+            const tabs = document.querySelectorAll('.tabs a');
+            tabs.forEach(a => {
+                const url = new URL(a.href, window.location.origin);
+                if ((q || '').trim()) {
+                    url.searchParams.set('q', q);
+                } else {
+                    url.searchParams.delete('q');
+                }
+                a.href = url.toString();
+            });
+        }
+
+        // call from applyFilter():
+        function applyFilter() {
+            const q = inp ? inp.value : '';
+            filterTableByUser(tblDetail, q);
+            filterTableByUser(tblAgg, q);
+            filterTableByUser(tblRaw, q);
+            updateCounter(q);
+            syncTabLinks(q); // <— add this
+        }
+
+
     (function () {
         const form = document.getElementById('usage-form');
         const inp = document.getElementById('q-inp');
         const resetBtn = document.getElementById('reset-q');
+        const counter = document.getElementById('q-counter');
+
+        // Tables we can filter on the client
+        const tblDetail = document.getElementById('usage-detail');
+        const tblAgg = document.getElementById('usage-agg');
+        const tblRaw = document.getElementById('usage-raw'); // optional: comment out if you don't want to filter raw
+
+        // Utility: debounce
+        const debounce = (fn, ms = 150) => {
+            let t;
+            return (...args) => {
+                clearTimeout(t);
+                t = setTimeout(() => fn.apply(null, args), ms);
+            };
+        };
+
+        // Find the "User" column index in a table (by header text)
+        function findUserColIndex(table) {
+            if (!table) return -1;
+            const ths = table.querySelectorAll('thead th');
+            for (let i = 0; i < ths.length; i++) {
+                if ((ths[i].textContent || '').trim().toLowerCase() === 'user') return i;
+            }
+            return -1;
+        }
+
+        // Generic filter for a table by "User" column
+        function filterTableByUser(table, q) {
+            if (!table) return { shown: 0, total: 0 };
+
+            const userCol = findUserColIndex(table);
+            if (userCol === -1) {
+                // If there's no "User" column (e.g., detail table always has one, agg has one),
+                // we skip this table.
+                return { shown: 0, total: 0 };
+            }
+            const rows = table.querySelectorAll('tbody tr');
+            const qq = (q || '').trim().toLowerCase();
+
+            let shown = 0;
+            rows.forEach(tr => {
+                const cells = tr.children;
+                const userText = (cells[userCol]?.textContent || '').toLowerCase();
+                const match = !qq || userText.includes(qq);
+                tr.style.display = match ? '' : 'none';
+                if (match) shown++;
+            });
+            return { shown, total: rows.length };
+        }
+
+        // Update the counter text, combining all visible tables on the page
+        function updateCounter(q) {
+            const parts = [];
+            // Only count tables that exist on this view
+            const a = filterTableByUser(tblDetail, q);
+            const b = filterTableByUser(tblAgg, q);
+            const c = filterTableByUser(tblRaw, q);   // comment this out if you don't want to live-filter Raw
+            const totals = [a, b, c].filter(x => x.total > 0);
+
+            if (totals.length === 0) {
+                counter && (counter.textContent = '');
+                return;
+            }
+
+            const shown = totals.reduce((s, x) => s + x.shown, 0);
+            const total = totals.reduce((s, x) => s + x.total, 0);
+            if (!counter) return;
+
+            if ((q || '').trim()) {
+                counter.textContent = `Showing ${shown} of ${total} row(s) for “${q}” (local filter)`;
+            } else {
+                counter.textContent = `Showing all ${total} row(s)`;
+            }
+        }
+
+        // Live filter on input
+        function applyFilter() {
+            const q = inp ? inp.value : '';
+            // Filter whichever table(s) is/are present on this view
+            filterTableByUser(tblDetail, q);
+            filterTableByUser(tblAgg, q);
+            filterTableByUser(tblRaw, q);   // comment out to skip raw
+            updateCounter(q);
+        }
+
+        const applyFilterDebounced = debounce(applyFilter, 150);
 
         // Show datalist on focus (your original helper)
         if (inp) {
@@ -770,20 +882,35 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                     setTimeout(() => { this.value = v; }, 10);
                 }
             });
+
+            // Real-time filtering while typing
+            inp.addEventListener('input', applyFilterDebounced);
+
+            // Optional: if you ALSO want to refresh from server after a pause, uncomment:
+            // const submitDebounced = debounce(() => form && form.submit(), 800);
+            // inp.addEventListener('input', submitDebounced);
         }
 
-        // Reset search: clear q and submit without ?q=
-        if (resetBtn && form && inp) {
+        // Reset search: clear and show everything (no reload)
+        if (resetBtn && inp) {
             resetBtn.addEventListener('click', function () {
                 inp.value = '';
-                const orig = inp.name;
-                inp.removeAttribute('name');  // keep URL clean
-                form.submit();
-                inp.name = orig;              // restore for future interactions
+                applyFilter(); // instantly show all rows
+
+                // Keep URL tidy (remove ?q=...) without reloading
+                if (history && history.replaceState) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('q');
+                    history.replaceState({}, '', url.toString());
+                }
             });
         }
+
+        // Initial counter state on load
+        applyFilter();
     })();
 </script>
+
 
 
 {% endblock %}

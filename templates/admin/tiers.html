@@ -4,6 +4,37 @@
 <h2>User Tier Overrides</h2>
 <p class="muted">Pick a tier per user. If you pick the same tier as the natural classifier, we remove the override.</p>
 
+<style>
+    /* keep cells centered vertically */
+    #tiersTable td {
+        vertical-align: middle;
+    }
+
+    /* make each radio+text pair align perfectly */
+    #tiersTable td:nth-child(2) label {
+        display: inline-flex;
+        align-items: center;
+        /* vertical centering */
+        gap: .4rem;
+        /* space between radio and text */
+        margin-right: 12px;
+        /* your existing spacing */
+        white-space: nowrap;
+        /* prevent awkward wraps */
+    }
+
+    /* (Optional) normalize radios a touch across browsers */
+    #tiersTable input[type="radio"] {
+        /* Uncomment if you want slightly bigger, consistent radios
+    width: 1rem; height: 1rem; */
+        vertical-align: middle;
+        /* fallback for older browsers */
+        accent-color: auto;
+        /* keep system theme; set to a color if you like */
+    }
+</style>
+
+
 <form method="post" action="{{ url_for('admin.save_tiers') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="toolbar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:12px;">
