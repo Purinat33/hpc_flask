@@ -60,11 +60,25 @@
             <form method="post" action="{{ url_for('admin.admin_update') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>Tier</label>
-                <select name="type">
-                    <option value="mu" {% if tier=='mu' %}selected{% endif %}>mu</option>
-                    <option value="gov" {% if tier=='gov' %}selected{% endif %}>gov</option>
-                    <option value="private" {% if tier=='private' %}selected{% endif %}>private</option>
+                <select id="tierSelect" name="type">
+                    <option value="mu" {{ 'selected' if tier=='mu' else '' }}>mu</option>
+                    <option value="gov" {{ 'selected' if tier=='gov' else '' }}>gov</option>
+                    <option value="private" {{ 'selected' if tier=='private' else '' }}>private</option>
                 </select>
+                
+                <script>
+                    (function () {
+                        const sel = document.getElementById('tierSelect');
+                        const baseUrl = "{{ url_for('admin.admin_form', section='rates') }}";
+                        sel.addEventListener('change', (e) => {
+                            const u = new URL(baseUrl, window.location.origin);
+                            u.searchParams.set('type', e.target.value);
+                            // preserve other params if you like:
+                            // u.searchParams.set('section', 'rates');
+                            window.location.assign(u.toString());
+                        });
+                    })();
+                </script>
 
                 <div class="row">
                     <div>
@@ -91,7 +105,7 @@
                     <span class="chip">GPU: ฿{{ '%.2f'|format(current['gpu']) }}</span>
                     <span class="chip">MEM: ฿{{ '%.2f'|format(current['mem']) }}</span>
                 </div>
-
+<br>
                 <button type="submit">Update</button>
             </form>
         </div>
