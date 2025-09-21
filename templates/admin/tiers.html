@@ -3,117 +3,144 @@
 {% block content %}
 <h2>User Tier Overrides</h2>
 <p class="muted">Pick a tier per user. If you pick the same tier as the natural classifier, we remove the override.</p>
+<div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='usage',  type='mu') }}">Usage Tables</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='myusage') }}">My Usage</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='billing') }}">Billing</a>
+        <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='dashboard') }}">Dashboard</a>
+        <a class="slink on" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
+    </aside>
+    <main>
+        <style>
+            /* keep cells centered vertically */
+            #tiersTable td {
+                vertical-align: middle;
+            }
+        
+            /* make each radio+text pair align perfectly */
+            #tiersTable td:nth-child(2) label {
+                display: inline-flex;
+                align-items: center;
+                /* vertical centering */
+                gap: .4rem;
+                /* space between radio and text */
+                margin-right: 12px;
+                /* your existing spacing */
+                white-space: nowrap;
+                /* prevent awkward wraps */
+            }
+        
+            /* (Optional) normalize radios a touch across browsers */
+            #tiersTable input[type="radio"] {
+                /* Uncomment if you want slightly bigger, consistent radios
+            width: 1rem; height: 1rem; */
+                vertical-align: middle;
+                /* fallback for older browsers */
+                accent-color: auto;
+                /* keep system theme; set to a color if you like */
+            }
+        </style>
+        
+        
+        <form method="post" action="{{ url_for('admin.save_tiers') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="toolbar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:12px;">
+                <input id="userFilter" type="search" placeholder="Filter users…" value="" aria-label="Filter users"
+                    style="max-width:280px;padding:.5rem .6rem;border:1px solid #ddd;border-radius:6px;">
+                <span class="muted">Showing <strong id="matchCount">{{ rows|length }}</strong> of {{ rows|length }}</span>
+                <button type="button" id="clearFilter" class="linklike" style="margin-left:auto;">Clear</button>
+            </div>
+            <table id="tiersTable">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Tier</th>
+                        <th>Overridden?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr data-username="{{ r.username|lower }}">
+                        <td>{{ r.username }}</td>
+                        <td>
+                            {% for t in tiers %}
+                            <label style="margin-right:12px;">
+                                <input type="radio" name="tier_{{ r.username }}" value="{{ t }}" {{ 'checked' if r.tier==t
+                                    else '' }}>
+                                {{ t.upper() }}
+                            </label>
+                            {% endfor %}
+                        </td>
+                        <td>{{ 'YES' if r.overridden else 'NO' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p><button type="submit">Save</button></p>
+        </form>
+        
+        {% if notes and notes|length %}
+        <div class="card">
+            <h3>Notes</h3>
+            <ul>{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        <script>
+            (function () {
+                const input = document.getElementById('userFilter');
+                const clearBtn = document.getElementById('clearFilter');
+                const table = document.getElementById('tiersTable');
+                const rows = Array.from(table.querySelectorAll('tbody tr'));
+                const count = document.getElementById('matchCount');
 
+                function applyFilter(q) {
+                    const qq = (q || "").toLowerCase().trim();
+                    let shown = 0;
+                    rows.forEach(tr => {
+                        // match on username (data-username) or full text if you prefer
+                        const u = tr.dataset.username || tr.textContent.toLowerCase();
+                        const hit = !qq || u.includes(qq);
+                        tr.style.display = hit ? "" : "none";
+                        if (hit) shown++;
+                    });
+                    if (count) count.textContent = shown;
+                }
+
+                input.addEventListener('input', () => applyFilter(input.value));
+
+                clearBtn?.addEventListener('click', () => {
+                    input.value = "";
+                    input.focus();
+                    applyFilter("");
+                });
+
+                // Optional: restore filter from URL ?q=… if you decide to wire it later
+                const params = new URLSearchParams(location.search);
+                if (params.has('q')) {
+                    input.value = params.get('q');
+                }
+                applyFilter(input.value);
+            })();
+        </script>
+    </main>
+</div>
 <style>
-    /* keep cells centered vertically */
-    #tiersTable td {
-        vertical-align: middle;
+    /* Safety in case base.css doesn’t define layout */
+    .layout {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 1rem;
+        align-items: start;
     }
 
-    /* make each radio+text pair align perfectly */
-    #tiersTable td:nth-child(2) label {
-        display: inline-flex;
-        align-items: center;
-        /* vertical centering */
-        gap: .4rem;
-        /* space between radio and text */
-        margin-right: 12px;
-        /* your existing spacing */
-        white-space: nowrap;
-        /* prevent awkward wraps */
-    }
-
-    /* (Optional) normalize radios a touch across browsers */
-    #tiersTable input[type="radio"] {
-        /* Uncomment if you want slightly bigger, consistent radios
-    width: 1rem; height: 1rem; */
-        vertical-align: middle;
-        /* fallback for older browsers */
-        accent-color: auto;
-        /* keep system theme; set to a color if you like */
+    .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
     }
 </style>
-
-
-<form method="post" action="{{ url_for('admin.save_tiers') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="toolbar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:12px;">
-        <input id="userFilter" type="search" placeholder="Filter users…" value="" aria-label="Filter users"
-            style="max-width:280px;padding:.5rem .6rem;border:1px solid #ddd;border-radius:6px;">
-        <span class="muted">Showing <strong id="matchCount">{{ rows|length }}</strong> of {{ rows|length }}</span>
-        <button type="button" id="clearFilter" class="linklike" style="margin-left:auto;">Clear</button>
-    </div>
-    <table id="tiersTable">
-        <thead>
-            <tr>
-                <th>User</th>
-                <th>Tier</th>
-                <th>Overridden?</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in rows %}
-            <tr data-username="{{ r.username|lower }}">
-                <td>{{ r.username }}</td>
-                <td>
-                    {% for t in tiers %}
-                    <label style="margin-right:12px;">
-                        <input type="radio" name="tier_{{ r.username }}" value="{{ t }}" {{ 'checked' if r.tier==t
-                            else '' }}>
-                        {{ t.upper() }}
-                    </label>
-                    {% endfor %}
-                </td>
-                <td>{{ 'YES' if r.overridden else 'NO' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <p><button type="submit">Save</button></p>
-</form>
-
-{% if notes and notes|length %}
-<div class="card">
-    <h3>Notes</h3>
-    <ul>{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>
-</div>
-{% endif %}
-<script>
-    (function () {
-        const input = document.getElementById('userFilter');
-        const clearBtn = document.getElementById('clearFilter');
-        const table = document.getElementById('tiersTable');
-        const rows = Array.from(table.querySelectorAll('tbody tr'));
-        const count = document.getElementById('matchCount');
-
-        function applyFilter(q) {
-            const qq = (q || "").toLowerCase().trim();
-            let shown = 0;
-            rows.forEach(tr => {
-                // match on username (data-username) or full text if you prefer
-                const u = tr.dataset.username || tr.textContent.toLowerCase();
-                const hit = !qq || u.includes(qq);
-                tr.style.display = hit ? "" : "none";
-                if (hit) shown++;
-            });
-            if (count) count.textContent = shown;
-        }
-
-        input.addEventListener('input', () => applyFilter(input.value));
-
-        clearBtn?.addEventListener('click', () => {
-            input.value = "";
-            input.focus();
-            applyFilter("");
-        });
-
-        // Optional: restore filter from URL ?q=… if you decide to wire it later
-        const params = new URLSearchParams(location.search);
-        if (params.has('q')) {
-            input.value = params.get('q');
-        }
-        applyFilter(input.value);
-    })();
-</script>
-
 {% endblock %}

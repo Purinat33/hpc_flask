@@ -2,413 +2,439 @@
 {% block title %}Admin Dashboard{% endblock %}
 {% block content %}
 <h2>{{ _("Admin Dashboard") }}</h2>
-<p class="muted">
-    {{ _("Completed before") }}:
-    <b>{{ end }}</b> •
-    {{ _("Data source") }}: <b>{{ data_source or "unknown" }}</b>
-    {% if notes and notes|length %} • <span title="{{ notes|join(' | ') }}">notes</span>{% endif %}
-    <div class="toolbar no-print" style="display:flex;justify-content:flex-end;gap:.5rem;">
-        <button type="button" onclick="window.print()">Export as PDF</button>
-    </div>
-</p>
-
-<div class="grid" style="grid-template-columns: repeat(4, minmax(180px,1fr)); gap:1rem;">
-    <div class="card">
-        <h3>Unbilled Cost</h3>
-        <div class="big">฿{{ '%.2f'|format(kpis.unbilled_cost or 0) }}</div>
-    </div>
-    <div class="card">
-        <h3>Pending Receivables</h3>
-        <div class="big">฿{{ '%.2f'|format(kpis.pending_receivables or 0) }}</div>
-    </div>
-    <div class="card">
-        <h3>Paid (last 30d)</h3>
-        <div class="big">฿{{ '%.2f'|format(kpis.paid_last_30d or 0) }}</div>
-    </div>
-    <div class="card">
-        <h3>Jobs (last 30d)</h3>
-        <div class="big">{{ kpis.jobs_last_30d or 0 }}</div>
-    </div>
-</div>
-
-<div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
-    <div class="card">
-        <h3>Daily Total Cost (90d)</h3>
-        <canvas id="dailyCost"></canvas>
-    </div>
-    <div class="card">
-        <h3>Cost by Tier</h3>
-        <canvas id="tierPie"></canvas>
-    </div>
-</div>
-
-<div class="card" style="margin-top:1rem;">
-    <h3>Top 10 Users by Cost</h3>
-    <canvas id="topUsers"></canvas>
-</div>
-
-<div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
-    <div class="card">
-        <h3>Top Nodes by Jobs</h3>
-        <canvas id="nodesByJobs"></canvas>
-    </div>
-    <div class="card">
-        <h3>Top Nodes by CPU core-hrs</h3>
-        <canvas id="nodesByCPU"></canvas>
-    </div>
-    {% if series.node_gpu_labels|length %}
-    <div class="card">
-        <h3>Top Nodes by GPU-hrs</h3>
-        <canvas id="nodesByGPU"></canvas>
-    </div>
-    {% endif %}
-</div>
-
-<!-- <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
-    <div class="card">
-        <h3>Energy by User (kJ)</h3>
-        <canvas id="energyUser"></canvas>
-    </div>
-    <div class="card">
-        <h3>Energy per CPU-hour by User</h3>
-        <canvas id="energyEffUser"></canvas>
-    </div>
-    <div class="card">
-        <h3>Energy by Node (kJ)</h3>
-        <canvas id="energyNode"></canvas>
-    </div>
-</div> -->
-
-<div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
-    <div class="card">
-        <h3>Success vs Fail — User</h3>
-        <canvas id="succUser"></canvas>
-    </div>
-    <!-- <div class="card">
-        <h3>Success vs Fail — Partition</h3>
-        <canvas id="succPart"></canvas>
-    </div>
-    <div class="card">
-        <h3>Success vs Fail — QoS</h3>
-        <canvas id="succQos"></canvas>
-    </div> -->
-</div>
-
-<div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
-    <div class="card">
-        <h3>Top Failure Exit Codes</h3>
-        <canvas id="failExit"></canvas>
-    </div>
-    <div class="card">
-        <h3>Failure Reasons</h3>
-        <canvas id="failReasons"></canvas>
-    </div>
-</div>
-<div class="card" style="margin-top:1rem;">
-    <h3>What-if Pricing (read-only)</h3>
-    <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:.5rem;">
-        <div>
-            <h4>MU</h4>
-            <label>CPU per hr<input id="mu_cpu" type="number" step="0.01"></label>
-            <label>GPU per hr<input id="mu_gpu" type="number" step="0.01"></label>
-            <label>MEM per hr<input id="mu_mem" type="number" step="0.01"></label>
+<div class="layout">
+    <aside class="sidebar">
+        <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='usage',  type='mu') }}">Usage Tables</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='myusage') }}">My Usage</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='billing') }}">Billing</a>
+        <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
+        <a class="slink on" href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">Dashboard</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
+    </aside>
+    <main>
+        <p class="muted">
+            {{ _("Completed before") }}:
+            <b>{{ end }}</b> •
+            {{ _("Data source") }}: <b>{{ data_source or "unknown" }}</b>
+            {% if notes and notes|length %} • <span title="{{ notes|join(' | ') }}">notes</span>{% endif %}
+        <div class="toolbar no-print" style="display:flex;justify-content:flex-end;gap:.5rem;">
+            <button type="button" onclick="window.print()">Export as PDF</button>
         </div>
-        <div>
-            <h4>GOV</h4>
-            <label>CPU per hr<input id="gov_cpu" type="number" step="0.01"></label>
-            <label>GPU per hr<input id="gov_gpu" type="number" step="0.01"></label>
-            <label>MEM per hr<input id="gov_mem" type="number" step="0.01"></label>
+        </p>
+        
+        <div class="grid" style="grid-template-columns: repeat(4, minmax(180px,1fr)); gap:1rem;">
+            <div class="card">
+                <h3>Unbilled Cost</h3>
+                <div class="big">฿{{ '%.2f'|format(kpis.unbilled_cost or 0) }}</div>
+            </div>
+            <div class="card">
+                <h3>Pending Receivables</h3>
+                <div class="big">฿{{ '%.2f'|format(kpis.pending_receivables or 0) }}</div>
+            </div>
+            <div class="card">
+                <h3>Paid (last 30d)</h3>
+                <div class="big">฿{{ '%.2f'|format(kpis.paid_last_30d or 0) }}</div>
+            </div>
+            <div class="card">
+                <h3>Jobs (last 30d)</h3>
+                <div class="big">{{ kpis.jobs_last_30d or 0 }}</div>
+            </div>
         </div>
-        <div>
-            <h4>PRIVATE</h4>
-            <label>CPU per hr<input id="private_cpu" type="number" step="0.01"></label>
-            <label>GPU per hr<input id="private_gpu" type="number" step="0.01"></label>
-            <label>MEM per hr<input id="private_mem" type="number" step="0.01"></label>
+        
+        <div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Daily Total Cost (90d)</h3>
+                <canvas id="dailyCost"></canvas>
+            </div>
+            <div class="card">
+                <h3>Cost by Tier</h3>
+                <canvas id="tierPie"></canvas>
+            </div>
         </div>
-    </div>
-    <div class="toolbar" style="margin-top:.5rem;">
-        <button id="simRun" type="button">Simulate</button>
-        <span id="simSummary" class="muted" style="margin-left: .5rem;"></span>
-    </div>
+        
+        <div class="card" style="margin-top:1rem;">
+            <h3>Top 10 Users by Cost</h3>
+            <canvas id="topUsers"></canvas>
+        </div>
+        
+        <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Nodes by Jobs</h3>
+                <canvas id="nodesByJobs"></canvas>
+            </div>
+            <div class="card">
+                <h3>Top Nodes by CPU core-hrs</h3>
+                <canvas id="nodesByCPU"></canvas>
+            </div>
+            {% if series.node_gpu_labels|length %}
+            <div class="card">
+                <h3>Top Nodes by GPU-hrs</h3>
+                <canvas id="nodesByGPU"></canvas>
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Energy by User (kJ)</h3>
+                <canvas id="energyUser"></canvas>
+            </div>
+            <div class="card">
+                <h3>Energy per CPU-hour by User</h3>
+                <canvas id="energyEffUser"></canvas>
+            </div>
+            <div class="card">
+                <h3>Energy by Node (kJ)</h3>
+                <canvas id="energyNode"></canvas>
+            </div>
+        </div> -->
+        
+        <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Success vs Fail — User</h3>
+                <canvas id="succUser"></canvas>
+            </div>
+            <!-- <div class="card">
+                <h3>Success vs Fail — Partition</h3>
+                <canvas id="succPart"></canvas>
+            </div>
+            <div class="card">
+                <h3>Success vs Fail — QoS</h3>
+                <canvas id="succQos"></canvas>
+            </div> -->
+        </div>
+        
+        <div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Failure Exit Codes</h3>
+                <canvas id="failExit"></canvas>
+            </div>
+            <div class="card">
+                <h3>Failure Reasons</h3>
+                <canvas id="failReasons"></canvas>
+            </div>
+        </div>
+        <div class="card" style="margin-top:1rem;">
+            <h3>What-if Pricing (read-only)</h3>
+            <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:.5rem;">
+                <div>
+                    <h4>MU</h4>
+                    <label>CPU per hr<input id="mu_cpu" type="number" step="0.01"></label>
+                    <label>GPU per hr<input id="mu_gpu" type="number" step="0.01"></label>
+                    <label>MEM per hr<input id="mu_mem" type="number" step="0.01"></label>
+                </div>
+                <div>
+                    <h4>GOV</h4>
+                    <label>CPU per hr<input id="gov_cpu" type="number" step="0.01"></label>
+                    <label>GPU per hr<input id="gov_gpu" type="number" step="0.01"></label>
+                    <label>MEM per hr<input id="gov_mem" type="number" step="0.01"></label>
+                </div>
+                <div>
+                    <h4>PRIVATE</h4>
+                    <label>CPU per hr<input id="private_cpu" type="number" step="0.01"></label>
+                    <label>GPU per hr<input id="private_gpu" type="number" step="0.01"></label>
+                    <label>MEM per hr<input id="private_mem" type="number" step="0.01"></label>
+                </div>
+            </div>
+            <div class="toolbar" style="margin-top:.5rem;">
+                <button id="simRun" type="button">Simulate</button>
+                <span id="simSummary" class="muted" style="margin-left: .5rem;"></span>
+            </div>
+        </div>
+        
+        <script>
+            // Optionally pre-fill with your live rates via Jinja:
+            const liveRates = {{ all_rates | tojson | safe }};
+            const endDate = {{ (end or before) | tojson | safe }};
+
+            function fillInputs() {
+                for (const tier of ["mu", "gov", "private"]) {
+                    for (const k of ["cpu", "gpu", "mem"]) {
+                        const el = document.getElementById(`${tier}_${k}`);
+                        if (el && liveRates[tier]) el.value = liveRates[tier][k];
+                    }
+                }
+            }
+            fillInputs();
+
+            async function runSim() {
+                const p = new URLSearchParams();
+                p.set("before", endDate);
+                for (const tier of ["mu", "gov", "private"]) {
+                    for (const k of ["cpu", "gpu", "mem"]) {
+                        const el = document.getElementById(`${tier}_${k}`);
+                        if (el && el.value !== "") p.set(`${k}_${tier}`, el.value);
+                    }
+                }
+                const res = await fetch(`/admin/simulate_rates.json?${p.toString()}`);
+                const data = await res.json();
+                if (!res.ok) {
+                    document.getElementById("simSummary").textContent = `Error: ${data.error || "unknown"}`;
+                    return;
+                }
+                const cur = (data.current_total || 0).toFixed(2);
+                const cand = (data.candidate_total || 0).toFixed(2);
+                const delta = (data.delta || 0).toFixed(2);
+                document.getElementById("simSummary").textContent =
+                    `Current: ฿${cur} → Candidate: ฿${cand} (Δ ฿${delta})`;
+
+                // You can also hook into your existing charts here (e.g., update tier pie with data.candidate_by_tier)
+                // Example:
+                //   const labels = data.candidate_by_tier.map(x => x.tier);
+                //   const values = data.candidate_by_tier.map(x => x.thb);
+                //   updatePieChart('tierPie', labels, values);  // your own function
+            }
+
+            document.getElementById("simRun").addEventListener("click", runSim);
+        </script>
+        
+        
+        
+        <!-- Optional totals chips -->
+        <div class="muted" style="margin-top:.5rem;">
+            Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
+            Σ GPU hrs: {{ '%.2f'|format(tot_gpu) }} •
+            Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
+        </div>
+        
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+        <script>
+            // Define BEFORE constructing charts
+            const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
+
+            // Jinja-safe pulls (always JSON, never undefined)
+            const dailyLabels = {{ series.get('daily_labels', []) | tojson | safe }};
+            const dailyData = {{ series.get('daily_cost', []) | tojson | safe }};
+            const tierLabels = {{ series.get('tier_labels', []) | tojson | safe }};
+            const tierValues = {{ series.get('tier_values', []) | tojson | safe }};
+            const userLabels = {{ series.get('top_users_labels', []) | tojson | safe }};
+            const userValues = {{ series.get('top_users_values', []) | tojson | safe }};
+
+            const nodeJobsLabels = {{ series.get('node_jobs_labels', []) | tojson | safe }};
+            const nodeJobsValues = {{ series.get('node_jobs_values', []) | tojson | safe }};
+            const nodeCPULabels = {{ series.get('node_cpu_labels', []) | tojson | safe }};
+            const nodeCPUValues = {{ series.get('node_cpu_values', []) | tojson | safe }};
+            const nodeGPULabels = {{ series.get('node_gpu_labels', []) | tojson | safe }};
+            const nodeGPUValues = {{ series.get('node_gpu_values', []) | tojson | safe }};
+
+            const energyUserLabels = {{ series.get('energy_user_labels', []) | tojson | safe }};
+            const energyUserValues = {{ series.get('energy_user_values', []) | tojson | safe }};
+            const energyEffUserLabels = {{ series.get('energy_eff_user_labels', []) | tojson | safe }};
+            const energyEffUserValues = {{ series.get('energy_eff_user_values', []) | tojson | safe }};
+            const energyNodeLabels = {{ series.get('energy_node_labels', []) | tojson | safe }};
+            const energyNodeValues = {{ series.get('energy_node_values', []) | tojson | safe }};
+
+            const succUserLabels = {{ series.get('succ_user_labels', []) | tojson | safe }};
+            const succUserSuccess = {{ series.get('succ_user_success', []) | tojson | safe }};
+            const succUserFail = {{ series.get('succ_user_fail', []) | tojson | safe }};
+            const succPartLabels = {{ series.get('succ_part_labels', []) | tojson | safe }};
+            const succPartSuccess = {{ series.get('succ_part_success', []) | tojson | safe }};
+            const succPartFail = {{ series.get('succ_part_fail', []) | tojson | safe }};
+            const succQosLabels = {{ series.get('succ_qos_labels', []) | tojson | safe }};
+            const succQosSuccess = {{ series.get('succ_qos_success', []) | tojson | safe }};
+            const succQosFail = {{ series.get('succ_qos_fail', []) | tojson | safe }};
+            const failExitLabels = {{ series.get('fail_exit_labels', []) | tojson | safe }};
+            const failExitValues = {{ series.get('fail_exit_values', []) | tojson | safe }};
+            const failStateLabels = {{ series.get('fail_state_labels', []) | tojson | safe }};
+            const failStateValues = {{ series.get('fail_state_values', []) | tojson | safe }};
+
+            // Keep track of charts and make each build safe (one error won't kill others)
+            window.dashboardCharts = window.dashboardCharts || [];
+            function safeChart(buildFn, name) {
+                try {
+                    const ch = buildFn();
+                    if (ch) window.dashboardCharts.push(ch);
+                } catch (e) {
+                    console.warn("Chart failed:", name, e);
+                }
+            }
+
+            function stackedBar(el, labels, succ, fail, name) {
+                if (!labels.length) return;
+                safeChart(() => new Chart(document.getElementById(el), {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Success', data: succ, stack: 's' },
+                            { label: 'Fail', data: fail, stack: 's' },
+                        ]
+                    },
+                    options: {
+                        animation: !PRINT_MODE,
+                        plugins: { legend: { position: 'bottom' } },
+                        indexAxis: 'y',
+                        scales: { x: { beginAtZero: true } }
+                    }
+                }), name);
+            }
+
+            // --- Daily total cost (line) ---
+            if (dailyLabels.length && dailyData.length) {
+                safeChart(() => new Chart(document.getElementById('dailyCost'), {
+                    type: 'line',
+                    data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
+                    options: {
+                        animation: !PRINT_MODE,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
+                    }
+                }), 'dailyCost');
+            }
+
+            // --- Cost by Tier (pie) ---   <-- this was missing
+            if (tierLabels.length && tierValues.length) {
+                safeChart(() => new Chart(document.getElementById('tierPie'), {
+                    type: 'pie',
+                    data: { labels: tierLabels, datasets: [{ data: tierValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+                }), 'tierPie');
+            }
+
+            // --- Top Users by Cost (bar) ---   <-- this was missing
+            if (userLabels.length && userValues.length) {
+                safeChart(() => new Chart(document.getElementById('topUsers'), {
+                    type: 'bar',
+                    data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'topUsers');
+            }
+
+            // --- Node charts ---   <-- these were missing
+            if (nodeJobsLabels.length) {
+                safeChart(() => new Chart(document.getElementById('nodesByJobs'), {
+                    type: 'bar',
+                    data: { labels: nodeJobsLabels, datasets: [{ label: 'Jobs', data: nodeJobsValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } } }
+                }), 'nodesByJobs');
+            }
+            if (nodeCPULabels.length) {
+                safeChart(() => new Chart(document.getElementById('nodesByCPU'), {
+                    type: 'bar',
+                    data: { labels: nodeCPULabels, datasets: [{ label: 'CPU core-hrs', data: nodeCPUValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'nodesByCPU');
+            }
+            if (nodeGPULabels.length) {
+                safeChart(() => new Chart(document.getElementById('nodesByGPU'), {
+                    type: 'bar',
+                    data: { labels: nodeGPULabels, datasets: [{ label: 'GPU-hrs', data: nodeGPUValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'nodesByGPU');
+            }
+
+            // --- Energy charts (will be empty if energy is disabled) ---
+            if (energyUserLabels.length) {
+                safeChart(() => new Chart(document.getElementById('energyUser'), {
+                    type: 'bar',
+                    data: { labels: energyUserLabels, datasets: [{ label: 'kJ', data: energyUserValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'energyUser');
+            }
+            if (energyEffUserLabels.length) {
+                safeChart(() => new Chart(document.getElementById('energyEffUser'), {
+                    type: 'bar',
+                    data: { labels: energyEffUserLabels, datasets: [{ label: 'kJ / CPU-hr', data: energyEffUserValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'energyEffUser');
+            }
+            if (energyNodeLabels.length) {
+                safeChart(() => new Chart(document.getElementById('energyNode'), {
+                    type: 'bar',
+                    data: { labels: energyNodeLabels, datasets: [{ label: 'kJ', data: energyNodeValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'energyNode');
+            }
+
+            // --- Throughput / reliability ---
+            stackedBar('succUser', succUserLabels, succUserSuccess, succUserFail, 'succUser');
+            stackedBar('succPart', succPartLabels, succPartSuccess, succPartFail, 'succPart');
+            stackedBar('succQos', succQosLabels, succQosSuccess, succQosFail, 'succQos');
+
+            if (failExitLabels.length) {
+                safeChart(() => new Chart(document.getElementById('failExit'), {
+                    type: 'bar',
+                    data: { labels: failExitLabels, datasets: [{ label: 'Count', data: failExitValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }), 'failExit');
+            }
+
+            if (failStateLabels.length) {
+                safeChart(() => new Chart(document.getElementById('failReasons'), {
+                    type: 'doughnut',
+                    data: { labels: failStateLabels, datasets: [{ data: failStateValues }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+                }), 'failReasons');
+            }
+
+            // Re-render before print
+            window.addEventListener('beforeprint', () => {
+                if (window.dashboardCharts && Array.isArray(window.dashboardCharts)) {
+                    for (const ch of window.dashboardCharts) { try { ch.update('none'); } catch (e) { } }
+                }
+            });
+        </script>
+        
+        
+        <style>
+            @media print {
+                @page {
+                    size: A4 portrait;
+                    margin: 10mm;
+                }
+        
+                /* Hide chrome/nav/buttons when printing */
+                .no-print,
+                nav,
+                .sidebar,
+                .tabs,
+                .slink,
+                .btn,
+                .toolbar {
+                    display: none !important;
+                }
+        
+                /* Make the main column full-width */
+                .layout {
+                    display: block !important;
+                }
+        
+                /* Let tables fully expand when printing */
+                .table-wrap {
+                    max-height: none !important;
+                    overflow: visible !important;
+                    border: 0;
+                }
+        
+                /* Avoid breaking cards mid-page */
+                .card {
+                    break-inside: avoid;
+                    page-break-inside: avoid;
+                }
+        
+                /* Don’t append URLs after links */
+                a[href]:after {
+                    content: "";
+                }
+            }
+        </style>
+
+    </main>
 </div>
-
-<script>
-    // Optionally pre-fill with your live rates via Jinja:
-    const liveRates = {{ all_rates | tojson | safe }};
-    const endDate = {{ (end or before) | tojson | safe }};
-
-    function fillInputs() {
-        for (const tier of ["mu", "gov", "private"]) {
-            for (const k of ["cpu", "gpu", "mem"]) {
-                const el = document.getElementById(`${tier}_${k}`);
-                if (el && liveRates[tier]) el.value = liveRates[tier][k];
-            }
-        }
-    }
-    fillInputs();
-
-    async function runSim() {
-        const p = new URLSearchParams();
-        p.set("before", endDate);
-        for (const tier of ["mu", "gov", "private"]) {
-            for (const k of ["cpu", "gpu", "mem"]) {
-                const el = document.getElementById(`${tier}_${k}`);
-                if (el && el.value !== "") p.set(`${k}_${tier}`, el.value);
-            }
-        }
-        const res = await fetch(`/admin/simulate_rates.json?${p.toString()}`);
-        const data = await res.json();
-        if (!res.ok) {
-            document.getElementById("simSummary").textContent = `Error: ${data.error || "unknown"}`;
-            return;
-        }
-        const cur = (data.current_total || 0).toFixed(2);
-        const cand = (data.candidate_total || 0).toFixed(2);
-        const delta = (data.delta || 0).toFixed(2);
-        document.getElementById("simSummary").textContent =
-            `Current: ฿${cur} → Candidate: ฿${cand} (Δ ฿${delta})`;
-
-        // You can also hook into your existing charts here (e.g., update tier pie with data.candidate_by_tier)
-        // Example:
-        //   const labels = data.candidate_by_tier.map(x => x.tier);
-        //   const values = data.candidate_by_tier.map(x => x.thb);
-        //   updatePieChart('tierPie', labels, values);  // your own function
-    }
-
-    document.getElementById("simRun").addEventListener("click", runSim);
-</script>
-
-
-
-<!-- Optional totals chips -->
-<div class="muted" style="margin-top:.5rem;">
-    Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
-    Σ GPU hrs: {{ '%.2f'|format(tot_gpu) }} •
-    Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-<script>
-    // Define BEFORE constructing charts
-    const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
-
-    // Jinja-safe pulls (always JSON, never undefined)
-    const dailyLabels = {{ series.get('daily_labels', []) | tojson | safe }};
-    const dailyData = {{ series.get('daily_cost', []) | tojson | safe }};
-    const tierLabels = {{ series.get('tier_labels', []) | tojson | safe }};
-    const tierValues = {{ series.get('tier_values', []) | tojson | safe }};
-    const userLabels = {{ series.get('top_users_labels', []) | tojson | safe }};
-    const userValues = {{ series.get('top_users_values', []) | tojson | safe }};
-
-    const nodeJobsLabels = {{ series.get('node_jobs_labels', []) | tojson | safe }};
-    const nodeJobsValues = {{ series.get('node_jobs_values', []) | tojson | safe }};
-    const nodeCPULabels = {{ series.get('node_cpu_labels', []) | tojson | safe }};
-    const nodeCPUValues = {{ series.get('node_cpu_values', []) | tojson | safe }};
-    const nodeGPULabels = {{ series.get('node_gpu_labels', []) | tojson | safe }};
-    const nodeGPUValues = {{ series.get('node_gpu_values', []) | tojson | safe }};
-
-    const energyUserLabels = {{ series.get('energy_user_labels', []) | tojson | safe }};
-    const energyUserValues = {{ series.get('energy_user_values', []) | tojson | safe }};
-    const energyEffUserLabels = {{ series.get('energy_eff_user_labels', []) | tojson | safe }};
-    const energyEffUserValues = {{ series.get('energy_eff_user_values', []) | tojson | safe }};
-    const energyNodeLabels = {{ series.get('energy_node_labels', []) | tojson | safe }};
-    const energyNodeValues = {{ series.get('energy_node_values', []) | tojson | safe }};
-
-    const succUserLabels = {{ series.get('succ_user_labels', []) | tojson | safe }};
-    const succUserSuccess = {{ series.get('succ_user_success', []) | tojson | safe }};
-    const succUserFail = {{ series.get('succ_user_fail', []) | tojson | safe }};
-    const succPartLabels = {{ series.get('succ_part_labels', []) | tojson | safe }};
-    const succPartSuccess = {{ series.get('succ_part_success', []) | tojson | safe }};
-    const succPartFail = {{ series.get('succ_part_fail', []) | tojson | safe }};
-    const succQosLabels = {{ series.get('succ_qos_labels', []) | tojson | safe }};
-    const succQosSuccess = {{ series.get('succ_qos_success', []) | tojson | safe }};
-    const succQosFail = {{ series.get('succ_qos_fail', []) | tojson | safe }};
-    const failExitLabels = {{ series.get('fail_exit_labels', []) | tojson | safe }};
-    const failExitValues = {{ series.get('fail_exit_values', []) | tojson | safe }};
-    const failStateLabels = {{ series.get('fail_state_labels', []) | tojson | safe }};
-    const failStateValues = {{ series.get('fail_state_values', []) | tojson | safe }};
-
-    // Keep track of charts and make each build safe (one error won't kill others)
-    window.dashboardCharts = window.dashboardCharts || [];
-    function safeChart(buildFn, name) {
-        try {
-            const ch = buildFn();
-            if (ch) window.dashboardCharts.push(ch);
-        } catch (e) {
-            console.warn("Chart failed:", name, e);
-        }
-    }
-
-    function stackedBar(el, labels, succ, fail, name) {
-        if (!labels.length) return;
-        safeChart(() => new Chart(document.getElementById(el), {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [
-                    { label: 'Success', data: succ, stack: 's' },
-                    { label: 'Fail', data: fail, stack: 's' },
-                ]
-            },
-            options: {
-                animation: !PRINT_MODE,
-                plugins: { legend: { position: 'bottom' } },
-                indexAxis: 'y',
-                scales: { x: { beginAtZero: true } }
-            }
-        }), name);
-    }
-
-    // --- Daily total cost (line) ---
-    if (dailyLabels.length && dailyData.length) {
-        safeChart(() => new Chart(document.getElementById('dailyCost'), {
-            type: 'line',
-            data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
-            options: {
-                animation: !PRINT_MODE,
-                plugins: { legend: { display: false } },
-                scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
-            }
-        }), 'dailyCost');
-    }
-
-    // --- Cost by Tier (pie) ---   <-- this was missing
-    if (tierLabels.length && tierValues.length) {
-        safeChart(() => new Chart(document.getElementById('tierPie'), {
-            type: 'pie',
-            data: { labels: tierLabels, datasets: [{ data: tierValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
-        }), 'tierPie');
-    }
-
-    // --- Top Users by Cost (bar) ---   <-- this was missing
-    if (userLabels.length && userValues.length) {
-        safeChart(() => new Chart(document.getElementById('topUsers'), {
-            type: 'bar',
-            data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'topUsers');
-    }
-
-    // --- Node charts ---   <-- these were missing
-    if (nodeJobsLabels.length) {
-        safeChart(() => new Chart(document.getElementById('nodesByJobs'), {
-            type: 'bar',
-            data: { labels: nodeJobsLabels, datasets: [{ label: 'Jobs', data: nodeJobsValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } } }
-        }), 'nodesByJobs');
-    }
-    if (nodeCPULabels.length) {
-        safeChart(() => new Chart(document.getElementById('nodesByCPU'), {
-            type: 'bar',
-            data: { labels: nodeCPULabels, datasets: [{ label: 'CPU core-hrs', data: nodeCPUValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'nodesByCPU');
-    }
-    if (nodeGPULabels.length) {
-        safeChart(() => new Chart(document.getElementById('nodesByGPU'), {
-            type: 'bar',
-            data: { labels: nodeGPULabels, datasets: [{ label: 'GPU-hrs', data: nodeGPUValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'nodesByGPU');
-    }
-
-    // --- Energy charts (will be empty if energy is disabled) ---
-    if (energyUserLabels.length) {
-        safeChart(() => new Chart(document.getElementById('energyUser'), {
-            type: 'bar',
-            data: { labels: energyUserLabels, datasets: [{ label: 'kJ', data: energyUserValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'energyUser');
-    }
-    if (energyEffUserLabels.length) {
-        safeChart(() => new Chart(document.getElementById('energyEffUser'), {
-            type: 'bar',
-            data: { labels: energyEffUserLabels, datasets: [{ label: 'kJ / CPU-hr', data: energyEffUserValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'energyEffUser');
-    }
-    if (energyNodeLabels.length) {
-        safeChart(() => new Chart(document.getElementById('energyNode'), {
-            type: 'bar',
-            data: { labels: energyNodeLabels, datasets: [{ label: 'kJ', data: energyNodeValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'energyNode');
-    }
-
-    // --- Throughput / reliability ---
-    stackedBar('succUser', succUserLabels, succUserSuccess, succUserFail, 'succUser');
-    stackedBar('succPart', succPartLabels, succPartSuccess, succPartFail, 'succPart');
-    stackedBar('succQos', succQosLabels, succQosSuccess, succQosFail, 'succQos');
-
-    if (failExitLabels.length) {
-        safeChart(() => new Chart(document.getElementById('failExit'), {
-            type: 'bar',
-            data: { labels: failExitLabels, datasets: [{ label: 'Count', data: failExitValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-        }), 'failExit');
-    }
-
-    if (failStateLabels.length) {
-        safeChart(() => new Chart(document.getElementById('failReasons'), {
-            type: 'doughnut',
-            data: { labels: failStateLabels, datasets: [{ data: failStateValues }] },
-            options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
-        }), 'failReasons');
-    }
-
-    // Re-render before print
-    window.addEventListener('beforeprint', () => {
-        if (window.dashboardCharts && Array.isArray(window.dashboardCharts)) {
-            for (const ch of window.dashboardCharts) { try { ch.update('none'); } catch (e) { } }
-        }
-    });
-</script>
-
-
 <style>
-    @media print {
-        @page {
-            size: A4 portrait;
-            margin: 10mm;
-        }
+    .layout {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 1rem;
+        align-items: start;
+    }
 
-        /* Hide chrome/nav/buttons when printing */
-        .no-print,
-        nav,
-        .sidebar,
-        .tabs,
-        .slink,
-        .btn,
-        .toolbar {
-            display: none !important;
-        }
-
-        /* Make the main column full-width */
-        .layout {
-            display: block !important;
-        }
-
-        /* Let tables fully expand when printing */
-        .table-wrap {
-            max-height: none !important;
-            overflow: visible !important;
-            border: 0;
-        }
-
-        /* Avoid breaking cards mid-page */
-        .card {
-            break-inside: avoid;
-            page-break-inside: avoid;
-        }
-
-        /* Don’t append URLs after links */
-        a[href]:after {
-            content: "";
-        }
+    .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
     }
 </style>
-
-
 {% endblock %}
