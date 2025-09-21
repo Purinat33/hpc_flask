@@ -1001,40 +1001,62 @@ def export_xero_sales_csv():
     )
 
 
-# controllers/admin.py (add a POST handler to save)
 @admin_bp.post("/admin/tiers")
 @login_required
 @fresh_login_required
 @admin_required
 def save_tiers():
-    """
-    Form posts fields like: tier_<username>=mu|gov|private
-    Only changed values need to be posted; we'll upsert what we see.
-    """
-    from models.tiers_store import upsert_override, clear_override
+    from models.tiers_store import upsert_override, clear_override, load_overrides_dict
     from services.billing import classify_user_type
 
     changed = 0
     removed = 0
 
-    # Iterate over submitted fields and commit overrides
+    # for "from" values, peek existing overrides once (lowercased keys)
+    existing = {k.strip().lower(): v for k, v in (
+        load_overrides_dict() or {}).items()}
+
     for k, v in request.form.items():
         if not k.startswith("tier_"):
             continue
-        username = k[len("tier_"):].strip()
+        username_raw = k[len("tier_"):]
+        username = username_raw.strip()
         desired = (v or "").strip().lower()
         if desired not in {"mu", "gov", "private"}:
+            audit("tiers.set.invalid", target=f"user={username}", status=400,
+                  extra={"desired": desired})
             continue
 
-        # If desired equals the classifier’s natural tier, remove override (keeps DB minimal)
         natural = classify_user_type(username)
+        prev_override = existing.get(
+            username.lower())  # None if not overridden
+        prev_effective = prev_override if prev_override else natural
+
         if desired == natural:
-            clear_override(username)
-            removed += 1
+            # clearing override (even if nothing existed, still ok)
+            if prev_override is not None:
+                clear_override(username)
+                removed += 1
+                audit("tier.override.clear",
+                      target=f"user={username}",
+                      status=200,
+                      extra={"from": prev_effective, "to": natural, "natural": natural})
+            # else:
+            #     # no-op; still record an attempted change if you want visibility
+            #     audit("tier.override.noop",
+            #           target=f"user={username}",
+            #           status=200,
+            #           extra={"from": prev_effective, "to": natural, "natural": natural})
         else:
+            # upsert override -> desired
             upsert_override(username, desired)
             changed += 1
+            audit("tier.override.set",
+                  target=f"user={username}",
+                  status=200,
+                  extra={"from": prev_effective, "to": desired, "natural": natural})
 
-    audit("tiers.save",
-          target=f"changed={changed},removed={removed}", status=200)
+    audit("tiers.save.summary",
+          target=f"changed={changed},removed={removed}",
+          status=200)
     return redirect(url_for("admin.admin_form", section="tiers"))
