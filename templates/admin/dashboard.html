@@ -104,6 +104,79 @@
         <canvas id="failReasons"></canvas>
     </div>
 </div>
+<div class="card" style="margin-top:1rem;">
+    <h3>What-if Pricing (read-only)</h3>
+    <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:.5rem;">
+        <div>
+            <h4>MU</h4>
+            <label>CPU per hr<input id="mu_cpu" type="number" step="0.01"></label>
+            <label>GPU per hr<input id="mu_gpu" type="number" step="0.01"></label>
+            <label>MEM per hr<input id="mu_mem" type="number" step="0.01"></label>
+        </div>
+        <div>
+            <h4>GOV</h4>
+            <label>CPU per hr<input id="gov_cpu" type="number" step="0.01"></label>
+            <label>GPU per hr<input id="gov_gpu" type="number" step="0.01"></label>
+            <label>MEM per hr<input id="gov_mem" type="number" step="0.01"></label>
+        </div>
+        <div>
+            <h4>PRIVATE</h4>
+            <label>CPU per hr<input id="private_cpu" type="number" step="0.01"></label>
+            <label>GPU per hr<input id="private_gpu" type="number" step="0.01"></label>
+            <label>MEM per hr<input id="private_mem" type="number" step="0.01"></label>
+        </div>
+    </div>
+    <div class="toolbar" style="margin-top:.5rem;">
+        <button id="simRun" type="button">Simulate</button>
+        <span id="simSummary" class="muted" style="margin-left: .5rem;"></span>
+    </div>
+</div>
+
+<script>
+    // Optionally pre-fill with your live rates via Jinja:
+    const liveRates = {{ all_rates | tojson | safe }};
+    const endDate = {{ (end or before) | tojson | safe }};
+
+    function fillInputs() {
+        for (const tier of ["mu", "gov", "private"]) {
+            for (const k of ["cpu", "gpu", "mem"]) {
+                const el = document.getElementById(`${tier}_${k}`);
+                if (el && liveRates[tier]) el.value = liveRates[tier][k];
+            }
+        }
+    }
+    fillInputs();
+
+    async function runSim() {
+        const p = new URLSearchParams();
+        p.set("before", endDate);
+        for (const tier of ["mu", "gov", "private"]) {
+            for (const k of ["cpu", "gpu", "mem"]) {
+                const el = document.getElementById(`${tier}_${k}`);
+                if (el && el.value !== "") p.set(`${k}_${tier}`, el.value);
+            }
+        }
+        const res = await fetch(`/admin/simulate_rates.json?${p.toString()}`);
+        const data = await res.json();
+        if (!res.ok) {
+            document.getElementById("simSummary").textContent = `Error: ${data.error || "unknown"}`;
+            return;
+        }
+        const cur = (data.current_total || 0).toFixed(2);
+        const cand = (data.candidate_total || 0).toFixed(2);
+        const delta = (data.delta || 0).toFixed(2);
+        document.getElementById("simSummary").textContent =
+            `Current: ฿${cur} → Candidate: ฿${cand} (Δ ฿${delta})`;
+
+        // You can also hook into your existing charts here (e.g., update tier pie with data.candidate_by_tier)
+        // Example:
+        //   const labels = data.candidate_by_tier.map(x => x.tier);
+        //   const values = data.candidate_by_tier.map(x => x.thb);
+        //   updatePieChart('tierPie', labels, values);  // your own function
+    }
+
+    document.getElementById("simRun").addEventListener("click", runSim);
+</script>
 
 
 

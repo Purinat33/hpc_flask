@@ -1,3 +1,6 @@
+from flask import jsonify
+from datetime import timedelta
+from services.pricing_sim import build_pricing_components, simulate_vs_current
 import io
 from datetime import date
 import pandas as pd
@@ -455,7 +458,7 @@ def admin_form():
             before=before, start=start_d, end=end_d,
             kpis=kpis, series=series, data_source=data_source, notes=notes,
             tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
-            url_for=url_for,
+            url_for=url_for, all_rates=rates,
         )
 
     try:
@@ -791,3 +794,64 @@ def audit_csv():
     CSV_DOWNLOADS.labels(kind="audit").inc()
     return Response(csv_text, mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@admin_bp.get("/admin/simulate_rates.json")
+@login_required
+@admin_required
+def simulate_rates_json():
+    """
+    Read-only: fetch last 90 days, compute usage with compute_costs(),
+    build components, then simulate current vs candidate rates.
+    Query params (optional): cpu_mu, gpu_mu, mem_mu, cpu_gov, ... cpu_private, ...
+      Example: /admin/simulate_rates.json?cpu_mu=1&gpu_mu=6&mem_mu=0.5
+    """
+    try:
+        # Window: last 90 days up to ?before=YYYY-MM-DD (default today)
+        before = (request.args.get("before")
+                  or date.today().isoformat()).strip()
+        start_d = (date.fromisoformat(before) - timedelta(days=90)).isoformat()
+        end_d = before
+
+        # Fetch + compute with live logic (unchanged)
+        raw_df, data_source, _ = fetch_jobs_with_fallbacks(start_d, end_d)
+        costed = compute_costs(raw_df)
+
+        # Cutoff at local day end (same as dashboard)
+        if "End" in costed.columns:
+            end_series = pd.to_datetime(
+                costed["End"], errors="coerce", utc=True)
+            cutoff_utc = pd.Timestamp(
+                end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+            costed = costed[end_series.notna() & (
+                end_series <= cutoff_utc)].copy()
+            costed["End"] = end_series
+
+        # Build read-only components
+        comps = build_pricing_components(costed)
+
+        # Current DB rates
+        current_rates = rates_store.load_rates()
+
+        # Candidate rates from query params; fallback to current if missing
+        def pull(tier: str, key: str, default: float) -> float:
+            return float(request.args.get(f"{key}_{tier}", default))
+
+        tiers = ("mu", "gov", "private")
+        candidate = {}
+        for t in tiers:
+            base = current_rates.get(t, {"cpu": 0.0, "gpu": 0.0, "mem": 0.0})
+            candidate[t] = {
+                "cpu": pull(t, "cpu", base["cpu"]),
+                "gpu": pull(t, "gpu", base["gpu"]),
+                "mem": pull(t, "mem", base["mem"]),
+            }
+
+        out = simulate_vs_current(comps, current_rates, candidate)
+        out["data_source"] = data_source or "unknown"
+        out["window"] = {"start": start_d, "end": end_d}
+        out["rates"] = {"current": current_rates, "candidate": candidate}
+
+        return jsonify(out), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
