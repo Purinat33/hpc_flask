@@ -5,6 +5,28 @@
 <h2>Receipt #{{ r['id'] }} — {{ r['status'] }}</h2>
 <p>Period: {{ r['start'] }} → {{ r['end'] }}</p>
 <p>Total: ฿{{ '%.2f'|format(r['total']) }}</p>
+
+{# --- ACTIONS MOVED TO TOP --- #}
+<div class="toolbar" style="margin: .5rem 0;">
+    {% if r['status'] == 'pending' and is_owner %}
+    <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}" style="display:inline;">
+        <button type="submit">Pay now</button>
+    </form>
+    {% elif r['status'] == 'pending' and not is_owner %}
+    <p class="muted" style="display:inline-block;margin:0 0 0 .25rem;">
+        Only the receipt owner can start payment.
+    </p>
+    {% endif %}
+
+    {% if r['status'] == 'paid' %}
+    <p class="muted" style="display:inline-block;margin:0 0 0 .5rem;">
+        Paid at {{ r['paid_at']|dt_local or '—' }}
+        {% if r['method'] %} • Method: <code>{{ r['method'] }}</code>{% endif %}
+        {% if r['tx_ref'] %} • Ref: <code>{{ r['tx_ref'] }}</code>{% endif %}
+    </p>
+    {% endif %}
+</div>
+
 <table>
     <thead>
         <tr>
@@ -27,20 +49,4 @@
         {% endfor %}
     </tbody>
 </table>
-{% if r['status'] == 'pending' and is_owner %}
-<form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}">
-    <button type="submit">Pay now</button>
-</form>
-{% elif r['status'] == 'pending' and not is_owner %}
-<p class="muted">Only the receipt owner can start payment.</p>
-{% endif %}
-{% if r['status'] == 'paid' %}
-<p class="muted">
-    Paid at {{ r['paid_at']|dt_local or '—' }}
-    {% if r['method'] %} • Method: <code>{{ r['method'] }}</code>{% endif %}
-    {% if r['tx_ref'] %} • Ref: <code>{{ r['tx_ref'] }}</code>{% endif %}
-</p>
-{% endif %}
-
-
 {% endblock %}
