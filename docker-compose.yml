@@ -70,7 +70,7 @@ services:
       SEED_DEMO_USERS: "1"
       FALLBACK_CSV: /app/instance/test.csv # Set to whatever file you want
       LOG_TO_STDOUT: "1"
-      DEMO_USERS: alice:alice:user,bob:bob:user,akara.sup:12345678:user,surapol.gits:12345:user,phakee.tra:54321:user,kanjana.las:12345:user
+      DEMO_USERS: gable:gable:user,alice:alice:user,bob:bob:user,akara.sup:12345678:user,surapol.gits:12345:user,phakee.tra:54321:user,kanjana.las:12345:user,root:toor:admin
     depends_on:
       pg:
         condition: service_healthy
