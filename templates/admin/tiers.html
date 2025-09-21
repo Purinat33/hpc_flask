@@ -6,7 +6,13 @@
 
 <form method="post" action="{{ url_for('admin.save_tiers') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <table>
+    <div class="toolbar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:12px;">
+        <input id="userFilter" type="search" placeholder="Filter users…" value="" aria-label="Filter users"
+            style="max-width:280px;padding:.5rem .6rem;border:1px solid #ddd;border-radius:6px;">
+        <span class="muted">Showing <strong id="matchCount">{{ rows|length }}</strong> of {{ rows|length }}</span>
+        <button type="button" id="clearFilter" class="linklike" style="margin-left:auto;">Clear</button>
+    </div>
+    <table id="tiersTable">
         <thead>
             <tr>
                 <th>User</th>
@@ -16,7 +22,7 @@
         </thead>
         <tbody>
             {% for r in rows %}
-            <tr>
+            <tr data-username="{{ r.username|lower }}">
                 <td>{{ r.username }}</td>
                 <td>
                     {% for t in tiers %}
@@ -41,4 +47,42 @@
     <ul>{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
+<script>
+    (function () {
+        const input = document.getElementById('userFilter');
+        const clearBtn = document.getElementById('clearFilter');
+        const table = document.getElementById('tiersTable');
+        const rows = Array.from(table.querySelectorAll('tbody tr'));
+        const count = document.getElementById('matchCount');
+
+        function applyFilter(q) {
+            const qq = (q || "").toLowerCase().trim();
+            let shown = 0;
+            rows.forEach(tr => {
+                // match on username (data-username) or full text if you prefer
+                const u = tr.dataset.username || tr.textContent.toLowerCase();
+                const hit = !qq || u.includes(qq);
+                tr.style.display = hit ? "" : "none";
+                if (hit) shown++;
+            });
+            if (count) count.textContent = shown;
+        }
+
+        input.addEventListener('input', () => applyFilter(input.value));
+
+        clearBtn?.addEventListener('click', () => {
+            input.value = "";
+            input.focus();
+            applyFilter("");
+        });
+
+        // Optional: restore filter from URL ?q=… if you decide to wire it later
+        const params = new URLSearchParams(location.search);
+        if (params.has('q')) {
+            input.value = params.get('q');
+        }
+        applyFilter(input.value);
+    })();
+</script>
+
 {% endblock %}
