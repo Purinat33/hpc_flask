@@ -13,6 +13,9 @@
     .copilot-send{padding:8px 12px;border-radius:8px;border:1px solid #333;background:#1f2937;color:#eee;cursor:pointer}
     .copilot-src{font-size:12px;opacity:.8;margin-top:6px}
     @media print { .copilot-btn,.copilot-panel{ display:none !important } }
+    .copilot-body pre { padding:8px; overflow:auto; background:#0b0b0b; border:1px solid #333; border-radius:8px; }
+    .copilot-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .copilot-body a { color:#93c5fd; text-decoration: underline; }
     `;
     const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
 
@@ -71,12 +74,18 @@ async function ask(q) {
     body.lastChild?.remove();
 
     // now build the HTML safely
-    let html = (data.answer_html || '').replace(/\n/g, '<br/>');
+    let html;
+    if (data.answer_is_html) {
+    html = data.answer_html || '';
+    } else {
+    // legacy: plain text from server
+    html = (data.answer_html || '').replace(/\n/g, '<br/>');
+    }
     if (Array.isArray(data.sources) && data.sources.length) {
-      const srcs = data.sources
+    const srcs = data.sources
         .map(s => `• ${s.file}${s.anchor ? '#' + s.anchor : ''} (${s.score})`)
         .join('<br/>');
-      html += `<div class="copilot-src"><b>Sources</b><br/>${srcs}</div>`;
+    html += `<div class="copilot-src"><b>Sources</b><br/>${srcs}</div>`;
     }
     addMsg(html || 'No answer.', 'bot');
   } catch (err) {

@@ -153,9 +153,9 @@ def _search(query: str, k: int = TOP_K) -> List[Tuple[float, Dict]]:
 def _system_prompt() -> str:
     return (
         "You are the in-app assistant for the HPC Billing webapp.\n"
-        "Answer briefly and only using the provided CONTEXT.\n"
-        "If the context is insufficient or unrelated, say: I don't know.\n"
-        "Always show sources as a bullet list at the end using the provided file/anchor.\n"
+        "Answer in the first person, briefly and only using the provided CONTEXT.\n"
+        "If the context is insufficient or the question is unrelated to the webapp, say: 'I don't know' but don't provide any sources.\n"
+        "Always show sources as a bullet list at the end using the provided file/anchor when you give a related answer.\n"
     )
 
 
@@ -206,11 +206,52 @@ def ask(ip: str, question: str) -> Dict:
     ctx, sources = _format_context(hits)
     sys = _system_prompt()
     user = f"QUESTION:\n{question}\n\nCONTEXT:\n{ctx}\n\nAnswer now. If unsure, say 'I don't know.' Include sources."
+
     reply = _ollama_chat([
         {"role": "system", "content": sys},
         {"role": "user", "content": user},
     ])
-    return {"answer_html": reply, "sources": sources, "from": "copilot"}
+
+    # services/copilot.py (inside ask(), right after you get `reply`)
+    try:
+        # 1) Markdown → HTML
+        reply_html_md = markdown.markdown(
+            reply,
+            extensions=["extra", "sane_lists", "fenced_code", "tables"]
+        )
+
+        # 2) (Optional) sanitize if bleach is available
+        try:
+            import bleach
+            allowed_tags = [
+                "p", "br", "ul", "ol", "li", "strong", "em", "code", "pre",
+                "blockquote", "a", "h3", "h4", "h5", "table", "thead", "tbody", "tr", "th", "td"
+            ]
+            allowed_attrs = {"a": ["href", "title", "target", "rel"]}
+            reply_html = bleach.clean(
+                reply_html_md,
+                tags=allowed_tags,
+                attributes=allowed_attrs,
+                protocols=["http", "https", "mailto"],
+                strip=True
+            )
+            # open links in a new tab (optional)
+            reply_html = reply_html.replace(
+                "<a ", '<a target="_blank" rel="noopener noreferrer" ')
+        except ImportError:
+            reply_html = reply_html_md
+
+    except Exception:
+        # last-resort fallback: preserve newlines only
+        reply_html = reply.replace("\n", "<br/>")
+
+    return {
+        "answer_html": reply_html,
+        "sources": sources,
+        "from": "copilot",
+        "answer_is_html": True
+    }
+
 
 # expose a quick rebuild for admin/ops
 
