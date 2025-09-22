@@ -1,3 +1,4 @@
+from services.forecast import build_daily_series, multi_horizon_forecast
 from services.accounting import derive_journal, trial_balance, income_statement, balance_sheet
 from flask import jsonify
 from datetime import timedelta
@@ -1104,3 +1105,59 @@ def save_tiers():
           target=f"changed={changed},removed={removed}",
           status=200)
     return redirect(url_for("admin.admin_form", section="tiers"))
+
+
+@admin_bp.get("/admin/forecast.json")
+@login_required
+@admin_required
+def forecast_json():
+    """
+    Returns a multi-horizon forecast for a dashboard metric.
+    Query:
+      ?metric=cost|jobs|cpu|gpu|mem   (default: cost)
+      ?before=YYYY-MM-DD              (default: today)
+      ?train_days=180                 (default: 180)
+    Response:
+      {
+        "metric":"cost",
+        "history":{"labels":[...], "values":[...]},
+        "forecasts":{
+          "30":{"labels":[...],"values":[...],"lower":[...],"upper":[...]},
+          "60":{...},
+          "90":{...}
+        }
+      }
+    """
+    try:
+        metric = (request.args.get("metric") or "cost").strip().lower()
+        before = (request.args.get("before")
+                  or date.today().isoformat()).strip()
+        train_days = int(request.args.get("train_days") or 180)
+    except Exception:
+        return jsonify({"error": "bad parameters"}), 400
+
+    # fetch training window: last N days
+    start_d = (date.fromisoformat(before) -
+               timedelta(days=train_days-1)).isoformat()
+    raw_df, _, _ = fetch_jobs_with_fallbacks(start_d, before)
+    costed = compute_costs(raw_df)
+
+    # enforce same UTC cutoff policy as dashboard
+    if "End" in costed.columns:
+        end_series = pd.to_datetime(costed["End"], errors="coerce", utc=True)
+        cutoff_utc = pd.Timestamp(before, tz="UTC") + \
+            pd.Timedelta(hours=23, minutes=59, seconds=59)
+        costed = costed[end_series.notna() & (end_series <= cutoff_utc)].copy()
+        costed["End"] = end_series
+
+    daily = build_daily_series(
+        costed, metric=metric, end_date=before, train_days=train_days)
+    if daily.empty:
+        return jsonify({"metric": metric, "history": {"labels": [], "values": []}, "forecasts": {}}), 200
+
+    f = multi_horizon_forecast(daily, horizons=(30, 60, 90))
+    return jsonify({
+        "metric": metric,
+        "history": {"labels": f.history_labels, "values": f.history_values},
+        "forecasts": {str(k): v for k, v in f.horizons.items()},
+    }), 200

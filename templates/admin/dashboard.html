@@ -190,7 +190,24 @@
             document.getElementById("simRun").addEventListener("click", runSim);
         </script>
         
-        
+        <div class="card" style="margin-top:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;">
+                <h3 style="margin:0;">30/60/90-day Forecast</h3>
+                <div class="no-print">
+                    <label class="muted small" for="forecastMetric" style="margin-right:.5rem;">Metric</label>
+                    <select id="forecastMetric">
+                        <option value="cost" selected>Daily Total Cost (฿)</option>
+                        <option value="jobs">Jobs per day</option>
+                        <option value="cpu">CPU core-hrs / day</option>
+                        <option value="gpu">GPU-hrs / day</option>
+                        <option value="mem">Mem GB-hrs / day</option>
+                    </select>
+                </div>
+            </div>
+            <canvas id="forecastChart" style="margin-top:.5rem;"></canvas>
+            <p id="forecastNote" class="muted small" style="margin-top:.25rem;"></p>
+        </div>
+
         
         <!-- Optional totals chips -->
         <div class="muted" style="margin-top:.5rem;">
@@ -421,6 +438,92 @@
                 }
             }
         </style>
+        <script>
+            let forecastChart = null;
+
+            function _expandTo90(historyLabels, f30, f60, f90) {
+                // Union labels = history + 90-day future
+                const allLabels = historyLabels.concat(f90.labels);
+                function placeFuture(arr, horizon, values) {
+                    const out = new Array(allLabels.length).fill(null);
+                    for (let i = 0; i < values.length; i++) {
+                        const idx = historyLabels.length + i;
+                        if (idx < historyLabels.length + horizon) out[idx] = values[i];
+                    }
+                    return out;
+                }
+                return {
+                    labels: allLabels,
+                    future: {
+                        v30: placeFuture(allLabels, 30, f30.values),
+                        v60: placeFuture(allLabels, 60, f60.values),
+                        v90: placeFuture(allLabels, 90, f90.values),
+                        l90: placeFuture(allLabels, 90, f90.lower),
+                        u90: placeFuture(allLabels, 90, f90.upper),
+                    }
+                };
+            }
+
+            async function loadForecast(metric) {
+                const res = await fetch(`/admin/forecast.json?metric=${encodeURIComponent(metric)}&before=${encodeURIComponent(endDate)}`);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    document.getElementById("forecastNote").textContent = `Forecast error: ${data.error || "unknown"}`;
+                    return;
+                }
+
+                const histL = data.history.labels || [];
+                const histV = data.history.values || [];
+                const f30 = data.forecasts?.["30"] || { labels: [], values: [], lower: [], upper: [] };
+                const f60 = data.forecasts?.["60"] || { labels: [], values: [], lower: [], upper: [] };
+                const f90 = data.forecasts?.["90"] || { labels: [], values: [], lower: [], upper: [] };
+
+                if (!histL.length || !f90.labels.length) {
+                    document.getElementById("forecastNote").textContent = "Not enough history to forecast.";
+                    // clear chart if exists
+                    if (forecastChart) { forecastChart.destroy(); forecastChart = null; }
+                    return;
+                }
+
+                const merged = _expandTo90(histL, f30, f60, f90);
+                const labels = merged.labels;
+
+                // Build datasets:
+                const histY = new Array(labels.length).fill(null);
+                for (let i = 0; i < histV.length; i++) { histY[i] = histV[i]; }
+
+                const ds = [
+                    { label: 'History', data: histY, tension: .25, fill: false },                                   // history line
+                    { label: 'Forecast 30d', data: merged.future.v30, borderDash: [6, 4], fill: false },             // 30d dashed
+                    { label: 'Forecast 60d', data: merged.future.v60, borderDash: [2, 3], fill: false },             // 60d dot-dash
+                    { label: 'Forecast 90d', data: merged.future.v90, borderWidth: 2, fill: false },                // 90d bold
+                    // confidence band for 90d (two datasets, area between them)
+                    { label: 'PI lower', data: merged.future.l90, fill: '+1', pointRadius: 0, borderWidth: 0 },     // lower
+                    { label: 'PI upper', data: merged.future.u90, fill: false, pointRadius: 0, borderWidth: 0 },    // upper
+                ];
+
+                if (forecastChart) forecastChart.destroy();
+                forecastChart = new Chart(document.getElementById('forecastChart'), {
+                    type: 'line',
+                    data: { labels, datasets: ds },
+                    options: {
+                        animation: !PRINT_MODE,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true } },
+                        interaction: { mode: 'index', intersect: false },
+                    }
+                });
+
+                document.getElementById("forecastNote").textContent =
+                    (data.metric === 'cost') ? 'Method: weekly seasonal-naïve (95% PI), auto-upgrades to Holt–Winters if available.' :
+                        'Method: weekly seasonal-naïve (95% PI); Holt–Winters if statsmodels installed.';
+            }
+
+            document.getElementById('forecastMetric').addEventListener('change', (e) => loadForecast(e.target.value));
+            window.addEventListener('load', () => loadForecast('cost'));
+        </script>
+
 
     </main>
 </div>
@@ -438,4 +541,5 @@
         align-self: start;
     }
 </style>
+
 {% endblock %}
