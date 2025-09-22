@@ -2,6 +2,7 @@
 {% block title %}Admin Dashboard{% endblock %}
 {% block content %}
 <h2>{{ _("Admin Dashboard") }}</h2>
+<p class="muted">You can view the application's dashboard here.</p>
 <div class="layout">
     <aside class="sidebar">
         <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
