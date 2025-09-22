@@ -106,7 +106,7 @@ def fetch_from_sacct(start_date: str, end_date: str, username: str | None = None
         "ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State,"
         "ExitCode,DerivedExitCode,"
         "ConsumedEnergyRaw,ConsumedEnergy,"
-        "NodeList,AllocNodes,Account,WCKey,Comment,WorkDir"
+        "NodeList,AllocNodes"
     ]
     if username:
         cmd += ["-u", username]
