@@ -152,6 +152,19 @@ services:
       - "8081:8080"
     restart: unless-stopped
 
+  mkdocs:
+    build:
+      context: .
+      dockerfile: Dockerfile.mkdocs
+    container_name: mkdocs
+    working_dir: /docs
+    volumes:
+      - ./mkdocs.yml:/docs/mkdocs.yml:ro
+      - ./docs:/docs/docs:ro
+    ports:
+      - "9999:9999"    # pick any host port ≥ 9000
+    restart: unless-stopped
+
 
 
 volumes:

@@ -1,0 +1,4 @@
+FROM squidfunk/mkdocs-material:latest
+RUN pip install --no-cache-dir mkdocs-mermaid2-plugin
+WORKDIR /docs
+CMD ["serve", "-a", "0.0.0.0:9999"]
