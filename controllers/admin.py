@@ -27,6 +27,11 @@ from datetime import date, timedelta
 import pandas as pd
 import json
 from services.datetimex import local_day_end_utc, APP_TZ
+from models.tiers_store import load_overrides_dict
+from services.billing import classify_user_type
+from models.base import session_scope
+from models.schema import User
+from services.data_sources import fetch_jobs_with_fallbacks
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -643,32 +648,70 @@ def admin_form():
             paid = admin_list_receipts(status="paid")
 
         elif section == "tiers":
-            from models.tiers_store import load_overrides_dict
-            from services.billing import classify_user_type
-            from models.base import session_scope
-            from models.schema import User
 
             notes = []
 
-            # 1) Get all app users from DB
+            # 1) DB users
             with session_scope() as s:
                 db_users = [u[0] for u in s.query(User.username).all()]
 
-            # 2) Load overrides so we show overridden names even if not in DB (defensive)
-            ov = load_overrides_dict()
+            # 2) Existing overrides (so we show names even if not in DB)
+            ov = load_overrides_dict() or {}
 
-            # 3) Build the candidate username set (DB users ∪ overridden names)
-            usernames = sorted(set(db_users) | set(ov.keys()), key=str.lower)
+            # 3) Users observed in jobs (last N days; default 90)
+            try:
+                lookback_days = int(request.args.get(
+                    "tiers_lookback_days", 365))
+            except Exception:
+                lookback_days = 365
+            jobs_start = (date.fromisoformat(before) -
+                          timedelta(days=lookback_days)).isoformat()
+            jobs_end = before
 
-            # 4) Build rows: prefer override; otherwise fall back to classifier
+            job_users: list[str] = []
+            try:
+                df_jobs, _, _ = fetch_jobs_with_fallbacks(jobs_start, jobs_end)
+                if not df_jobs.empty and "User" in df_jobs.columns:
+                    job_users = [
+                        u for u in
+                        df_jobs["User"].astype(str).fillna(
+                            "").str.strip().unique().tolist()
+                        if u
+                    ]
+            except Exception as e:
+                notes.append(f"tiers.jobs: {e}")
+
+            # (Optional) Also union usernames seen in receipts so historical/billed users show up.
+            try:
+                rcpt_users = [r["username"] for r in admin_list_receipts()]
+            except Exception:
+                rcpt_users = []
+
+            # 4) Union by lowercase key, but keep a nice display casing if we have it
+            def idx(lst):  # normalize + map lower->original
+                return {(s or "").strip().lower(): s for s in lst if (s or "").strip()}
+
+            db_map = idx(db_users)
+            job_map = idx(job_users)
+            ov_map = idx(list(ov.keys()))
+            # rcpt_map = idx(rcpt_users)
+
+            keys = set(db_map) | set(job_map) | set(ov_map)  # | set(rcpt_map)
+            usernames = sorted(
+                (db_map.get(k) or job_map.get(k) or ov_map.get(k) or k)
+                for k in keys
+            )
+
             def current_tier_for(u: str) -> str:
-                # prefer override if exists
                 t = ov.get(u.strip().lower())
                 return t if t else classify_user_type(u)
 
             tier_rows = [
-                {"username": u, "tier": current_tier_for(
-                    u), "overridden": (u.strip().lower() in ov)}
+                {
+                    "username": u,
+                    "tier": current_tier_for(u),
+                    "overridden": (u.strip().lower() in ov),
+                }
                 for u in usernames
             ]
 
@@ -689,7 +732,8 @@ def admin_form():
         "admin/page.html",
         section=section,
         all_rates=rates,
-        current=rates.get(tier, {"cpu": 0, "gpu": 0, "memory": 0}),
+        # current=rates.get(tier, {"cpu": 0, "gpu": 0, "memory": 0}),
+        current=rates.get(tier, {"cpu": 0, "gpu": 0, "mem": 0}),
         tier=tier,
         tiers=["mu", "gov", "private"],
         current_user=current_user,
