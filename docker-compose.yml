@@ -24,6 +24,48 @@ services:
   #   depends_on:
   #     - prometheus
   #   restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+
+
+  # Optional: pull models once on startup
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_started     # we'll poll until it's ready
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    # Run a small shell script (no YAML folding/quotes issues)
+    entrypoint:
+      - sh
+      - -lc
+      - |
+        set -e
+        while ! ollama list >/dev/null 2>&1; do
+          sleep 1
+        done
+        ollama pull llama3.2
+        ollama pull nomic-embed-text
+    restart: "no"
+
+
 
   pg:
     image: postgres:16
@@ -57,7 +99,7 @@ services:
     container_name: hpc
     volumes:
       # Option A: mount the whole folder
-      - ./instance:/app/instance:ro
+      - ./instance:/app/instance
       # Option B: mount just the file
       # - ./instance/test.csv:/app/instance/test.csv:ro
     # The app talks to Postgres over the Docker network (service name "pg")
@@ -71,12 +113,26 @@ services:
       FALLBACK_CSV: /app/instance/test.csv # Set to whatever file you want
       LOG_TO_STDOUT: "1"
       DEMO_USERS: gable:gable:user,alice:alice:user,bob:bob:user,akara.sup:12345678:user,surapol.gits:12345:user,phakee.tra:54321:user,kanjana.las:12345:user,root:toor:admin
+      OLLAMA_BASE_URL: http://ollama:11434
+      COPILOT_ENABLED: "1"
+      COPILOT_LLM: llama3.2
+      COPILOT_EMBED_MODEL: nomic-embed-text
+      COPILOT_DOCS_DIR: /app/docs
+      COPILOT_INDEX_DIR: /app/instance/copilot_index   # persisted in your instance/
+      COPILOT_TOP_K: "6"        # how many chunks to send to the LLM
+      COPILOT_MIN_SIM: "0.28"   # below this → “I don’t know”
+      COPILOT_RATE_LIMIT_PER_MIN: "12"  # per IP
     depends_on:
       pg:
         condition: service_healthy
+      ollama:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
+      
     ports:
       - "8000:8000"  # host:container; you hit http://localhost:8000
-    command: gunicorn -b 0.0.0.0:8000 --access-logfile - --error-logfile - wsgi:app
+    command: gunicorn -b 0.0.0.0:8000 --timeout 600 --graceful-timeout 30 --access-logfile - --error-logfile - wsgi:app
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2).getcode()==200 else 1)\""]
@@ -100,3 +156,5 @@ services:
 
 volumes:
   pgdata:
+  ollama:
+  copilot_index: 

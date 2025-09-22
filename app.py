@@ -20,6 +20,7 @@ from services.metrics import init_app as init_metrics, REQUEST_COUNT, REQUEST_LA
 from sqlalchemy import text
 from flask import jsonify
 from services.jinja_tz import register_jinja_tz_filters
+from controllers.copilot import copilot_bp
 babel = Babel()
 
 # --- Load .env exactly once, here ---
@@ -196,10 +197,15 @@ def create_app(test_config: dict | None = None):
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(payments_bp)
+    app.register_blueprint(copilot_bp)
     register_jinja_tz_filters(app)
+
+    app.config["COPILOT_ENABLED"] = (
+        os.getenv("COPILOT_ENABLED", "1").lower() in ("1", "true", "yes", "on"))
 
     # Exempt Payment BP from CSRF
     csrf.exempt(payments_bp)
+    csrf.exempt(copilot_bp)
 
     # Prometheus
     if _env_bool("METRICS_ENABLED", True):
