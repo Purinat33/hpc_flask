@@ -30,7 +30,7 @@ erDiagram
     float  cpu
     float  gpu
     float  mem
-    string updated_at
+    datetime updated_at
   }
 
   RECEIPTS {
@@ -45,7 +45,7 @@ erDiagram
     datetime rates_locked_at
     decimal total
     string status        "pending|paid|void"
-    string paid_at
+    datetime paid_at
     string method
     string tx_ref
     datetime created_at
