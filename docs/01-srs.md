@@ -87,6 +87,7 @@ Out of scope: quota enforcement, scheduler control, sophisticated accounting pol
 - `POST /admin` (update rates form)
 - `POST /admin/receipts/<rid>/paid`
 - `GET /admin/paid.csv`, `/admin/my.csv`, `/admin/audit`, `/admin/audit.csv`
+- `POST /admin/tiers` (save user tier overrides)
 
 ### Payments
 
@@ -105,6 +106,12 @@ Out of scope: quota enforcement, scheduler control, sophisticated accounting pol
 - `GET /login`, `POST /login`, `POST /logout`
 - `POST /i18n/set`
 
+###
+
+- `POST /copilot/ask` (JSON)
+- `POST /copilot/reindex (admin/ops)`
+- `GET /copilot/widget.js`
+
 ---
 
 ## 5. Data requirements
@@ -119,11 +126,13 @@ Out of scope: quota enforcement, scheduler control, sophisticated accounting pol
 - **payment_events**: `id`, `payment_id`, `provider`, `external_event_id (UNIQUE per provider)`, `event_type`, `signature_ok`, `raw`, `received_at`
 - **audit_log**: `id`, `ts`, `actor`, `action`, `status`, `target`, `prev_hash`, `hash`, `extra`
 - **auth_throttle**: `(username, ip) UNIQUE`, window, counters, `locked_until`
+- **user_tier_overrides**: `username (PK)`, `tier`, `updated_at`
 
 ### Derived fields
 
 - **job_key**: canonicalized unique identifier for a job (prevents double billing).
 - **resource hours**: CPU core-hours, GPU hours, Mem GB-hours derived from Slurm fields.
+- **effective tier**: override_tier if present else natural classifier.
 
 ---
 
@@ -178,6 +187,11 @@ Out of scope: quota enforcement, scheduler control, sophisticated accounting pol
 - Prometheus scrapes `/metrics`.
 - Health & readiness endpoints for probes/LB.
 
+### Copilot / Ollama
+
+- Embeddings and chat via **Ollama** HTTP API.
+- Indexes Markdown under `COPILOT_DOCS_DIR`; vectors cached under `COPILOT_INDEX_DIR`.
+
 ---
 
 ## 8. Configuration (env)
@@ -194,6 +208,7 @@ Minimum set (names as used by code):
 - `SLURMRESTD_URL` (+ token/certs as applicable)
 - `METRICS_ENABLED` (default on)
 - `PAYMENT_PROVIDER`, `PAYMENT_CURRENCY`, `PAYMENT_WEBHOOK_SECRET`, `SITE_BASE_URL`
+- `COPILOT_ENABLED` (default `true`), `COPILOT_DOCS_DIR`, `COPILOT_INDEX_DIR`, `OLLAMA_BASE_URL`, `COPILOT_EMBED_MODEL`, `COPILOT_LLM`, `COPILOT_TOP_K`, `COPILOT_MIN_SIM`, `COPILOT_RATE_LIMIT_PER_MIN`
 
 ---
 
@@ -216,6 +231,10 @@ Minimum set (names as used by code):
 6. **Manual paid**: admin POST to mark paid flips receipt status and audits the action.
 7. **Readiness**: when DB stops, `/readyz` returns 500; when DB returns, `/readyz` returns 200.
 8. **Metrics**: `/metrics` responds with Prometheus text; includes pre-warmed series (counters at 0).
+9. **Tier overrides**:
+   - Setting an override changes the effective tier used in pricing.
+   - Choosing the natural tier removes the override row.
+   - Actions appear in audit.
 
 ---
 

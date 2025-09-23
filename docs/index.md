@@ -49,6 +49,8 @@ A Flask-based web app that **pulls Slurm job usage**, **prices it** (tiered CPU/
 - **Security**: CSRF, login throttling/lockout, role-based access.
 - **Observability**: Prometheus `/metrics` plus structured request logging.
 - **Ops endpoints**: `/healthz` (liveness), `/readyz` (DB readiness).
+- **Docs Copilot**: an in-app helper backed by **Ollama**. It embeds Markdown docs at `/docs/*.md` and answers questions with cited sources. Endpoints: `POST /copilot/ask`, `POST /copilot/reindex`; widget script at `/copilot/widget.js`.
+- **User Tier Overrides (admin)**: set a per-user pricing tier (mu|gov|private). If the override tier chosen is the same as the natural classifier, the override is removed.
 
 ---
 
@@ -69,6 +71,8 @@ graph LR
   Pay -- webhook callbacks --> W
   W -- /metrics --> Prom[Prometheus]
   A -. optional .-> Adm[Adminer DB UI]
+  W -- /copilot/ask --> Oll["Ollama API (embeddings/chat)"]
+
 ```
 
 - Primary ingestion is **`slurmrestd`**; if unavailable, **`sacct`**; CSV is last resort for demos.
@@ -79,7 +83,7 @@ graph LR
 
 ## Runtime architecture
 
-**Flask app** with blueprints: `auth`, `user`, `admin`, `api`, `payments`. CSRF enabled globally; **payments webhook** is CSRF-exempt by design. i18n via Flask-Babel (`en`, `th`).
+**Flask app** with blueprints: `auth`, `user`, `admin`, `api`, `payments`, `copilot`. CSRF enabled globally; **payments webhook** is CSRF-exempt by design (_Copilot: keep `/copilot/reindex` admin-only; if CSRF is global, have the widget send `X-CSRFToken` when posting to `/copilot/ask`_). i18n via Flask-Babel (`en`, `th`).
 
 - **Auth & roles**: local users DB (`admin|user`), login throttling/lockout, `admin_required` gate.
 - **User area**: usage (detail/aggregate), CSV export, receipt creation.
@@ -100,7 +104,7 @@ sequenceDiagram
   participant DB as DB
 
   App->>Slurm: Fetch jobs (date window, opt. username)
-  Slurm-->>App: Rows incl. steps: User, JobID, Elapsed, TotalCPU, CPUTimeRAW, AllocTRES, ReqTRES, AveRSS, End, State
+  Slurm-->>App: Rows incl. steps: User, JobID, Elapsed, TotalCPU, CPUTimeRAW, AllocTRES, ReqTRES, AveRSS, End, State, etc.
   App->>App: compute_costs(): roll up steps → parent, derive CPU/MEM/GPU hours (used-first strategy)
   App->>App: Hide already billed (canonical JobKey)
   User->>App: Create Receipt
@@ -162,6 +166,15 @@ Key `.env` knobs (dev defaults shown):
 | `SLURMRESTD_URL` (+ `*_TOKEN`/TLS knobs)                             | Slurm REST daemon access.                               |
 | `METRICS_ENABLED`                                                    | Toggle `/metrics`.                                      |
 | `PAYMENT_PROVIDER`, `PAYMENT_CURRENCY`, `SITE_BASE_URL`, `PAYMENT_*` | Payment adapter selection + redirects + webhook secret. |
+| `COPILOT_ENABLED`                                                    | Toggle feature (`true` default).                        |
+| `COPILOT_DOCS_DIR`                                                   | Docs root to index (e.g., `./docs`).                    |
+| `COPILOT_INDEX_DIR`                                                  | Vector cache dir (e.g., `./instance/copilot_index`).    |
+| `OLLAMA_BASE_URL`                                                    | Ollama host (e.g., `http://localhost:11434`).           |
+| `COPILOT_EMBED_MODEL`                                                | Embeddings model (e.g., `nomic-embed-text`).            |
+| `COPILOT_LLM`                                                        | Chat model (e.g., `llama3.2`).                          |
+| `COPILOT_TOP_K`                                                      | Retrieved chunks (default `6`).                         |
+| `COPILOT_MIN_SIM`                                                    | Min cosine sim for answers (default `0.28`).            |
+| `COPILOT_RATE_LIMIT_PER_MIN`                                         | Per-IP asks/min (default `12`).                         |
 
 !!! tip "Dev sanity"
 Use `PAYMENT_PROVIDER=dummy` to test the full flow locally (`/payments/simulate`), then swap to Stripe/Omise with real secrets and a public webhook URL.
@@ -207,11 +220,12 @@ Provide a real `FLASK_SECRET_KEY`, use a managed Postgres, secure `slurmrestd` b
 ## File map (what to read next)
 
 - **`app.py`** – app factory, blueprints, logging, i18n, CSRF, health/ready/metrics.
-- **Controllers** – `auth.py`, `user.py`, `admin.py`, `api.py`, `payments.py`.
+- **Controllers** – `auth.py`, `user.py`, `admin.py`, `api.py`, `payments.py`, `copilot.py`.
 - **Models** – DB base/session, schema, billing/rates/users, payments, audit, throttle.
-- **Services** – usage sources (`data_sources.py`, `slurm_rest.py`), cost engine (`billing.py`), metrics, payments base/registry.
+- **Services** – usage sources (`data_sources.py`, `slurm_rest.py`), cost engine (`billing.py`), metrics, payments base/registry, `copilot.py` (Copilot RAG).
 - **Guides** – Slurm integration & Payment integration deep dives.
 - **`.env.example.txt`** – full list of configurable env vars.
+- **Static** - `static/js/copilot-widget.js` (embeddable help widget).
 
 ---
 
@@ -221,5 +235,7 @@ Provide a real `FLASK_SECRET_KEY`, use a managed Postgres, secure `slurmrestd` b
 - **`sacct`** – Slurm CLI for accounting history.
 - **Receipt** – A priced bundle of unbilled jobs for a user and period; **locks rates at creation**.
 - **Provider adapter** – A small module that maps a payment gateway to the app’s `PaymentProvider` interface.
+- **Docs Copilot** – An in-app assistant that answers questions about this project by retrieving from the Markdown docs and using an LLM to draft short answers with sources.
+- **Ollama** – Local HTTP service that serves embeddings and chat models used by the Copilot.
 
 ---

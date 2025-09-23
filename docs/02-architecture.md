@@ -22,6 +22,7 @@ graph LR
   W -- /metrics (Prometheus) --> Prom[Prometheus]
   W -- Webhook (HTTPS) --> Pay[Payment Provider]
   Pay -- Webhook callbacks --> W
+  W -- Embeddings & Chat (HTTP) --> Ol[Ollama Service]
 
   A -. optional .-> Adm[Adminer DB UI]
 ```
@@ -30,6 +31,7 @@ graph LR
 
 - The web app ingests job usage from **Slurm** (prefer `slurmrestd`, fall back to `sacct`, last-resort CSV), computes costs, and produces **receipts**.
 - Online payments (optional) are finalized **only via provider webhooks**.
+- Docs Copilot answers in-app questions by retrieving from Markdown docs and calling **Ollama** for embeddings and chat.
 - Observability via Prometheus `/metrics`; health endpoints for ops.
 - Adminer is only for **dev troubleshooting**.
 
@@ -46,8 +48,9 @@ graph TB
   subgraph App Stack
     App[Flask App\nGunicorn/WSGI]
     DB[(PostgreSQL)]
-    Adminer[Adminer]
+    Adminer["Adminer (dev only)"]
     Prom[Prometheus]
+    Ol[Ollama]
   end
 
   subgraph External
@@ -62,7 +65,9 @@ graph TB
   App -->|POSIX exec| sacct
   App -->|HTTPS webhooks| Pay
   Prom -->|scrape /metrics| App
+  App -->|HTTP| Ol
   Browser -.-> Adminer
+
 
 ```
 
@@ -72,6 +77,7 @@ graph TB
 - DB and Adminer live on a private network in **dev**; in **prod** Adminer is removed and DB is managed/hosted.
 - `slurmrestd` must be TLS-protected and authenticated (e.g., JWT).
 - Payment webhooks require **HMAC/signature** verification and strict amount/currency checks.
+- **Copilot**: Ollama is an internal service; per-IP rate limit enforced at the app.
 
 ---
 
@@ -82,9 +88,10 @@ graph LR
   subgraph Controllers["Controllers (Blueprints)"]
     AUTH[auth]
     USER[user]
-    ADMIN["admin<br/>(rates • usage • billing • myusage • dashboard)"]
+    ADMIN["admin<br/>(rates • usage • billing • myusage • dashboard • tiers)"]
     API[api]
     PAY[payments]
+    COP[copilot]
   end
 
   subgraph Services
@@ -92,6 +99,7 @@ graph LR
     DS[data_sources.py<br/>slurm_rest.py]
     MET[metrics.py]
     REG[registry.py<br/>payment adapter registry]
+    RAG[copilot.py<br/>RAG over docs + Ollama]
   end
 
   subgraph Models/Stores
@@ -101,6 +109,7 @@ graph LR
     PAYST[payments_store.py]
     AUD[audit_store.py]
     THROT[security_throttle.py]
+    TIERS[tiers_store.py]
     SCHEMA[schema.py<br/>SQLAlchemy base]
   end
 
@@ -111,22 +120,26 @@ graph LR
   USER --> BILLING
   ADMIN --> RATES
   ADMIN --> BILLING
+  ADMIN --> TIERS
   PAY --> PAYST
   PAY --> REG
   PAY --> AUD
   API --> RATES
   API --> BILL
+  COP --> RAG
 
   BILL --> RATES
   DS --> Slurm[(slurmrestd / sacct)]
   SCHEMA --> DB[(PostgreSQL)]
   AUD --> DB
   THROT --> DB
+  TIERS --> DB
   RATES --> DB
   BILLING --> DB
   USERS --> DB
   PAYST --> DB
   MET --> App[/metrics export/]
+
 ```
 
 **Responsibilities (mapping to files)**
@@ -148,6 +161,7 @@ flowchart LR
     adminer[adminer]
     prom[prometheus]
     gra[grafana]
+    ollama[ollama]
   end
 
   app <--> db
@@ -155,6 +169,7 @@ flowchart LR
   app --> prom
   prom --> gra
   gra --> app
+  app --> ollama
 ```
 
 - Dev: `docker compose up -d --build` brings up **app + postgres (+ adminer)**.
@@ -257,6 +272,12 @@ erDiagram
     text extra
     string prev_hash
     string hash
+  }
+
+    TIER_OVERRIDES {
+    string username PK
+    string tier "mu|gov|private"
+    datetime updated_at
   }
 ```
 
