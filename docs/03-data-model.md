@@ -10,6 +10,7 @@
 erDiagram
   USERS ||--o{ RECEIPTS : has
   USERS ||--o{ PAYMENTS : initiates
+  USERS ||--o{ TIER_OVERRIDES : has_override
   RECEIPTS ||--o{ RECEIPT_ITEMS : contains
   PAYMENTS ||--o{ PAYMENT_EVENTS : emits
   RATES }o--|| RECEIPTS : snapshot_at_creation
@@ -21,7 +22,7 @@ erDiagram
     string username PK
     text   password_hash
     string role
-    string created_at
+    datetime created_at
   }
 
   RATES {
@@ -35,19 +36,19 @@ erDiagram
   RECEIPTS {
     int    id PK
     string username FK
-    string start
-    string end
+    datetime start_date
+    datetime end_date
     string pricing_tier
     float  rate_cpu
     float  rate_gpu
     float  rate_mem
-    string rates_locked_at
+    datetime rates_locked_at
     decimal total
     string status        "pending|paid|void"
     string paid_at
     string method
     string tx_ref
-    string created_at
+    datetime created_at
   }
 
   RECEIPT_ITEMS {
@@ -71,8 +72,8 @@ erDiagram
     string external_payment_id
     text   checkout_url
     string idempotency_key
-    string created_at
-    string updated_at
+    datetime created_at
+    datetime updated_at
   }
 
   PAYMENT_EVENTS {
@@ -83,7 +84,7 @@ erDiagram
     string event_type
     boolean signature_ok
     text   raw
-    string received_at
+    datetime received_at
   }
 
   AUTH_THROTTLE {
@@ -92,12 +93,12 @@ erDiagram
     string ip
     string window_start
     int    fail_count
-    string locked_until
+    datetime locked_until
   }
 
   AUDIT_LOG {
     int    id PK
-    string ts
+    datetime ts
     string actor
     string ip
     string ua
@@ -111,12 +112,19 @@ erDiagram
     string hash
   }
 
+  TIER_OVERRIDES {
+    string username PK
+    string tier "mu|gov|private"
+    datetime updated_at
+  }
+
   %% FKs (comment only):
   %% RECEIPTS.username -> USERS.username
   %% RECEIPT_ITEMS.receipt_id -> RECEIPTS.id
   %% PAYMENTS.receipt_id -> RECEIPTS.id
   %% PAYMENTS.username -> USERS.username
   %% PAYMENT_EVENTS.payment_id -> PAYMENTS.id
+  %% TIER_OVERRIDES.username -> USERS.username
 ```
 
 **Notes**
@@ -168,7 +176,7 @@ stateDiagram-v2
 
 - **Primary keys**
 
-  - `users.username`, `rates.tier`, `receipts.id`, `payments.id`, `payment_events.id`, `audit_log.id`, `auth_throttle.id`.
+  - `users.username`, `rates.tier`, `receipts.id`, `payments.id`, `payment_events.id`, `audit_log.id`, `auth_throttle.id`, `tier_overrides.username`.
 
 - **Foreign keys**
 
@@ -177,6 +185,7 @@ stateDiagram-v2
   - `payments.receipt_id → receipts.id` (CASCADE recommended)
   - `payments.username → users.username`
   - `payment_events.payment_id → payments.id`
+  - `tier_overrides.username → users.username`
 
 - **Uniqueness & idempotency**
 
@@ -192,6 +201,7 @@ stateDiagram-v2
   - `payments.status ∈ {'pending','succeeded','failed','canceled'}`
   - `payments.amount_cents ≥ 0`
   - `payments.currency` length 3 (ISO 4217)
+  - `tier_overrides.tier ∈ {'mu','gov','private'}`
 
 - **Common indexes**
 
@@ -267,6 +277,15 @@ stateDiagram-v2
 - **id** (`PK`), **ts**, **actor**, **ip**, **ua**, **method**, **path**, **action**, **target**, **status**, **extra**, **prev_hash**, \*\*hash\`.
 - Append-only; **`hash = H(prev_hash || canonical_record)`** for tamper evidence.
 
+### 5.9 `tier_overrides`
+
+- `username (PK, FK → users.username)`
+- `tier` in {mu, gov, private}
+- `updated_at`
+- **Rules**:
+  - If an override exists for `username`, use it as the effective tier; otherwise fall back to the classifier.
+  - Overrides are not joined to receipts; receipts store the effective tier snapshot at creation.
+
 ---
 
 ## 6) Normalization & integrity
@@ -279,6 +298,7 @@ stateDiagram-v2
   - Payment finalization (event insert + payment update + receipt paid + audit) → one transaction.
 
 - **Deletion**: Prefer **voiding** receipts over hard deletes; rely on CASCADE only for dependent rows (e.g., receipt items) during admin cleanup.
+- **Overrides**: Keeping `tier_overrides` separate preserves 3NF; receipts carry their own tier/rate snapshot for historical accuracy.
 
 ---
 
@@ -351,6 +371,7 @@ erDiagram
   RECEIPTS ||--o{ PAYMENTS : leads_to
   PAYMENTS ||--o{ PAYMENT_EVENTS : emits
   RATES }o--|| RECEIPTS : snapshot
+  USERS ||--o{ TIER_OVERRIDES : has_override
 ```
 
 ---

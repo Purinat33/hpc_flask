@@ -207,8 +207,8 @@ erDiagram
   RECEIPTS {
     int id PK
     string username FK
-    date start_date
-    date end_date
+    datetime start_date
+    datetime end_date
 
     string pricing_tier "mu|gov|private"
     numeric rate_cpu
@@ -252,7 +252,7 @@ erDiagram
     string external_event_id "unique per provider"
     string event_type
     boolean signature_ok
-    text raw_payload
+    text raw
     datetime received_at
   }
 

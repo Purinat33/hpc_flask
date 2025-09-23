@@ -42,10 +42,11 @@ A Flask-based web app that **pulls Slurm job usage**, **prices it** (tiered CPU/
   - **Memory GB-hours**: prefer **used** from steps (**`AveRSS` → GB × Elapsed**, summed); fallback to **allocated** from TRES (`mem=`) × Elapsed.
   - **GPU hours**: allocation-based from TRES (`gres/gpu=`) × Elapsed.
   - Users are classified to a **tier** (`mu|gov|private`) and rates applied.
+  - **Tier selection** (admin): per-user override (if set) takes precedence; otherwise use the natural classifier.
 
 - **Receipts**: create from unbilled jobs (server filters by **canonical JobKey** to prevent duplicates). Each receipt now stores a **snapshot of pricing** at creation time: `pricing_tier`, `rate_cpu`, `rate_gpu`, `rate_mem`, `rates_locked_at` (ensures future rate changes don’t alter historical totals).
 - **Admin UI**: rates editor, usage (detail/aggregate), billing queue, audit export, and a **Dashboard** (KPIs + charts for 90-day cost trend, cost by tier, and top users).
-- **Payments**: provider adapters, success via webhook only (amount & currency must match). Local payment status includes **`pending` / `succeeded` / `failed` / `canceled`** (provider-driven).
+- **Payments**: provider adapters, success via webhook only (amount & currency must match). Local payment status includes **`pending` / `succeeded` / `failed` / `canceled`** (provider-driven or user-abandoned).
 - **Security**: CSRF, login throttling/lockout, role-based access.
 - **Observability**: Prometheus `/metrics` plus structured request logging.
 - **Ops endpoints**: `/healthz` (liveness), `/readyz` (DB readiness).
@@ -147,6 +148,7 @@ Main tables (SQLAlchemy models):
 - `payment_events(id, provider, external_event_id, payment_id, event_type, raw, signature_ok, received_at)` with **UNIQUE(provider, external_event_id)**.
 - `audit_log(..., prev_hash, hash, extra)` forming a **hash chain**.
 - `auth_throttle(username, ip, window_start, fail_count, locked_until)` with **UNIQUE(user,ip)** index.
+- `user_tier_overrides(username, tier, updated_at)`: admin-set tier that overrides the classifier.
 
 ---
 
@@ -156,7 +158,7 @@ Key `.env` knobs (dev defaults shown):
 
 | Key                                                                  | Purpose                                                 |
 | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                                                       | SQLAlchemy DB URL (Postgres recommended).               |
+| `DATABASE_URL`                                                       | SQLAlchemy DB URL (Postgres only).                      |
 | `ADMIN_PASSWORD`                                                     | Seeds an `admin` user on first run.                     |
 | `FLASK_SECRET_KEY`                                                   | Required in production for sessions/CSRF.               |
 | `APP_ENV`                                                            | `development`/`production`.                             |

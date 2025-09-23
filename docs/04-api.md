@@ -3,7 +3,6 @@
 > Public/admin endpoints of the **HPC Billing Platform**. This book documents what exists **today** (as-is), plus the minimal wiring needed to consume it safely (auth, CSRF, webhooks). JSON endpoints are marked; UI/CSV endpoints are listed for completeness.
 
 !!! info "Live API Explorer (dev)"
-
 [API Explorer](http://localhost:8081)
 
 [Download the OpenAPI spec](api/openapi.yaml)
@@ -26,7 +25,7 @@
 - **Auth:** Cookie session via **Flask-Login**. Login at `POST /login` and logout at `POST /logout`.
 - **CSRF:** All **session-based POST** routes require a **CSRF token**, except the **payment webhook** (explicitly exempt).
 
-  - Send token as form field `csrf_token` (typical for form posts), or header `X-CSRFToken` when posting JSON.
+  - Send token as form field `csrf_token` (typical for form posts), or header `X-CSRFToken` when posting JSON/AJAX.
   - Token is rendered into HTML pages; to script it, fetch the page first and extract the token.
 
 ### Scripted login (cURL)
@@ -46,7 +45,7 @@ curl -s -b cookies.txt -c cookies.txt -X POST \
 # Expect 302 redirect (success)
 ```
 
-For **JSON POST** (e.g., `POST /formula`), use the same cookie and set `X-CSRFToken: <token>` header.
+For **JSON/AJAX POST** (e.g., `POST /formula`, `POST /copilot/ask`), use the same cookie and set `X-CSRFToken: <token>`.
 
 ---
 
@@ -73,10 +72,10 @@ Minimal and pragmatic:
 
 ### Health
 
-| Method | Path       | Auth | CSRF | Returns                                                                                 |
-| -----: | ---------- | ---- | ---- | --------------------------------------------------------------------------------------- |
-|    GET | `/healthz` | none | —    | JSON `{status:"ok"}` when app is alive                                                  |
-|    GET | `/readyz`  | none | —    | `200` with `{status:"ok"}` if DB OK; `500` with `{status:"error", error:"…"}` otherwise |
+| Method | Path       | Auth | CSRF | Returns                                                                                   |
+| -----: | ---------- | ---- | ---- | ----------------------------------------------------------------------------------------- |
+|    GET | `/healthz` | none | —    | JSON `{status:"ok"}` when app is alive                                                    |
+|    GET | `/readyz`  | none | —    | `200` with `{status:"ok"}` if DB OK; `500` with `{status:"error", "error":"…"}` otherwise |
 
 #### Examples
 
@@ -96,7 +95,7 @@ curl -i http://localhost:8000/readyz
 
 **GET /formula**
 Query: `?type=mu|gov|private` (default `mu`)
-Response shape:
+Response:
 
 ```json
 {
@@ -135,13 +134,13 @@ Errors:
 
 > These are **HTML/CSV** endpoints (not JSON) but are listed for automation or scraping use cases.
 
-| Method | Path                 | Auth | CSRF | Purpose                                                                                 |           |          |
-| -----: | -------------------- | ---- | ---- | --------------------------------------------------------------------------------------- | --------- | -------- |
-|    GET | `/me`                | user | —    | Usage page. Query: `before=YYYY-MM-DD` (defaults to today), \`view=detail               | aggregate | billed\` |
-|    GET | `/me.csv`            | user | —    | CSV export of usage. Query: `start=YYYY-MM-DD`, `end=YYYY-MM-DD` (defaults last 7 days) |           |          |
-|   POST | `/me/receipt`        | user | ✔︎   | Create a receipt from **unbilled** jobs up to `before=YYYY-MM-DD`                       |           |          |
-|    GET | `/me/receipts`       | user | —    | List my receipts (HTML)                                                                 |           |          |
-|    GET | `/me/receipts/<rid>` | user | —    | View a receipt (HTML)                                                                   |           |          |
+| Method | Path                 | Auth | CSRF | Purpose                                                                                      |
+| -----: | -------------------- | ---- | ---- | -------------------------------------------------------------------------------------------- |
+|    GET | `/me`                | user | —    | Usage page. Query: `before=YYYY-MM-DD` (defaults to today), `view=detail\|aggregate\|billed` |
+|    GET | `/me.csv`            | user | —    | CSV export of usage. Query: `start=YYYY-MM-DD`, `end=YYYY-MM-DD` (defaults last 7 days)      |
+|   POST | `/me/receipt`        | user | ✔︎   | Create a receipt from **unbilled** jobs up to `before=YYYY-MM-DD`                            |
+|    GET | `/me/receipts`       | user | —    | List my receipts (HTML)                                                                      |
+|    GET | `/me/receipts/<rid>` | user | —    | View a receipt (HTML)                                                                        |
 
 Typical scripted CSV pull:
 
@@ -165,15 +164,16 @@ curl -b cookies.txt -X POST http://localhost:8000/me/receipt \
 
 > Admin UI routes; primarily HTML forms/pages with CSV helpers.
 
-| Method | Path                         | Auth  | CSRF | Purpose                                          |       |         |                                      |     |           |
-| -----: | ---------------------------- | ----- | ---- | ------------------------------------------------ | ----- | ------- | ------------------------------------ | --- | --------- |
-|    GET | `/admin`                     | admin | —    | Admin console. Query: `section=rates | usage | billing | myusage | dashboard`, `before`, `view`, `type=mu | gov | private` |
-|   POST | `/admin`                     | admin | ✔︎   | Update rates via form fields: `type,cpu,gpu,mem` |       |         |                                      |     |           |
-|   POST | `/admin/receipts/<rid>/paid` | admin | ✔︎   | Mark a receipt “paid” (manual reconciliation)    |       |         |                                      |     |           |
-|    GET | `/admin/paid.csv`            | admin | —    | Export paid receipts (CSV)                       |       |         |                                      |     |           |
-|    GET | `/admin/my.csv`              | admin | —    | Export **admin’s own** usage (CSV)               |       |         |                                      |     |           |
-|    GET | `/admin/audit`               | admin | —    | Recent audit events (HTML)                       |       |         |                                      |     |           |
-|    GET | `/admin/audit.csv`           | admin | —    | Audit export (CSV)                               |       |         |                                      |     |           |
+| Method | Path                         | Auth  | CSRF | Purpose                                                                                                                          |     |            |
+| -----: | ---------------------------- | ----- | ---- | -------------------------------------------------------------------------------------------------------------------------------- | --- | ---------- |
+|    GET | `/admin`                     | admin | —    | Admin console. Query: `section=rates\|usage\|billing\|myusage\|dashboard\|tiers`, plus `before`, `view`, `type=mu\|gov\|private` |     |            |
+|   POST | `/admin`                     | admin | ✔︎   | Update rates via form fields: `type,cpu,gpu,mem`                                                                                 |     |            |
+|   POST | `/admin/tiers`               | admin | ✔︎   | **Save user tier overrides** (form posts \`tier\_<username>=mu                                                                   | gov | private\`) |
+|   POST | `/admin/receipts/<rid>/paid` | admin | ✔︎   | Mark a receipt “paid” (manual reconciliation)                                                                                    |     |            |
+|    GET | `/admin/paid.csv`            | admin | —    | Export paid receipts (CSV)                                                                                                       |     |            |
+|    GET | `/admin/my.csv`              | admin | —    | Export **admin’s own** usage (CSV)                                                                                               |     |            |
+|    GET | `/admin/audit`               | admin | —    | Recent audit events (HTML)                                                                                                       |     |            |
+|    GET | `/admin/audit.csv`           | admin | —    | Audit export (CSV)                                                                                                               |     |            |
 
 Mark a receipt paid (manual):
 
@@ -182,6 +182,60 @@ TOKEN=$(cat csrf.txt)
 curl -b cookies.txt -X POST "http://localhost:8000/admin/receipts/123/paid" \
   -H "X-CSRFToken: $TOKEN" -L
 ```
+
+---
+
+### Copilot (Docs assistant)
+
+> In-app assistant that answers questions using embedded Markdown docs (RAG over `/docs/*.md`) and **Ollama** for chat/embeddings.
+
+| Method | Path                 | Auth         | CSRF | Purpose                                                                |
+| -----: | -------------------- | ------------ | ---- | ---------------------------------------------------------------------- |
+|   POST | `/copilot/ask`       | user session | ✔︎   | Ask a question about the app/docs. Returns short HTML + cited sources. |
+|   POST | `/copilot/reindex`   | admin (rec.) | ✔︎   | Force rebuild of the doc index (useful after docs change).             |
+|    GET | `/copilot/widget.js` | any          | —    | Embed script for the floating “Docs Copilot” help button/panel.        |
+
+**Request (ask):**
+
+```http
+POST /copilot/ask
+Content-Type: application/json
+X-CSRFToken: <token>
+Cookie: session=...
+
+{ "q": "How do I mark a receipt paid?" }
+```
+
+**Response (ask):**
+
+```json
+{
+  "answer_html": "<p>From the Admin &gt; Billing page ...</p>",
+  "sources": [
+    {
+      "file": "book-5-handbook.md",
+      "anchor": "3-4-mark-a-receipt-paid-manual",
+      "title": "3.4 Mark a receipt “paid” (manual)",
+      "score": 0.73
+    }
+  ],
+  "from": "copilot"
+}
+```
+
+**Notes**
+
+- Per-IP **rate limit** (default `12` requests/min). Over limit → `{"answer_html":"Rate limit exceeded...","sources":[]}`.
+- If similarity to docs is too low, returns `"I don't know."`.
+- If `COPILOT_ENABLED=false`, returns **503** with `"Copilot disabled."`.
+
+**Widget snippet (already hosted at `/copilot/widget.js`):**
+
+```html
+<script src="/copilot/widget.js" defer></script>
+```
+
+To make AJAX requests pass CSRF in your pages, include the token (e.g., inject into a meta tag and read it on fetch) and set `X-CSRFToken`.
 
 ---
 
@@ -194,12 +248,15 @@ curl -b cookies.txt -X POST "http://localhost:8000/admin/receipts/123/paid" \
 |    GET | `/payments/simulate` (dev)      | user | —          | Simulate a successful webhook using dummy provider (signs and posts to `/payments/webhook`)    |
 |   POST | `/payments/webhook`             | none | **Exempt** | **Provider calls only**. Verifies signature & amount/currency; idempotent on external event id |
 
+**Statuses**
+Local `payments.status` can be: **`pending`**, **`succeeded`**, **`failed`**, **`canceled`** (provider-driven). A verified success also marks the linked **receipt** as **paid**.
+
 #### Webhook (providers)
 
 - **Signature header:** Provider-specific.
 
   - Dummy provider (dev): `X-DUMMY-SIGNATURE: HMAC_SHA256(secret, raw_body)`
-  - Real providers: see adapter; name and scheme may differ.
+  - Real providers: see adapter; header name and scheme may differ.
 
 - **Idempotency:** `(provider, external_event_id)` is unique; replays are ignored safely.
 - **On success:** App marks `payments.status="succeeded"` and `receipts.status="paid"`.
@@ -218,7 +275,12 @@ curl -b cookies.txt \
 ```bash
 SECRET="dev" # PAYMENT_WEBHOOK_SECRET
 BODY='{"event_type":"payment.succeeded","external_payment_id":"dev_123","amount_cents":1000,"currency":"THB"}'
-SIG=$(python - <<'PY'\nimport hmac,hashlib,os,sys\ns=os.environ.get("SECRET","dev").encode();b=os.environ["BODY"].encode();print(hmac.new(s,b,hashlib.sha256).hexdigest())\nPY
+SIG=$(python - <<'PY'
+import hmac,hashlib,os
+s=os.environ.get("SECRET","dev").encode()
+b=os.environ["BODY"].encode()
+print(hmac.new(s,b,hashlib.sha256).hexdigest())
+PY
 )
 curl -X POST http://localhost:8000/payments/webhook \
   -H "Content-Type: application/json" \
@@ -230,9 +292,9 @@ curl -X POST http://localhost:8000/payments/webhook \
 
 ### Internationalization
 
-| Method | Path        | Auth | CSRF | Purpose                           |                           |
-| -----: | ----------- | ---- | ---- | --------------------------------- | ------------------------- |
-|   POST | `/i18n/set` | any  | ✔︎   | Set UI language cookie (\`lang=en | th\`), then redirect back |
+| Method | Path        | Auth | CSRF | Purpose                                                    |
+| -----: | ----------- | ---- | ---- | ---------------------------------------------------------- |
+|   POST | `/i18n/set` | any  | ✔︎   | Set UI language cookie (`lang=en\|th`), then redirect back |
 
 ```bash
 TOKEN=$(cat csrf.txt)
@@ -271,6 +333,8 @@ sequenceDiagram
   - `POST /formula` (admin JSON)
   - CSV exports (`/me.csv`, `/admin/*.csv`)
   - Webhooks (`/payments/webhook`)
+  - Copilot (`POST /copilot/ask`) for doc Q\&A (with CSRF + session)
 
-- **Security**: keep webhook secrets out of the repo; run behind HTTPS; ensure CSRF on all session POSTs.
-- **Idempotency**: payment events are safe to replay; receipt items are globally de-duplicated by job key (prevents double billing).
+- **Security:** keep webhook secrets out of the repo; run behind HTTPS; ensure CSRF on all session POSTs.
+- **Idempotency:** payment events are safe to replay; receipt items are globally de-duplicated by **job key** to prevent double billing.
+- **Copilot:** per-IP rate-limited; answers only from the docs context and include source citations; returns “I don’t know.” when unsure.
