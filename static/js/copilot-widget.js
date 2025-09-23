@@ -27,7 +27,7 @@
     const panel = document.createElement('div');
     panel.className = 'copilot-panel';
     panel.innerHTML = `
-      <div class="copilot-header">Docs Copilot</div>
+      <div class="copilot-header">HPC Assistant</div>
       <div class="copilot-body" id="copilot-body"></div>
       <form class="copilot-form" id="copilot-form">
         <input class="copilot-input" id="copilot-input" placeholder="Ask about this app..." />
