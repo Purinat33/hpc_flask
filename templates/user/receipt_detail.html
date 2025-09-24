@@ -9,9 +9,9 @@
 {# --- ACTIONS MOVED TO TOP --- #}
 <div class="toolbar" style="margin: .5rem 0;">
     {% if r['status'] == 'pending' and is_owner %}
-    <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}" style="display:inline;">
+    <!-- <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}" style="display:inline;">
         <button type="submit">Pay now</button>
-    </form>
+    </form> -->
     {% elif r['status'] == 'pending' and not is_owner %}
     <p class="muted" style="display:inline-block;margin:0 0 0 .25rem;">
         Only the receipt owner can start payment.

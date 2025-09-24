@@ -24,46 +24,46 @@ services:
   #   depends_on:
   #     - prometheus
   #   restart: unless-stopped
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   environment:
+  #     - OLLAMA_HOST=0.0.0.0
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama:/root/.ollama
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1 || exit 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 12
+  #     start_period: 10s
 
 
 
-  # Optional: pull models once on startup
-  ollama-init:
-    image: ollama/ollama:latest
-    container_name: ollama-init
-    depends_on:
-      ollama:
-        condition: service_started     # we'll poll until it's ready
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-    # Run a small shell script (no YAML folding/quotes issues)
-    entrypoint:
-      - sh
-      - -lc
-      - |
-        set -e
-        while ! ollama list >/dev/null 2>&1; do
-          sleep 1
-        done
-        ollama pull llama3.2
-        ollama pull nomic-embed-text
-    restart: "no"
+  # # Optional: pull models once on startup
+  # ollama-init:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama-init
+  #   depends_on:
+  #     ollama:
+  #       condition: service_started     # we'll poll until it's ready
+  #   environment:
+  #     - OLLAMA_HOST=http://ollama:11434
+  #   # Run a small shell script (no YAML folding/quotes issues)
+  #   entrypoint:
+  #     - sh
+  #     - -lc
+  #     - |
+  #       set -e
+  #       while ! ollama list >/dev/null 2>&1; do
+  #         sleep 1
+  #       done
+  #       ollama pull llama3.2
+  #       ollama pull nomic-embed-text
+  #   restart: "no"
 
 
 
@@ -125,10 +125,10 @@ services:
     depends_on:
       pg:
         condition: service_healthy
-      ollama:
-        condition: service_started
-      ollama-init:
-        condition: service_completed_successfully
+      # ollama:
+      #   condition: service_started
+      # ollama-init:
+      #   condition: service_completed_successfully
       
     ports:
       - "8000:8000"  # host:container; you hit http://localhost:8000

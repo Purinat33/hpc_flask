@@ -196,7 +196,7 @@ def create_app(test_config: dict | None = None):
     app.register_blueprint(admin_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
-    app.register_blueprint(payments_bp)
+    # app.register_blueprint(payments_bp)
     app.register_blueprint(copilot_bp)
     register_jinja_tz_filters(app)
 
@@ -204,7 +204,7 @@ def create_app(test_config: dict | None = None):
         os.getenv("COPILOT_ENABLED", "1").lower() in ("1", "true", "yes", "on"))
 
     # Exempt Payment BP from CSRF
-    csrf.exempt(payments_bp)
+    # csrf.exempt(payments_bp)
     csrf.exempt(copilot_bp)
 
     # Prometheus

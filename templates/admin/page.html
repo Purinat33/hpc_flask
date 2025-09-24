@@ -643,10 +643,10 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
                         <td>{{ r['created_at']|dt_local }}</td>
                         <td>
-                            <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}"
+                            <!-- <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}"
                                 style="display:inline">
                                 <button type="submit">Pay now</button>
-                            </form>
+                            </form> -->
 
                             <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
                                 style="display:inline">
