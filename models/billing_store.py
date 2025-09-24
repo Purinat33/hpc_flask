@@ -1,4 +1,9 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
+from models.schema import Receipt, Payment, PaymentEvent
+from decimal import Decimal
+from sqlalchemy import select
+import json
+from datetime import datetime, timezone
 from services.datetimex import now_utc, APP_TZ
 from sqlalchemy import select, delete
 from zoneinfo import ZoneInfo
@@ -269,20 +274,100 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
         return out
 
 
-def mark_receipt_paid(receipt_id: int, admin_user: str) -> bool:
+def mark_receipt_paid(receipt_id: int, actor: str) -> bool:
+    """
+    Mark a receipt as paid and create:
+      - Payment (provider='internal_admin', status='succeeded', amount_cents)
+      - PaymentEvent (event_type='admin.marked_paid')
+    Idempotent: if the receipt is already 'paid', we'll NOOP (and optionally
+    write a small PaymentEvent if no Payment exists).
+    """
+    now = datetime.now(timezone.utc)
+    PROVIDER = "internal_admin"
+    CURRENCY = "THB"
+
     with session_scope() as s:
-        r = s.get(Receipt, receipt_id)
-        if not r:
+        # Lock the receipt row (Postgres honors this)
+        rcpt = (
+            s.query(Receipt)
+            .with_for_update()
+            .filter(Receipt.id == receipt_id)
+            .one_or_none()
+        )
+        if rcpt is None or rcpt.status == "void":
             return False
-        if r.status == "paid":
+
+        # Helper to check if we already have a success payment for this receipt
+        def _has_success_payment() -> bool:
+            return s.execute(
+                select(Payment.id).where(
+                    Payment.receipt_id == receipt_id,
+                    Payment.provider == PROVIDER,
+                    Payment.status == "succeeded",
+                ).limit(1)
+            ).first() is not None
+
+        if rcpt.status == "paid":
+            if not _has_success_payment():
+                # Write a lightweight event so we have an audit trace
+                s.add(PaymentEvent(
+                    provider=PROVIDER,
+                    external_event_id=None,
+                    payment_id=None,
+                    event_type="admin.mark_paid_noop",
+                    raw=json.dumps({
+                        "receipt_id": receipt_id,
+                        "actor": actor,
+                        "reason": "already paid; no matching Payment found"
+                    }),
+                    signature_ok=1,
+                    received_at=now,
+                ))
             return True
-        if r.status != "pending":
-            return False
-        r.status = "paid"
-        r.paid_at = _now_utc()
-        r.method = admin_user or "admin"
-        r.tx_ref = None
-        s.add(r)
+
+        # Create a success Payment for the full amount
+        total = Decimal(str(rcpt.total or 0))
+        amount_cents = int(round(total * 100))
+
+        pay = Payment(
+            provider=PROVIDER,
+            receipt_id=receipt_id,
+            username=rcpt.username,
+            status="succeeded",
+            currency=CURRENCY,
+            amount_cents=amount_cents,
+            external_payment_id=None,
+            checkout_url=None,
+            idempotency_key=None,
+            created_at=now,
+            updated_at=now,
+        )
+        s.add(pay)
+        s.flush()  # get pay.id
+
+        # Update the Receipt
+        rcpt.status = "paid"
+        rcpt.paid_at = now
+        rcpt.method = PROVIDER          # optional but handy to show in UI
+        rcpt.tx_ref = f"payment:{pay.id}"
+        s.add(rcpt)
+
+        # Create a PaymentEvent linked to this payment
+        s.add(PaymentEvent(
+            provider=PROVIDER,
+            external_event_id=None,
+            payment_id=pay.id,
+            event_type="admin.marked_paid",
+            raw=json.dumps({
+                "receipt_id": receipt_id,
+                "payment_id": pay.id,
+                "actor": actor,
+                "note": "Manual mark paid from admin UI"
+            }),
+            signature_ok=1,
+            received_at=now,
+        ))
+
         return True
 
 
