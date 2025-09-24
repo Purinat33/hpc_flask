@@ -47,12 +47,6 @@
         </div>
     </div>
 
-    <form method="post" action="{{ url_for('user.create_receipt') }}" style="display:inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="before" value="{{ before }}">
-        <button type="submit">{{ _("Create Receipt")}}</button>
-    </form>
-
     <p class="muted" style="margin-top:.5rem">
         <span class="chip">Jobs: {{ rows|length }}</span>
         <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
@@ -253,65 +247,59 @@
 {% endif %}
 
 {% elif view == 'billed' %}
-<div class="card">
-    <h3>Pending (unpaid) receipts</h3>
-    {% if pending and pending|length>0 %}
-    <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span></p>
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Period</th>
-                <th>Total (฿)</th>
-                <th>Created</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in pending %}
-            <tr>
-                <td><a href="{{ url_for('user.view_receipt', rid=r['receipt_id']) }}">#{{ r['receipt_id'] }}</a></td>
-                <td>{{ r['period'] }}</td>
-                <td>฿{{ '%.2f'|format(r['cost']) }}</td>
-                <td>{{ r['created_at']|dt_local or '—' }}</td>
-                <td>pending</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">Nothing pending 🎉</p>
-    {% endif %}
-</div>
+<h4>Pending (unpaid) invoices</h4>
+{% if my_pending_receipts and my_pending_receipts|length>0 %}
+<p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span></p>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Period</th>
+            <th>Total (฿)</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in my_pending_receipts %}
+        <tr>
+            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+            <td>{{ r['start'] }} → {{ r['end'] }}</td>
+            <td>฿{{ '%.2f'|format(r['total']) }}</td>
+            <td>{{ r['created_at']|dt_local }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Nothing pending 🎉</p>
+{% endif %}
 
-<div class="card" style="margin-top:1rem">
-    <h3>Paid receipts</h3>
-    {% if paid and paid|length>0 %}
-    <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span></p>
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Period</th>
-                <th>Total (฿)</th>
-                <th>Paid at</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in paid %}
-            <tr>
-                <td><a href="{{ url_for('user.view_receipt', rid=r['receipt_id']) }}">#{{ r['receipt_id'] }}</a></td>
-                <td>{{ r['period'] }}</td>
-                <td>฿{{ '%.2f'|format(r['cost']) }}</td>
-                <td>{{ r['paid_at']|dt_local or '—' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">No paid receipts yet.</p>
-    {% endif %}
-</div>
+<h4 style="margin-top:1rem">Paid invoices</h4>
+{% if my_paid_receipts and my_paid_receipts|length>0 %}
+<p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span></p>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Period</th>
+            <th>Total (฿)</th>
+            <th>Paid at</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in my_paid_receipts %}
+        <tr>
+            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+            <td>{{ r['start'] }} → {{ r['end'] }}</td>
+            <td>฿{{ '%.2f'|format(r['total']) }}</td>
+            <td>{{ r['paid_at']|dt_local or '—' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% else %}
+<p class="muted">No paid invoices yet.</p>
 {% endif %}
 
 <!-- ===== Legend / transparency (unchanged styles) ===== -->

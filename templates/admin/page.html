@@ -586,93 +586,110 @@
         </div>
 
         {# ================= INVOICES (ALL USERS) — payments removed, add "Trend & Monthly" ================= #}
-        {% elif section == 'billing' %}
-        <div class="card">
-            <h3>{{ _("Invoices")}}</h3>
+{% elif section == 'billing' %}
+<div class="card">
+    <h3>{{ _("Invoices")}}</h3>
 
-            <div class="tabs">
-                <a class="{{ 'on' if (bview or 'invoices')=='invoices' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='billing', bview='invoices') }}">Invoices</a>
-                <a class="{{ 'on' if bview=='trend' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='billing', bview='trend', year=year or '', u=selected_user or '', month=month or '') }}">
-                    Trend & Monthly
-                </a>
-            </div>
+    <div class="tabs">
+        <a class="{{ 'on' if (bview or 'invoices')=='invoices' else '' }}"
+            href="{{ url_for('admin.admin_form', section='billing', bview='invoices') }}">Invoices</a>
+        <a class="{{ 'on' if bview=='trend' else '' }}"
+            href="{{ url_for('admin.admin_form', section='billing', bview='trend', year=year or '', u=selected_user or '', month=month or '') }}">
+            Trend & Monthly
+        </a>
+    </div>
 
-            {% if (bview or 'invoices') == 'invoices' %}
-            <h4>{{ _("Pending Invoices") }}</h4>
-            {% if pending and pending|length>0 %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>User</th>
-                        <th>Period</th>
-                        <th>Total (฿)</th>
-                        <th>Created</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in pending %}
-                    <tr>
-                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                        <td>{{ r['username'] }}</td>
-                        <td>{{ r['start'] }} → {{ r['end'] }}</td>
-                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['created_at']|dt_local }}</td>
-                        <td>{{ r['status'] }}</td>
-                        <td>
-                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
-                                style="display:inline">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit">{{ _("Mark as paid") }}</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="muted">Nothing pending 🎉</p>
-            {% endif %}
+    {% if (bview or 'invoices') == 'invoices' %}
+    <!-- Create Monthly Invoices -->
+    <form method="post" action="{{ url_for('admin.create_month_invoices') }}" style="margin:.5rem 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Year
+            <input type="number" name="year" min="2000" max="2100" step="1" value="{{ (year or '') or current_year }}">
+        </label>
+        <label style="margin-left:.5rem;">Month
+            <select name="month" required>
+                {% for m in range(1,13) %}
+                <option value="{{ m }}" {{ 'selected' if (month and m==month|int) else '' }}>{{ "%02d"|format(m) }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit" style="margin-left:.5rem;">Create Monthly Invoices</button>
+        <small class="muted" style="margin-left:.5rem;">Creates one pending invoice per user for the chosen
+            month.</small>
+    </form>
 
-            <div class="card" style="margin-top:1rem">
-                <h4>{{ _("Paid Invoices") }}</h4>
-                {% if paid and paid|length>0 %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>User</th>
-                            <th>Period</th>
-                            <th>Total (฿)</th>
-                            <th>Paid at</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for r in paid %}
-                        <tr>
-                            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                            <td>{{ r['username'] }}</td>
-                            <td>{{ r['start'] }} → {{ r['end'] }}</td>
-                            <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                            <td>{{ r['paid_at']|dt_local or '—' }}</td>
-                            <td>{{ r['status'] }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% else %}
-                <p class="muted">No paid invoices yet.</p>
-                {% endif %}
-                <div style="margin-top:.5rem">
-                    <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history
-                            (CSV)</button></a>
-                </div>
-            </div>
+    <h4>{{ _("Pending Invoices") }}</h4>
+    {% if pending and pending|length>0 %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>User</th>
+                <th>Period</th>
+                <th>Total (฿)</th>
+                <th>Created</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in pending %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                <td>{{ r['username'] }}</td>
+                <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                <td>{{ r['created_at']|dt_local }}</td>
+                <td>{{ r['status'] }}</td>
+                <td>
+                    <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}" style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">{{ _("Mark as paid") }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Nothing pending 🎉</p>
+    {% endif %}
+
+    <div class="card" style="margin-top:1rem">
+        <h4>{{ _("Paid Invoices") }}</h4>
+        {% if paid and paid|length>0 %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User</th>
+                    <th>Period</th>
+                    <th>Total (฿)</th>
+                    <th>Paid at</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in paid %}
+                <tr>
+                    <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                    <td>{{ r['username'] }}</td>
+                    <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                    <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                    <td>{{ r['paid_at']|dt_local or '—' }}</td>
+                    <td>{{ r['status'] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top:.5rem">
+            <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
+        </div>
+        {% else %}
+        <p class="muted">No paid invoices yet.</p>
+        {% endif %}
+    </div>
 
             {% else %} {# bview == 'trend' #}
             {# ===== Filters: pick user + year + (optional) month ===== #}

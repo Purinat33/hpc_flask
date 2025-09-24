@@ -1,72 +1,26 @@
-# user_ui.py
+# controllers/user.py
 import pandas as pd
 from models.billing_store import list_receipts, get_receipt_with_items
-from flask import Blueprint, render_template, request, Response, url_for
+from flask import Blueprint, render_template, request, Response, url_for, redirect
 from flask_login import login_required, current_user
 from datetime import date
 import io
 from services.data_sources import fetch_jobs_with_fallbacks
 from services.billing import compute_costs
 from models.billing_store import billed_job_ids, canonical_job_id
-from flask import redirect
-from models.billing_store import create_receipt_from_rows
-from models.billing_store import list_billed_items_for_user
 from models.audit_store import audit
-from services.metrics import CSV_DOWNLOADS, RECEIPT_CREATED
+from services.metrics import CSV_DOWNLOADS
 
 user_bp = Blueprint("user", __name__)
-
-
-def _to_utc_day_end(ts_date: str) -> pd.Timestamp:
-    return pd.Timestamp(ts_date, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-
-
-def _ensure_num(df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
-    if name in df.columns:
-        return pd.to_numeric(df[name], errors="coerce").fillna(default)
-    return pd.Series([default] * len(df), index=df.index)
-
-
-def _month_range_for_year(year: int) -> tuple[str, str]:
-    ystart = date(year, 1, 1).isoformat()
-    if year == date.today().year:
-        yend = date.today().isoformat()
-    else:
-        yend = date(year, 12, 31).isoformat()
-    return ystart, yend
-
-
-def _monthly_aggregate(df: pd.DataFrame) -> tuple[list[dict], float]:
-    if df.empty or "End" not in df.columns:
-        return [], 0.0
-    for c in ["CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-        else:
-            df[c] = 0.0
-    df["_month"] = df["End"].dt.month
-    g = (
-        df.groupby("_month")
-        .agg(
-            jobs=("JobID", "nunique"),
-            CPU_Core_Hours=("CPU_Core_Hours", "sum"),
-            GPU_Hours=("GPU_Hours", "sum"),
-            Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
-            Cost=("Cost (฿)", "sum"),
-        )
-        .reset_index()
-        .rename(columns={"Cost": "Cost (฿)", "_month": "month"})
-        .sort_values("month")
-    )
-    rows = g.to_dict(orient="records")
-    total = float(g["Cost (฿)"].sum()) if not g.empty else 0.0
-    return rows, total
 
 
 @user_bp.get("/me/receipts")
 @login_required
 def my_receipts():
-    return render_template("user/receipts.html", receipts=list_receipts(current_user.username))
+    return render_template(
+        "user/receipts.html",
+        receipts=list_receipts(current_user.username)
+    )
 
 
 @user_bp.get("/me/receipts/<int:rid>")
@@ -86,46 +40,49 @@ def view_receipt(rid: int):
 @user_bp.get("/me")
 @login_required
 def my_usage():
+    # Admins use the Admin UI
     if getattr(current_user, "is_admin", False):
-        # Admins land on admin UI
         return redirect(url_for("admin.admin_form"))
 
     EPOCH_START = "1970-01-01"
-    before = request.args.get("before") or date.today().isoformat()
-    start_d, end_d = EPOCH_START, before
+    before = (request.args.get("before") or date.today().isoformat()).strip()
 
     view = (request.args.get("view") or "detail").lower()
-    # add 'trend' and 'billed'
     if view not in {"detail", "aggregate", "billed", "trend"}:
         view = "detail"
 
-    # trend params
-    try:
-        year = int(request.args.get("year") or date.today().year)
-    except Exception:
-        year = date.today().year
-    month = request.args.get("month")
-    try:
-        month = int(month) if month else None
-    except Exception:
-        month = None
-    current_year = date.today().year
-
+    # Common context
     rows, agg_rows = [], []
     data_source = None
     notes: list[str] = []
     total_cost = 0.0
-    pending: list[dict] = []
-    paid: list[dict] = []
-    sum_pending = sum_paid = 0.0
-
     raw_cols: list[str] = []
     raw_rows: list[dict] = []
     header_classes: dict[str, str] = {}
 
+    # Billed (invoices) context
+    my_pending_receipts = []
+    my_paid_receipts = []
+    sum_pending = sum_paid = 0.0
+
+    # Trend context
+    current_year = date.today().year
+    year = request.args.get("year")
+    month = request.args.get("month")
+    monthly_agg = []
+    month_detail_rows = []
+    year_total = 0.0
+    tot_cpu_m = tot_gpu_m = tot_mem_m = month_total = 0.0
+
+    # Helper
+    def _ensure_col(df, name, default_val=0):
+        if name in df.columns:
+            return df[name]
+        return pd.Series([default_val] * len(df), index=df.index)
+
     try:
         if view in {"detail", "aggregate"}:
-            # RAW fetch (self)
+            start_d, end_d = EPOCH_START, before
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
                 start_d, end_d, username=current_user.username
             )
@@ -133,7 +90,8 @@ def my_usage():
             if not df_raw.empty and "End" in df_raw.columns:
                 end_series = pd.to_datetime(
                     df_raw["End"], errors="coerce", utc=True)
-                cutoff_utc = _to_utc_day_end(end_d)
+                cutoff_utc = pd.Timestamp(
+                    end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
                 df_raw = df_raw[end_series.notna() & (
                     end_series <= cutoff_utc)]
                 df_raw["End"] = end_series
@@ -141,7 +99,6 @@ def my_usage():
             if not df_raw.empty:
                 raw_cols = list(df_raw.columns)
                 raw_rows = df_raw.head(200).to_dict(orient="records")
-
                 header_classes = {c: "" for c in raw_cols}
                 for c in raw_cols:
                     if c == "TotalCPU":
@@ -153,11 +110,10 @@ def my_usage():
                     elif c == "AveRSS":
                         header_classes[c] = "hl-primary"
 
-            # Computed (parents)
             df = compute_costs(
                 df_raw.copy() if df_raw is not None else pd.DataFrame())
 
-            # Hide already billed
+            # Hide already billed parents
             if not df.empty:
                 df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
                 already = billed_job_ids()
@@ -174,105 +130,130 @@ def my_usage():
                     if c not in df.columns:
                         df[c] = ""
                 rows = df[cols].to_dict(orient="records")
-                total_cost = float(_ensure_num(df, "Cost (฿)", 0).sum())
+                total_cost = float(_ensure_col(df, "Cost (฿)", 0).sum())
 
-            if view == "aggregate" and not df.empty:
+            elif view == "aggregate" and not df.empty:
                 agg_row = {
                     "jobs": int(len(df)),
-                    "CPU_Core_Hours": float(_ensure_num(df, "CPU_Core_Hours", 0).sum()),
-                    "GPU_Hours": float(_ensure_num(df, "GPU_Hours", 0).sum()),
-                    "Mem_GB_Hours_Used": float(_ensure_num(df, "Mem_GB_Hours_Used", 0).sum()),
-                    "Cost (฿)": float(_ensure_num(df, "Cost (฿)", 0).sum()),
+                    "CPU_Core_Hours": float(_ensure_col(df, "CPU_Core_Hours", 0).sum()),
+                    "GPU_Hours": float(_ensure_col(df, "GPU_Hours", 0).sum()),
+                    "Mem_GB_Hours_Used": float(_ensure_col(df, "Mem_GB_Hours_Used", 0).sum()),
+                    "Cost (฿)": float(_ensure_col(df, "Cost (฿)", 0).sum()),
                 }
                 agg_rows = [agg_row]
 
         elif view == "billed":
-            pending = list_billed_items_for_user(
-                current_user.username, "pending")
-            paid = list_billed_items_for_user(current_user.username, "paid")
-            sum_pending = float(sum(i["cost"]
-                                for i in pending)) if pending else 0.0
-            sum_paid = float(sum(i["cost"] for i in paid)) if paid else 0.0
+            my_all = list_receipts(current_user.username) or []
+            my_pending_receipts = [
+                r for r in my_all if r.get("status") == "pending"]
+            my_paid_receipts = [r for r in my_all if r.get("status") == "paid"]
+            sum_pending = float(sum(float(r.get("total") or 0)
+                                for r in my_pending_receipts))
+            sum_paid = float(sum(float(r.get("total") or 0)
+                             for r in my_paid_receipts))
 
-        elif view == "trend":
-            # YTD or full year if past year; include ALL jobs (billed & unbilled) for accuracy
-            ystart, yend = _month_range_for_year(year)
+        else:  # view == "trend"
+            # Parse year/month
+            try:
+                y = int(year) if year else current_year
+            except Exception:
+                y = current_year
+            start_d = f"{y}-01-01"
+            end_d = date.today().isoformat(
+            ) if y == date.today().year else f"{y}-12-31"
+
+            # Fetch only this user's jobs for that year
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
-                ystart, yend, username=current_user.username)
+                start_d, end_d, username=current_user.username)
             df = compute_costs(df_raw)
 
+            # UTC-aware cutoff
             if "End" in df.columns:
                 end_series = pd.to_datetime(
                     df["End"], errors="coerce", utc=True)
-                cutoff_utc = _to_utc_day_end(yend)
+                cutoff_utc = pd.Timestamp(
+                    end_d, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
                 df = df[end_series.notna() & (end_series <= cutoff_utc)].copy()
                 df["End"] = end_series
+            else:
+                df["End"] = pd.NaT
 
-            monthly_agg, year_total = _monthly_aggregate(df)
+            if not df.empty:
+                df["_month"] = df["End"].dt.month
+                g = (
+                    df.groupby("_month", dropna=True)
+                      .agg(
+                          jobs=("JobID", "count"),
+                          CPU_Core_Hours=("CPU_Core_Hours", "sum"),
+                          GPU_Hours=("GPU_Hours", "sum"),
+                          Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
+                          Cost=("Cost (฿)", "sum"),
+                    )
+                    .reset_index()
+                    .sort_values("_month")
+                )
+                g.rename(columns={"Cost": "Cost (฿)",
+                         "_month": "month"}, inplace=True)
+                monthly_agg = g[["month", "jobs", "CPU_Core_Hours", "GPU_Hours",
+                                 "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict("records")
+                year_total = float(g["Cost (฿)"].sum())
 
-            month_detail_rows = []
-            tot_cpu_m = tot_gpu_m = tot_mem_m = month_total = 0.0
-            if month:
-                d_m = df[df["End"].dt.month == int(month)].copy()
-                for c in ["CPU_Core_Hours", "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]:
-                    if c in d_m.columns:
-                        d_m[c] = pd.to_numeric(
-                            d_m[c], errors="coerce").fillna(0.0)
-                    else:
-                        d_m[c] = 0.0
-                if not d_m.empty:
-                    tot_cpu_m = float(d_m["CPU_Core_Hours"].sum())
-                    tot_gpu_m = float(d_m["GPU_Hours"].sum())
-                    tot_mem_m = float(d_m["Mem_GB_Hours_Used"].sum(
-                    )) if "Mem_GB_Hours_Used" in d_m.columns else 0.0
-                    month_total = float(d_m["Cost (฿)"].sum())
-                    cols = [
-                        "JobID", "Elapsed", "End", "State",
-                        "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
-                        "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
-                        "tier", "Cost (฿)"
-                    ]
-                    for c in cols:
-                        if c not in d_m.columns:
-                            d_m[c] = ""
-                    month_detail_rows = d_m[cols].to_dict(orient="records")
+                # Month details if requested
+                if month:
+                    try:
+                        m = int(month)
+                    except Exception:
+                        m = None
+                    if m and 1 <= m <= 12 and "End" in df.columns:
+                        dmonth = df[df["End"].dt.month == m].copy()
+                        cols = [
+                            "JobID", "Elapsed", "End", "State",
+                            "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
+                            "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                            "tier", "Cost (฿)"
+                        ]
+                        for c in cols:
+                            if c not in dmonth.columns:
+                                dmonth[c] = ""
+                        month_detail_rows = dmonth[cols].to_dict("records")
+                        tot_cpu_m = float(pd.to_numeric(dmonth.get(
+                            "CPU_Core_Hours"), errors="coerce").fillna(0).sum())
+                        tot_gpu_m = float(pd.to_numeric(dmonth.get(
+                            "GPU_Hours"), errors="coerce").fillna(0).sum())
+                        mem_col = "Mem_GB_Hours_Used" if "Mem_GB_Hours_Used" in dmonth.columns else "Mem_GB_Hours"
+                        tot_mem_m = float(pd.to_numeric(dmonth.get(
+                            mem_col), errors="coerce").fillna(0).sum())
+                        month_total = float(pd.to_numeric(dmonth.get(
+                            "Cost (฿)"), errors="coerce").fillna(0).sum())
 
-            return render_template(
-                "user/usage.html",
-                current_user=current_user,
-                start=ystart, end=yend, view=view, before=before,
-                rows=rows, agg_rows=agg_rows,
-                pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,
-                data_source=data_source, notes=notes,
-                total_cost=0.0,  # not used in trend
-                raw_cols=[], raw_rows=[], header_classes={},
-                url_for=url_for,
-                # trend context
-                year=year, current_year=current_year, month=month,
-                monthly_agg=monthly_agg, year_total=year_total,
-                month_detail_rows=month_detail_rows,
-                tot_cpu_m=tot_cpu_m, tot_gpu_m=tot_gpu_m, tot_mem_m=tot_mem_m, month_total=month_total,
-            )
+            # Set string forms for template
+            year = str(y)
 
     except Exception as e:
         notes.append(str(e))
 
-    # fallback render (detail/aggregate/billed)
+    # Render with everything the template expects (even if empty)
     return render_template(
         "user/usage.html",
         current_user=current_user,
-        start=start_d, end=end_d, view=view, before=before,
-        rows=rows,
-        agg_rows=agg_rows,
-        pending=pending, paid=paid, sum_pending=sum_pending, sum_paid=sum_paid,
+        before=before,
+        view=view,
+        # detail/aggregate
+        rows=rows, agg_rows=agg_rows, total_cost=total_cost,
         data_source=data_source, notes=notes,
-        total_cost=total_cost,
         raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
         url_for=url_for,
-        # trend defaults
-        year=date.today().year, current_year=date.today().year, month=None,
-        monthly_agg=[], year_total=0.0,
-        month_detail_rows=[], tot_cpu_m=0.0, tot_gpu_m=0.0, tot_mem_m=0.0, month_total=0.0,
+        # invoices
+        my_pending_receipts=my_pending_receipts,
+        my_paid_receipts=my_paid_receipts,
+        sum_pending=sum_pending, sum_paid=sum_paid,
+        # trend
+        current_year=current_year,
+        year=year, month=month,
+        monthly_agg=monthly_agg,
+        month_detail_rows=month_detail_rows,
+        year_total=year_total,
+        tot_cpu_m=tot_cpu_m, tot_gpu_m=tot_gpu_m, tot_mem_m=tot_mem_m, month_total=month_total,
     )
 
 
@@ -281,11 +262,9 @@ def my_usage():
 def my_usage_csv():
     before = request.args.get("before") or date.today().isoformat()
     start_d, end_d = "1970-01-01", before
-
     df, _, _ = fetch_jobs_with_fallbacks(
         start_d, end_d, username=current_user.username)
     df = compute_costs(df)
-
     out = io.StringIO()
     df.to_csv(out, index=False)
     out.seek(0)
@@ -293,52 +272,3 @@ def my_usage_csv():
     CSV_DOWNLOADS.labels(kind="user_usage").inc()
     return Response(out.read(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
-
-
-@user_bp.post("/me/receipt")
-@login_required
-def create_receipt():
-    before = request.form.get("before") or date.today().isoformat()
-    start_d, end_d = "1970-01-01", before
-
-    df, _, _ = fetch_jobs_with_fallbacks(
-        start_d, end_d, username=current_user.username)
-    df = compute_costs(df)
-
-    if "End" in df.columns:
-        end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
-        cutoff_utc = _to_utc_day_end(end_d)
-        df = df[end_series.notna() & (end_series <= cutoff_utc)]
-        df["End"] = end_series
-
-    df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
-    df = df[~df["JobKey"].isin(billed_job_ids())]
-
-    if df.empty:
-        audit(
-            action="receipt.create.noop",
-            target=f"user={current_user.username}",
-            status=204,
-            extra={"start": start_d, "end": end_d,
-                   "reason": "No unbilled jobs"}
-        )
-        return redirect(url_for("user.my_usage", start=start_d, end=end_d, view="detail"))
-
-    rid, total, items = create_receipt_from_rows(
-        current_user.username, start_d, end_d, df.to_dict(orient="records")
-    )
-    audit(
-        action="receipt.create",
-        target=f"receipt={rid}",
-        status=200,
-        extra={
-            "user": current_user.username,
-            "start": start_d,
-            "end": end_d,
-            "jobs": int(len(df)),
-            "total": float(total),
-            "items": list(items) if items else [],
-        },
-    )
-    RECEIPT_CREATED.labels(scope="user").inc()
-    return redirect(url_for("user.my_receipts"))
