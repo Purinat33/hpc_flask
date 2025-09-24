@@ -6,22 +6,39 @@
 <p class="muted">{% trans user=current_user.username %}Signed in as <b>{{ user }}</b>{% endtrans %}</p>
 
 <div class="card">
+    <div class="tabs">
+        <a class="{{ 'on' if view=='detail' else '' }}"
+            href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
+        <a class="{{ 'on' if view=='aggregate' else '' }}"
+            href="{{ url_for('user.my_usage', before=before, view='aggregate') }}">Aggregate</a>
+        <a class="{{ 'on' if view=='trend' else '' }}"
+            href="{{ url_for('user.my_usage', view='trend', year=year) }}">Trend & Monthly</a>
+        <a class="{{ 'on' if view=='billed' else '' }}"
+            href="{{ url_for('user.my_usage', view='billed') }}">Invoices</a>
+    </div>
+</div>
+
+{% if view in ['detail','aggregate'] %}
+<div class="card">
     <h3>Filter</h3>
     <form method="get" class="grid">
         <div>
             <label>Jobs completed before
                 <input type="date" name="before" value="{{ before }}">
             </label>
+            <input type="hidden" name="view" value="{{ view }}">
         </div>
         <div><label>&nbsp;<button type="submit">Fetch</button></label></div>
     </form>
-
     {% if data_source %}
-    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif
-        %}</p>
+    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} —
+        {{ notes|join(' | ') }}{% endif %}</p>
     {% endif %}
 </div>
+{% endif %}
 
+{% if view == 'detail' %}
+{% if rows and rows|length>0 %}
 <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;">
         <h3>Your Jobs</h3>
@@ -36,239 +53,11 @@
         <button type="submit">{{ _("Create Receipt")}}</button>
     </form>
 
-    <div class="tabs">
-        <a class="{{ 'on' if view=='detail' else '' }}"
-            href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
-        <a class="{{ 'on' if view=='aggregate' else '' }}"
-            href="{{ url_for('user.my_usage', before=before, view='aggregate') }}">Aggregate</a>
-    </div>
-
-<style>
-    /* Priority styles for header legend + raw-table header emphasis
-     - primary:      bold + underline + italic
-     - 1st fallback: bold + underline
-     - 2nd fallback: bold + italic
-  */
-    .hl-primary {
-        font-weight: 700;
-        text-decoration: underline;
-        font-style: italic;
-    }
-
-    .hl-fallback1 {
-        font-weight: 700;
-        text-decoration: underline;
-    }
-
-    .hl-fallback2 {
-        font-weight: 700;
-        font-style: italic;
-    }
-
-    .formula small {
-        color: var(--muted, #666);
-    }
-
-    details.raw {
-        margin-top: .75rem;
-    }
-
-    /* The wrapper is the scroll container (vertical + horizontal).
-     Sticky headers will pin to the top INSIDE this element. */
-    .table-wrap {
-        position: relative;
-        max-height: 60vh;
-        /* vertical scroll */
-        overflow: auto;
-        /* both axes if needed */
-        border: 1px solid var(--bd);
-        border-radius: 10px;
-    }
-
-    /* Tables inside the wrapper behave like normal tables */
-    .table-wrap>table {
-        width: 100%;
-        border: 0;
-        /* wrapper holds the border */
-        border-collapse: separate;
-        border-spacing: 0;
-        margin: 0;
-    }
-
-    /* Make header cells sticky within the scroll container */
-    .table-wrap thead th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        /* keep above body cells */
-        background: #f8fafc;
-        /* must have a background for sticky */
-        box-shadow: 0 1px 0 var(--bd);
-        /* subtle divider under the header */
-    }
-
-    /* Optional: freeze first column too (uncomment if you want this)
-  .table-wrap tbody td:first-child,
-  .table-wrap thead th:first-child {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: #ffffff;
-    box-shadow: 1px 0 0 var(--bd);
-  }
-  .table-wrap thead th:first-child { z-index: 3; }  /* above the sticky row */
-    */
-
-    /* Don’t let long tokens blow up columns */
-    .table-wrap th,
-    .table-wrap td {
-        overflow-wrap: anywhere;
-    }
-
-    .chip {
-        display: inline-block;
-        padding: .1rem .4rem;
-        border-radius: .6rem;
-        background: #efefef;
-        margin-right: .25rem;
-    }
-
-
-    /* Footnotes / tooltips */
-.formula abbr { text-decoration: none; border-bottom: 1px dotted var(--bd); cursor: help; }
-.fn { font-size: .8em; margin-left: .25rem; color: var(--muted); text-decoration: none; }
-details.footnotes { margin-top: .5rem; }
-details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
-.fn-list { margin: .25rem 0 0 1.25rem; }
-.fn-list li { margin: .25rem 0; }
-.fn-var { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-
-  details.collapsible {
-    border: 1px solid var(--bd);
-    border-radius: 10px;
-    padding: .5rem .75rem;
-    background: #fff;
-    margin-top: 2rem;
-  }
-  details.collapsible > summary {
-    list-style: none;
-    cursor: pointer;
-    user-select: none;
-    display: flex;
-    align-items: baseline;
-    gap: .25rem;
-  }
-  /* custom caret */
-  details.collapsible > summary::before {
-    content: "▸";
-    display: inline-block;
-    margin-right: .35rem;
-    transform: translateY(-.05em);
-  }
-  details.collapsible[open] > summary::before {
-    content: "▾";
-  }
-  .collapsible-body { margin-top: .5rem; }
-
-</style>
-
-
-    {% if view in ['detail','aggregate'] %}
-    {% if data_source %}
-    <p class="muted">Source: <b>{{ data_source }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif
-        %}</p>
-    {% endif %}
-
-<!-- Formula legend with matching styles + tooltips + footnotes -->
-<div class="formula" style="margin:.5rem 0 .25rem 0">
-    <div>
-        <b>CPU</b>:
-        <span class="hl-primary">
-            <abbr
-                title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
-                TotalCPU (steps)</abbr>
-            <a href="#fn-totalcpu" class="fn">[1]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback1">
-            <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW / 3600</abbr>
-            <a href="#fn-cputimeraw" class="fn">[2]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS × Elapsed</abbr>
-            <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-
-    <div>
-        <b>MEM</b>:
-        <span class="hl-primary">
-            <abbr
-                title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
-                AveRSS(GB) × Elapsed (steps)</abbr>
-            <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES × Elapsed</abbr>
-            <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-
-    <div>
-        <b>GPU</b>:
-        <span class="hl-primary">
-            <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU × Elapsed</abbr>
-            <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU ×
-                Elapsed</abbr>
-            <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-</div>
-
-<!-- Footnotes / glossary -->
-<details class="footnotes">
-    <summary>What do these variables mean?</summary>
-    <ol class="fn-list">
-        <li id="fn-totalcpu"><span class="fn-var">TotalCPU</span> — Slurm field of CPU time used (HH:MM:SS[.fff]) per
-            job/step. We sum over steps and convert to core-hours.</li>
-        <li id="fn-cputimeraw"><span class="fn-var">CPUTimeRAW</span> — Slurm field of CPU time in seconds (integer). We
-            divide by 3600 to get hours; used when <span class="fn-var">TotalCPU</span> is missing/zero.</li>
-        <li id="fn-alloccpus"><span class="fn-var">AllocCPUS</span> — CPU cores allocated, parsed from <span
-                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
-                class="fn-var">cpu=</span>.</li>
-        <li id="fn-elapsed"><span class="fn-var">Elapsed</span> — Wall-clock runtime of the parent job (D-HH:MM:SS),
-            converted to hours for calculations.</li>
-        <li id="fn-averss"><span class="fn-var">AveRSS</span> — Average resident set size per step (K/M/G/T). We convert
-            to GB; used to estimate memory actually used over time.</li>
-        <li id="fn-memfromtres"><span class="fn-var">Mem_from_TRES</span> — Memory allocated (GB) parsed from <span
-                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
-                class="fn-var">mem=</span>.</li>
-        <li id="fn-allocgpu"><span class="fn-var">AllocGPU</span> — GPUs allocated parsed from <span
-                class="fn-var">AllocTRES</span> via <span class="fn-var">gres/gpu=</span>.</li>
-        <li id="fn-reqgpu"><span class="fn-var">ReqGPU</span> — GPUs requested parsed from <span
-                class="fn-var">ReqTRES</span> via <span class="fn-var">gres/gpu=</span> (fallback only).</li>
-    </ol>
-    <div class="muted" style="margin-top:.25rem">
-        Notes: “steps” means rows like <span class="fn-var">.batch</span>, <span class="fn-var">.0</span>, etc., which
-        roll up to their parent job ID (or array task ID like <span class="fn-var">12345_17</span>). GPU is billed on
-        allocation for now; memory prefers used (from <span class="fn-var">AveRSS</span>) and falls back to allocated.
-    </div>
-</details>
-
-    {% endif %}
-
-    {% if view == 'detail' %}
-    {% if rows and rows|length>0 %}
-    <p class="muted">
+    <p class="muted" style="margin-top:.5rem">
         <span class="chip">Jobs: {{ rows|length }}</span>
         <span class="chip">Total cost: ฿{{ '%.2f'|format(total_cost) }}</span>
     </p>
+
     <div class="table-wrap">
         <table>
             <thead>
@@ -308,26 +97,18 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         </table>
     </div>
 
-    <!-- Collapsible: Raw fetched data -->
-    <details class="raw">
+    <!-- Raw collapsible -->
+    <details class="raw" style="margin-top:.75rem">
         <summary>Show raw fetched data (parents + steps)</summary>
         {% if raw_cols and raw_rows %}
         <div class="table-wrap">
             <table>
                 <thead>
-                    <tr>
-                        {% for c in raw_cols %}
-                        <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
-                        {% endfor %}
-                    </tr>
+                    <tr>{% for c in raw_cols %}<th class="{{ header_classes.get(c,'') }}">{{ c }}</th>{% endfor %}</tr>
                 </thead>
                 <tbody>
                     {% for r in raw_rows %}
-                    <tr>
-                        {% for c in raw_cols %}
-                        <td>{{ r.get(c) }}</td>
-                        {% endfor %}
-                    </tr>
+                    <tr>{% for c in raw_cols %}<td>{{ r.get(c) }}</td>{% endfor %}</tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -337,13 +118,14 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         <p class="muted">No raw rows.</p>
         {% endif %}
     </details>
+</div>
+{% else %}
+<p class="muted">No jobs for the selected period.</p>
+{% endif %}
 
-    {% else %}
-    <p class="muted">No jobs for the selected period.</p>
-    {% endif %}
-
-    {% elif view == 'aggregate' %}
-    {% if agg_rows and agg_rows|length>0 %}
+{% elif view == 'aggregate' %}
+{% if agg_rows and agg_rows|length>0 %}
+<div class="card">
     <table>
         <thead>
             <tr>
@@ -366,45 +148,247 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             {% endfor %}
         </tbody>
     </table>
+</div>
+{% else %}
+<p class="muted">No jobs for the selected period.</p>
+{% endif %}
 
-    <!-- optional: raw collapsible also for aggregate view -->
-    <details class="raw">
-        <summary>Show raw fetched data (parents + steps)</summary>
-        {% if raw_cols and raw_rows %}
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        {% for c in raw_cols %}
-                        <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in raw_rows %}
-                    <tr>
-                        {% for c in raw_cols %}
-                        <td>{{ r.get(c) }}</td>
-                        {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+{% elif view == 'trend' %}
+<div class="card">
+    <h3>Year-to-date trend (aggregated)</h3>
+    <form method="get" class="grid" style="grid-template-columns: 1fr auto; gap: .5rem 1rem;">
+        <div>
+            <label>Year
+                <input type="number" min="2000" max="2100" step="1" name="year" value="{{ year or current_year }}">
+            </label>
+            <input type="hidden" name="view" value="trend">
         </div>
-        <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
-        {% else %}
-        <p class="muted">No raw rows.</p>
-        {% endif %}
-    </details>
+        <div style="align-self:end;"><button type="submit">Apply</button></div>
+    </form>
 
+    {% if monthly_agg and monthly_agg|length>0 %}
+    <table style="margin-top:.5rem">
+        <thead>
+            <tr>
+                <th>Month</th>
+                <th>Jobs</th>
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs (used)</th>
+                <th>Total Cost (฿)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in monthly_agg %}
+            <tr>
+                <td>
+                    <a
+                        href="{{ url_for('user.my_usage', view='trend', year=year, month=r['month']) }}">{{ "%02d"|format(r['month']) }}</a>
+                </td>
+                <td>{{ r['jobs'] }}</td>
+                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="muted" style="margin-top:.25rem"><span class="chip">Year total:
+            ฿{{ '%.2f'|format(year_total or 0) }}</span></p>
     {% else %}
-    <p class="muted">No jobs for the selected period.</p>
-    {% endif %}
-
-    {% else %}
-    <p class="muted">Unknown view.</p>
+    <p class="muted">No usage for this year.</p>
     {% endif %}
 </div>
+
+{% if month and month_detail_rows %}
+<div class="card" style="margin-top:1rem">
+    <h3>Details for {{ year }}-{{ "%02d"|format(month|int) }}</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>JobID</th>
+                    <th>Elapsed</th>
+                    <th>End</th>
+                    <th>State</th>
+                    <th>CPU core-hrs</th>
+                    <th>GPU (count)</th>
+                    <th>GPU hrs</th>
+                    <th>Mem (GB alloc)</th>
+                    <th>Mem GB-hrs <small>(used)</small></th>
+                    <th>Mem GB-hrs <small>(alloc)</small></th>
+                    <th>Tier</th>
+                    <th>Cost (฿)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in month_detail_rows %}
+                <tr>
+                    <td>{{ r['JobID'] }}</td>
+                    <td>{{ r['Elapsed'] }}</td>
+                    <td>{{ r['End']|dt_local }}</td>
+                    <td>{{ r['State'] }}</td>
+                    <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                    <td>{{ r['GPU_Count'] }}</td>
+                    <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                    <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                    <td>{{ r['tier']|upper }}</td>
+                    <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="muted" style="margin-top:.5rem">
+        <span class="chip">Jobs: {{ month_detail_rows|length }}</span>
+        <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu_m or 0) }}</span>
+        <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu_m or 0) }}</span>
+        <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem_m or 0) }}</span>
+        <span class="chip">Total: ฿{{ '%.2f'|format(month_total or 0) }}</span>
+    </div>
+</div>
+{% endif %}
+
+{% elif view == 'billed' %}
+<div class="card">
+    <h3>Pending (unpaid) receipts</h3>
+    {% if pending and pending|length>0 %}
+    <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span></p>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Period</th>
+                <th>Total (฿)</th>
+                <th>Created</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in pending %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=r['receipt_id']) }}">#{{ r['receipt_id'] }}</a></td>
+                <td>{{ r['period'] }}</td>
+                <td>฿{{ '%.2f'|format(r['cost']) }}</td>
+                <td>{{ r['created_at']|dt_local or '—' }}</td>
+                <td>pending</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Nothing pending 🎉</p>
+    {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+    <h3>Paid receipts</h3>
+    {% if paid and paid|length>0 %}
+    <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span></p>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Period</th>
+                <th>Total (฿)</th>
+                <th>Paid at</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in paid %}
+            <tr>
+                <td><a href="{{ url_for('user.view_receipt', rid=r['receipt_id']) }}">#{{ r['receipt_id'] }}</a></td>
+                <td>{{ r['period'] }}</td>
+                <td>฿{{ '%.2f'|format(r['cost']) }}</td>
+                <td>{{ r['paid_at']|dt_local or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No paid receipts yet.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- ===== Legend / transparency (unchanged styles) ===== -->
+<style>
+    .hl-primary {
+        font-weight: 700;
+        text-decoration: underline;
+        font-style: italic;
+    }
+
+    .hl-fallback1 {
+        font-weight: 700;
+        text-decoration: underline;
+    }
+
+    .hl-fallback2 {
+        font-weight: 700;
+        font-style: italic;
+    }
+
+    .table-wrap {
+        position: relative;
+        max-height: 60vh;
+        overflow: auto;
+        border: 1px solid var(--bd);
+        border-radius: 10px;
+    }
+
+    .table-wrap thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8fafc;
+        box-shadow: 0 1px 0 var(--bd);
+    }
+
+    .chip {
+        display: inline-block;
+        padding: .1rem .4rem;
+        border-radius: .6rem;
+        background: #efefef;
+        margin-right: .25rem;
+    }
+
+    .tabs {
+        display: flex;
+        gap: .5rem;
+    }
+
+    .tabs a {
+        padding: .25rem .5rem;
+        border-radius: .5rem;
+        text-decoration: none;
+        border: 1px solid var(--bd);
+    }
+
+    .tabs a.on {
+        background: #eef2ff;
+        border-color: #c7d2fe;
+    }
+
+    details.raw {
+        margin-top: .75rem;
+    }
+
+    .fn {
+        font-size: .8em;
+        margin-left: .25rem;
+        color: var(--muted);
+        text-decoration: none;
+    }
+
+    .fn-var {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+</style>
+
 <details id="billing-transparency" class="collapsible">
     <summary>
         <h2 style="display:inline;">How We Compute Usage &amp; Billing</h2>
@@ -415,7 +399,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         <hr>
         <h3>Data Collection</h3>
         <ul>
-            <li>We query <code>sacct</code> with: <code>--parsable2</code>, <code>-S</code> (start date), <code>-E</code>
+            <li>We query <code>sacct</code> with: <code>--parsable2</code>, <code>-S</code> (start date),
+                <code>-E</code>
                 (end date), <code>-L</code>, and a fixed set of fields (see example below) [1].</li>
             <li>We include terminal states such as <code>COMPLETED</code>, <code>FAILED</code>, <code>CANCELLED</code>,
                 <code>TIMEOUT</code>, <code>PREEMPTED</code>, <code>NODE_FAIL</code>, <code>BOOT_FAIL</code>,
@@ -425,7 +410,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <code>--allusers</code>; otherwise, we fetch only your own jobs [1],[2].
             </li>
         </ul>
-        
+
         <h3>Fields We Use</h3>
         <p>We request and interpret the following Slurm fields:</p>
         <table class="table table-sm">
@@ -440,12 +425,14 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <tr>
                     <td><code>Elapsed</code></td>
                     <td>Wall-clock run time for the job/step, format <em>[days-]HH:MM:SS[.ms]</em> [1].</td>
-                    <td>Converted to hours (<em>elapsed_h</em>). Used with allocated resources to infer time-based usage.
+                    <td>Converted to hours (<em>elapsed_h</em>). Used with allocated resources to infer time-based
+                        usage.
                     </td>
                 </tr>
                 <tr>
                     <td><code>TotalCPU</code></td>
-                    <td>Sum of user+system CPU time across tasks for the job/step (may exceed elapsed due to parallelism)
+                    <td>Sum of user+system CPU time across tasks for the job/step (may exceed elapsed due to
+                        parallelism)
                         [1].</td>
                     <td>Preferred CPU usage signal. We sum step <code>TotalCPU</code> (excluding the <code>.batch</code>
                         wrapper) when available.</td>
@@ -468,7 +455,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <tr>
                     <td><code>AveRSS</code>, <code>MaxRSS</code></td>
                     <td>Average / maximum resident set size (per step/job aggregation) [1].</td>
-                    <td><code>AveRSS</code> per step × step elapsed gives “used memory GB-hours”. If unavailable, we fall
+                    <td><code>AveRSS</code> per step × step elapsed gives “used memory GB-hours”. If unavailable, we
+                        fall
                         back to allocated memory.</td>
                 </tr>
                 <tr>
@@ -480,7 +468,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 </tr>
             </tbody>
         </table>
-        
+
         <h3>Billing Formula</h3>
         <p>The per-job (parent) cost is computed as:</p>
         <pre><code>Cost = (CPU_core_hours × cpu_rate)
@@ -489,7 +477,8 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         <ul>
             <li><strong>CPU_core_hours</strong>:
                 <ul>
-                    <li>Primary: sum of <code>TotalCPU</code> (hours) over job steps (excluding <code>.batch</code>).</li>
+                    <li>Primary: sum of <code>TotalCPU</code> (hours) over job steps (excluding <code>.batch</code>).
+                    </li>
                     <li>Fallbacks: sum of <code>CPUTimeRAW</code> over steps; else parent <code>TotalCPU</code>; else
                         <code>AllocCPUS × elapsed_h</code>.
                     </li>
@@ -505,7 +494,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <li>Rates (<code>cpu_rate</code>, <code>gpu_rate</code>, <code>mem_rate</code>) are published per tier and
                 versioned in this service.</li>
         </ul>
-        
+
         <h3>FAQ</h3>
         <dl>
             <dt>Why are some values zero?</dt>
@@ -515,7 +504,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 CPU may evaluate to 0 until a fallback applies. Similarly, if <code>AveRSS</code> is missing and no
                 <code>mem=</code> is present in TRES, memory usage may appear as 0. See field fallbacks above [1],[3].
             </dd>
-        
+
             <dt>What are job “steps” and why do they matter?</dt>
             <dd>
                 Slurm records a parent job row plus one or more step rows (e.g., <code>12345.batch</code>,
@@ -523,28 +512,31 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 We group steps under their parent and aggregate usage so the parent’s cost includes all step activity
                 [1],[4].
             </dd>
-        
+
             <dt>Why exclude <code>.batch</code> from CPU sums?</dt>
             <dd>
-                The <code>.batch</code> step is a wrapper and can duplicate accounting; excluding it avoids double counting.
+                The <code>.batch</code> step is a wrapper and can duplicate accounting; excluding it avoids double
+                counting.
                 This is a common operational choice informed by how Slurm reports step accounting [1].
             </dd>
-        
+
             <dt>Why can CPU usage exceed elapsed time?</dt>
             <dd>
-                <code>TotalCPU</code> represents cumulative CPU time across concurrent tasks; in parallel workloads it can
+                <code>TotalCPU</code> represents cumulative CPU time across concurrent tasks; in parallel workloads it
+                can
                 exceed wall-clock elapsed (that is expected) [1].
             </dd>
-        
+
             <dt>What about time zones and date filters?</dt>
             <dd>
                 <code>End</code> timestamps are interpreted in the cluster’s local time. The requested end date includes
                 jobs finishing on that date (up to 23:59:59) [1],[2].
             </dd>
         </dl>
-        
+
         <h3>Worked Example (Made-Up Numbers)</h3>
-        <p>Below is an illustrative <code>sacct</code>-style extract (pipe-delimited). Values are intentionally simple for
+        <p>Below is an illustrative <code>sacct</code>-style extract (pipe-delimited). Values are intentionally simple
+            for
             clarity.</p>
         {% set example_raw %}
         User|JobID|JobName|Elapsed|TotalCPU|CPUTime|CPUTimeRAW|ReqTRES|AllocTRES|AveRSS|MaxRSS|TRESUsageInTot|TRESUsageOutTot|End|State|ExitCode|DerivedExitCode|ConsumedEnergyRaw|ConsumedEnergy|NodeList|AllocNodes
@@ -553,7 +545,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         |1001.0|step0|01:00:00|25:00:00|0000:00:00|0||cpu=4,gres/gpu=1,mem=0,node=1|4G|4G||||COMPLETED|0:0|0:0|||node01|1
         |1001.1|step1|01:01:00|25:00:00|0000:00:00|0||cpu=4,gres/gpu=1,mem=0,node=1|4G|4G||||COMPLETED|0:0|0:0|||node01|1
         {% endset %}
-        
+
         {% set lines = example_raw.strip().splitlines() %}
         {% set rows = [] %}
         {% for line in lines %}
@@ -561,7 +553,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         {% endfor %}
         {% set header = rows[0] %}
         {% set body = rows[1:] %}
-        
+
         <details class="raw">
             <summary>Show example raw output as a table</summary>
             <div class="table-wrap" style="margin-top:.5rem;">
@@ -586,12 +578,14 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             </div>
         </details>
 
-        
-        <p><strong>Rates (example):</strong> <code>cpu_rate = ฿1 / core-hour</code>, <code>gpu_rate = ฿5 / GPU-hour</code>,
+
+        <p><strong>Rates (example):</strong> <code>cpu_rate = ฿1 / core-hour</code>,
+            <code>gpu_rate = ฿5 / GPU-hour</code>,
             <code>mem_rate = ฿0.50 / GB-hour</code>.
         </p>
         <ol>
-            <li><strong>Elapsed (parent)</strong>: <code>02:01:00</code> = 2&nbsp;h&nbsp;1&nbsp;m &rarr; <em>elapsed_h</em>
+            <li><strong>Elapsed (parent)</strong>: <code>02:01:00</code> = 2&nbsp;h&nbsp;1&nbsp;m &rarr;
+                <em>elapsed_h</em>
                 = 2.0167&nbsp;h.</li>
             <li><strong>CPU_core_hours</strong>: sum step <code>TotalCPU</code> (exclude <code>.batch</code>):
                 <code>25:00:00</code> + <code>25:00:00</code> = 50&nbsp;h.
@@ -601,12 +595,13 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                 <ul>
                     <li>Step0: 4&nbsp;GB × 1.00&nbsp;h = 4&nbsp;GB-h</li>
                     <li>Step1: 4&nbsp;GB × 1.0167&nbsp;h ≈ 4.0668&nbsp;GB-h</li>
-                    <li>Total ≈ 8.0668&nbsp;GB-h (fallback would be 8&nbsp;GB × 2.0167&nbsp;h ≈ 16.1336&nbsp;GB-h if AveRSS
+                    <li>Total ≈ 8.0668&nbsp;GB-h (fallback would be 8&nbsp;GB × 2.0167&nbsp;h ≈ 16.1336&nbsp;GB-h if
+                        AveRSS
                         were missing)</li>
                 </ul>
             </li>
         </ol>
-        
+
         <p><strong>Cost:</strong></p>
         <pre><code>CPU: 50.0000 × 1      = ฿50.00
         GPU: 2.0167 × 5        = ฿10.08
@@ -614,19 +609,24 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         -----------------------------
         Total                  ≈ ฿64.11
         </code></pre>
-            <h3>References</h3>
-            <ol>
-                <li><a href="https://slurm.schedmd.com/sacct.html" rel="noopener noreferrer">Slurm sacct(1) — command, fields,
-                        formats, filters</a></li>
-                <li><a href="https://slurm.schedmd.com/accounting.html" rel="noopener noreferrer">Slurm Accounting —
-                        configuration, privacy (<code>PrivateData</code>), usage</a></li>
-                <li><a href="https://slurm.schedmd.com/tres.html" rel="noopener noreferrer">Trackable RESources (TRES) — CPU,
-                        memory, GPUs</a></li>
-                <li><a href="https://slurm.schedmd.com/sacct.html#SECTION_OUTPUT-FIELDS" rel="noopener noreferrer">sacct Output
-                        Fields — definitions for <code>TotalCPU</code>, <code>AveRSS</code>, etc.</a></li>
-                <li><a href="https://slurm.schedmd.com/" rel="noopener noreferrer">Slurm Official Documentation Home</a></li>
-            </ol>
-            <!-- === your existing section content ends here === -->
-            </div>
-            </details>
+        <h3>References</h3>
+        <ol>
+            <li><a href="https://slurm.schedmd.com/sacct.html" rel="noopener noreferrer">Slurm sacct(1) — command,
+                    fields,
+                    formats, filters</a></li>
+            <li><a href="https://slurm.schedmd.com/accounting.html" rel="noopener noreferrer">Slurm Accounting —
+                    configuration, privacy (<code>PrivateData</code>), usage</a></li>
+            <li><a href="https://slurm.schedmd.com/tres.html" rel="noopener noreferrer">Trackable RESources (TRES) —
+                    CPU,
+                    memory, GPUs</a></li>
+            <li><a href="https://slurm.schedmd.com/sacct.html#SECTION_OUTPUT-FIELDS" rel="noopener noreferrer">sacct
+                    Output
+                    Fields — definitions for <code>TotalCPU</code>, <code>AveRSS</code>, etc.</a></li>
+            <li><a href="https://slurm.schedmd.com/" rel="noopener noreferrer">Slurm Official Documentation Home</a>
+            </li>
+        </ol>
+        <!-- === your existing section content ends here === -->
+    </div>
+</details>
+
 {% endblock %}
