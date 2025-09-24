@@ -16,38 +16,137 @@
             href="{{ url_for('admin.admin_form', section='rates', type=tier) }}">{{ _("Change Rate") }}</a>
 
         <a class="slink {{ 'on' if section=='usage' else '' }}"
-            href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">{{
-            _("Usage Tables") }}</a>
+            href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">{{ _("Usage Tables") }}</a>
 
         <a class="slink {{ 'on' if section=='myusage' else '' }}"
-            href="{{ url_for('admin.admin_form', section='myusage', before=before, view=view) }}">{{ _("My Usage")
-            }}</a>
+            href="{{ url_for('admin.admin_form', section='myusage', before=before, view=view) }}">{{ _("My Usage") }}</a>
 
         <a class="slink {{ 'on' if section=='billing' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Billing") }}</a>
+            href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
 
         <a class="slink {{ 'on' if section=='audit' else '' }}" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
+
         <a class="slink {{ 'on' if section=='dashboard' else '' }}"
-            href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">
-            {{ _("Dashboard") }}
-        </a>
-        <a class="slink" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
+            href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">{{ _("Dashboard") }}</a>
+
+        <a class="slink {{ 'on' if section=='tiers' else '' }}"
+            href="{{ url_for('admin.admin_form', section='tiers') }}">{{ _("User Tier Overrides") }}</a>
         <!-- <a class="slink" href="{{ url_for('admin.ledger_page') }}">Accounting</a> -->
     </aside>
+
     <style>
-        /* make the three columns line up, bottom-aligned */
-.grid2.controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: .75rem 1rem;
-  align-items: end;  /* bottom-align inputs and buttons */
-}
+        .grid2.controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: .75rem 1rem;
+            align-items: end;
+        }
 
-.field { display: flex; flex-direction: column; }
-.field > label { margin-bottom: .25rem; }
+        .field {
+            display: flex;
+            flex-direction: column;
+        }
 
-.actions { display: flex; gap: .5rem; align-self: end; }
+        .field>label {
+            margin-bottom: .25rem;
+        }
 
+        .actions {
+            display: flex;
+            gap: .5rem;
+            align-self: end;
+        }
+
+        .hl-primary {
+            font-weight: 700;
+            text-decoration: underline;
+            font-style: italic;
+        }
+
+        .hl-fallback1 {
+            font-weight: 700;
+            text-decoration: underline;
+        }
+
+        .hl-fallback2 {
+            font-weight: 700;
+            font-style: italic;
+        }
+
+        .formula small {
+            color: var(--muted, #666);
+        }
+
+        details.raw {
+            margin-top: .75rem;
+        }
+
+        .table-wrap {
+            position: relative;
+            max-height: 60vh;
+            overflow: auto;
+            border: 1px solid var(--bd);
+            border-radius: 10px;
+        }
+
+        .table-wrap>table {
+            width: 100%;
+            border: 0;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 0;
+        }
+
+        .table-wrap thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8fafc;
+            box-shadow: 0 1px 0 var(--bd);
+        }
+
+        .table-wrap th,
+        .table-wrap td {
+            overflow-wrap: anywhere;
+        }
+
+        .chip {
+            display: inline-block;
+            padding: .1rem .4rem;
+            border-radius: .6rem;
+            background: #efefef;
+            margin-right: .25rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: .5rem;
+            margin: .5rem 0;
+        }
+
+        .tabs a {
+            padding: .25rem .5rem;
+            border-radius: .5rem;
+            text-decoration: none;
+            border: 1px solid var(--bd);
+        }
+
+        .tabs a.on {
+            background: #eef2ff;
+            border-color: #c7d2fe;
+        }
+
+        .muted small {
+            color: var(--muted, #666);
+        }
+
+        .right {
+            float: right
+        }
+
+        .clear {
+            clear: both
+        }
     </style>
 
     <!-- Main -->
@@ -65,7 +164,7 @@
                     <option value="gov" {{ 'selected' if tier=='gov' else '' }}>gov</option>
                     <option value="private" {{ 'selected' if tier=='private' else '' }}>private</option>
                 </select>
-                
+
                 <script>
                     (function () {
                         const sel = document.getElementById('tierSelect');
@@ -73,8 +172,6 @@
                         sel.addEventListener('change', (e) => {
                             const u = new URL(baseUrl, window.location.origin);
                             u.searchParams.set('type', e.target.value);
-                            // preserve other params if you like:
-                            // u.searchParams.set('section', 'rates');
                             window.location.assign(u.toString());
                         });
                     })();
@@ -105,7 +202,7 @@
                     <span class="chip">GPU: ฿{{ '%.2f'|format(current['gpu']) }}</span>
                     <span class="chip">MEM: ฿{{ '%.2f'|format(current['mem']) }}</span>
                 </div>
-<br>
+                <br>
                 <button type="submit">Update</button>
             </form>
         </div>
@@ -140,240 +237,125 @@
         <div class="card">
             <h3>{{ _("Usage Preview")}} (slurmrestd → sacct → test.csv)</h3>
 
-<form method="get" autocomplete="off" id="usage-form">
-    <div class="grid2 controls">
-        <!-- Col 1: date -->
-        <div class="field">
-            <label for="before">Jobs completed before</label>
-            <input id="before" type="date" name="before" value="{{ before }}">
-        </div>
-
-        <!-- Col 2: user filter (NO nested form) -->
-        <div class="field">
-            <label for="q-inp">Filter by user</label>
-            <small id="q-counter" class="muted" style="display:block;margin-top:.25rem"></small>
-            <input id="q-inp" name="q" type="search" value="{{ q or '' }}" placeholder="Start typing a username"
-                list="userlist" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
-                data-1p-ignore="true" data-lpignore="true">
-            <datalist id="userlist">
-                {% for u in all_users %}
-                <option value="{{ u }}"></option>
-                {% endfor %}
-            </datalist>
-        </div>
-
-        <!-- Col 3: actions (NO label wrapper) -->
-        <div class="actions">
-            <button type="submit">Fetch Usage</button>
-            <button type="button" id="reset-q" class="btn-secondary">Reset Search</button>
-        </div>
-    </div>
-
-    <input type="hidden" name="section" value="usage">
-    <input type="hidden" name="type" value="{{ tier }}">
-</form>
-
+            <form method="get" autocomplete="off" id="usage-form">
+                <div class="grid2 controls">
+                    <div class="field">
+                        <label for="before">Jobs completed before</label>
+                        <input id="before" type="date" name="before" value="{{ before }}">
+                    </div>
+                    <div class="field">
+                        <label for="q-inp">Filter by user</label>
+                        <small id="q-counter" class="muted" style="display:block;margin-top:.25rem"></small>
+                        <input id="q-inp" name="q" type="search" value="{{ q or '' }}"
+                            placeholder="Start typing a username" list="userlist" autocomplete="off" spellcheck="false"
+                            autocapitalize="off" autocorrect="off" data-1p-ignore="true" data-lpignore="true">
+                        <datalist id="userlist">
+                            {% for u in all_users %}
+                            <option value="{{ u }}"></option>
+                            {% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="actions">
+                        <button type="submit">Fetch Usage</button>
+                        <button type="button" id="reset-q" class="btn-secondary">Reset Search</button>
+                    </div>
+                </div>
+                <input type="hidden" name="section" value="usage">
+                <input type="hidden" name="type" value="{{ tier }}">
+            </form>
 
             <div class="right muted">
-                Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{%
-                endif %}
+                Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} —
+                {{ notes|join(' | ') }}{% endif %}
             </div>
             <div class="clear"></div>
 
-<style>
-    /* Priority styles for header legend + raw-table header emphasis
-     - primary:      bold + underline + italic
-     - 1st fallback: bold + underline
-     - 2nd fallback: bold + italic
-  */
-    .hl-primary {
-        font-weight: 700;
-        text-decoration: underline;
-        font-style: italic;
-    }
+            {# Legend + footnotes retained #}
+            <div class="formula" style="margin:.5rem 0 .25rem 0">
+                <div>
+                    <b>CPU</b>:
+                    <span class="hl-primary">
+                        <abbr
+                            title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
+                            TotalCPU (steps)</abbr>
+                        <a href="#fn-totalcpu" class="fn">[1]</a>
+                    </span>
+                    <small>or</small>
+                    <span class="hl-fallback1">
+                        <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW /
+                            3600</abbr>
+                        <a href="#fn-cputimeraw" class="fn">[2]</a>
+                    </span>
+                    <small>or</small>
+                    <span class="hl-fallback2">
+                        <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS ×
+                            Elapsed</abbr>
+                        <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
+                    </span>
+                </div>
 
-    .hl-fallback1 {
-        font-weight: 700;
-        text-decoration: underline;
-    }
+                <div>
+                    <b>MEM</b>:
+                    <span class="hl-primary">
+                        <abbr
+                            title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
+                            AveRSS(GB) × Elapsed (steps)</abbr>
+                        <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
+                    </span>
+                    <small>or</small>
+                    <span class="hl-fallback2">
+                        <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES ×
+                            Elapsed</abbr>
+                        <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
+                    </span>
+                </div>
 
-    .hl-fallback2 {
-        font-weight: 700;
-        font-style: italic;
-    }
+                <div>
+                    <b>GPU</b>:
+                    <span class="hl-primary">
+                        <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU ×
+                            Elapsed</abbr>
+                        <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
+                    </span>
+                    <small>or</small>
+                    <span class="hl-fallback2">
+                        <abbr
+                            title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU
+                            × Elapsed</abbr>
+                        <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
+                    </span>
+                </div>
+            </div>
 
-    .formula small {
-        color: var(--muted, #666);
-    }
-
-    details.raw {
-        margin-top: .75rem;
-    }
-
-    /* The wrapper is the scroll container (vertical + horizontal).
-     Sticky headers will pin to the top INSIDE this element. */
-    .table-wrap {
-        position: relative;
-        max-height: 60vh;
-        /* vertical scroll */
-        overflow: auto;
-        /* both axes if needed */
-        border: 1px solid var(--bd);
-        border-radius: 10px;
-    }
-
-    /* Tables inside the wrapper behave like normal tables */
-    .table-wrap>table {
-        width: 100%;
-        border: 0;
-        /* wrapper holds the border */
-        border-collapse: separate;
-        border-spacing: 0;
-        margin: 0;
-    }
-
-    /* Make header cells sticky within the scroll container */
-    .table-wrap thead th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        /* keep above body cells */
-        background: #f8fafc;
-        /* must have a background for sticky */
-        box-shadow: 0 1px 0 var(--bd);
-        /* subtle divider under the header */
-    }
-
-    /* Optional: freeze first column too (uncomment if you want this)
-  .table-wrap tbody td:first-child,
-  .table-wrap thead th:first-child {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: #ffffff;
-    box-shadow: 1px 0 0 var(--bd);
-  }
-  .table-wrap thead th:first-child { z-index: 3; }  /* above the sticky row */
-    */
-
-    /* Don’t let long tokens blow up columns */
-    .table-wrap th,
-    .table-wrap td {
-        overflow-wrap: anywhere;
-    }
-
-    .chip {
-        display: inline-block;
-        padding: .1rem .4rem;
-        border-radius: .6rem;
-        background: #efefef;
-        margin-right: .25rem;
-    }
-
-    /* Footnotes / tooltips */
-.formula abbr { text-decoration: none; border-bottom: 1px dotted var(--bd); cursor: help; }
-.fn { font-size: .8em; margin-left: .25rem; color: var(--muted); text-decoration: none; }
-details.footnotes { margin-top: .5rem; }
-details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
-.fn-list { margin: .25rem 0 0 1.25rem; }
-.fn-list li { margin: .25rem 0; }
-.fn-var { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-
-</style>
-
-
-<!-- Formula legend with matching styles + tooltips + footnotes -->
-<div class="formula" style="margin:.5rem 0 .25rem 0">
-    <div>
-        <b>CPU</b>:
-        <span class="hl-primary">
-            <abbr
-                title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
-                TotalCPU (steps)</abbr>
-            <a href="#fn-totalcpu" class="fn">[1]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback1">
-            <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW / 3600</abbr>
-            <a href="#fn-cputimeraw" class="fn">[2]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS × Elapsed</abbr>
-            <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-
-    <div>
-        <b>MEM</b>:
-        <span class="hl-primary">
-            <abbr
-                title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
-                AveRSS(GB) × Elapsed (steps)</abbr>
-            <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES × Elapsed</abbr>
-            <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-
-    <div>
-        <b>GPU</b>:
-        <span class="hl-primary">
-            <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU × Elapsed</abbr>
-            <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-        <small>or</small>
-        <span class="hl-fallback2">
-            <abbr title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU ×
-                Elapsed</abbr>
-            <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
-        </span>
-    </div>
-</div>
-
-<!-- Footnotes / glossary -->
-<details class="footnotes">
-    <summary>What do these variables mean?</summary>
-    <ol class="fn-list">
-        <li id="fn-totalcpu"><span class="fn-var">TotalCPU</span> — Slurm field of CPU time used (HH:MM:SS[.fff]) per
-            job/step. We sum over steps and convert to core-hours.</li>
-        <li id="fn-cputimeraw"><span class="fn-var">CPUTimeRAW</span> — Slurm field of CPU time in seconds (integer). We
-            divide by 3600 to get hours; used when <span class="fn-var">TotalCPU</span> is missing/zero.</li>
-        <li id="fn-alloccpus"><span class="fn-var">AllocCPUS</span> — CPU cores allocated, parsed from <span
-                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
-                class="fn-var">cpu=</span>.</li>
-        <li id="fn-elapsed"><span class="fn-var">Elapsed</span> — Wall-clock runtime of the parent job (D-HH:MM:SS),
-            converted to hours for calculations.</li>
-        <li id="fn-averss"><span class="fn-var">AveRSS</span> — Average resident set size per step (K/M/G/T). We convert
-            to GB; used to estimate memory actually used over time.</li>
-        <li id="fn-memfromtres"><span class="fn-var">Mem_from_TRES</span> — Memory allocated (GB) parsed from <span
-                class="fn-var">AllocTRES</span> (fallback <span class="fn-var">ReqTRES</span>) via <span
-                class="fn-var">mem=</span>.</li>
-        <li id="fn-allocgpu"><span class="fn-var">AllocGPU</span> — GPUs allocated parsed from <span
-                class="fn-var">AllocTRES</span> via <span class="fn-var">gres/gpu=</span>.</li>
-        <li id="fn-reqgpu"><span class="fn-var">ReqGPU</span> — GPUs requested parsed from <span
-                class="fn-var">ReqTRES</span> via <span class="fn-var">gres/gpu=</span> (fallback only).</li>
-    </ol>
-    <div class="muted" style="margin-top:.25rem">
-        Notes: “steps” means rows like <span class="fn-var">.batch</span>, <span class="fn-var">.0</span>, etc., which
-        roll up to their parent job ID (or array task ID like <span class="fn-var">12345_17</span>). GPU is billed on
-        allocation for now; memory prefers used (from <span class="fn-var">AveRSS</span>) and falls back to allocated.
-    </div>
-</details>
-
+            <details class="footnotes">
+                <summary>What do these variables mean?</summary>
+                <ol class="fn-list">
+                    <li id="fn-totalcpu"><span class="fn-var">TotalCPU</span> — Slurm field (HH:MM:SS[.fff]) per
+                        job/step; sum, convert to core-hours.</li>
+                    <li id="fn-cputimeraw"><span class="fn-var">CPUTimeRAW</span> — CPU seconds; divide by 3600.</li>
+                    <li id="fn-alloccpus"><span class="fn-var">AllocCPUS</span> — from <span
+                            class="fn-var">AllocTRES</span> / <span class="fn-var">ReqTRES</span>.</li>
+                    <li id="fn-elapsed"><span class="fn-var">Elapsed</span> — D-HH:MM:SS; convert to hours.</li>
+                    <li id="fn-averss"><span class="fn-var">AveRSS</span> — average RSS per step; convert to GB.</li>
+                    <li id="fn-memfromtres"><span class="fn-var">Mem_from_TRES</span> — mem= in TRES, GB.</li>
+                    <li id="fn-allocgpu"><span class="fn-var">AllocGPU</span> — gres/gpu= in AllocTRES.</li>
+                    <li id="fn-reqgpu"><span class="fn-var">ReqGPU</span> — fallback from ReqTRES.</li>
+                </ol>
+                <div class="muted" style="margin-top:.25rem">
+                    Notes: “steps” like <span class="fn-var">.batch</span>, <span class="fn-var">.0</span> roll up to
+                    parent job or array task.
+                </div>
+            </details>
 
             <div class="tabs">
                 <a class="{{ 'on' if view=='detail' else '' }}" href="{{ q
-                     and url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q)
-                     or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">
+               and url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q)
+               or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">
                     Detailed
                 </a>
                 <a class="{{ 'on' if view=='aggregate' else '' }}" href="{{ q
-                     and url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q)
-                     or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">
+               and url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q)
+               or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">
                     Aggregate
                 </a>
             </div>
@@ -430,26 +412,17 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <p class="muted">No rows for the given range.</p>
             {% endif %}
 
-            <!-- Collapsible: Raw fetched data (all columns) with styled headers -->
             <details class="raw">
                 <summary>Show raw fetched data (parents + steps)</summary>
                 {% if raw_cols and raw_rows %}
                 <div class="table-wrap">
                     <table id="usage-raw">
                         <thead>
-                            <tr>
-                                {% for c in raw_cols %}
-                                <th class="{{ header_classes.get(c,'') }}">{{ c }}</th>
-                                {% endfor %}
-                            </tr>
+                            <tr>{% for c in raw_cols %}<th>{{ c }}</th>{% endfor %}</tr>
                         </thead>
                         <tbody>
                             {% for r in raw_rows %}
-                            <tr>
-                                {% for c in raw_cols %}
-                                <td>{{ r.get(c) }}</td>
-                                {% endfor %}
-                            </tr>
+                            <tr>{% for c in raw_cols %}<td>{{ r.get(c) }}</td>{% endfor %}</tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -501,7 +474,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             {% endif %}
         </div>
 
-        {# ================= ADMIN'S OWN USAGE ================= #}
+        {# ================= ADMIN'S OWN USAGE (Billed tab removed; no "Create Receipt") ================= #}
         {% elif section == 'myusage' %}
         <div class="card">
             <h3>{{ _("Usage Preview") }}</h3>
@@ -520,14 +493,9 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
 
             <div class="tabs">
                 <a class="{{ 'on' if view=='detail' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='myusage', before=before, view='detail') }}">{{
-                    _("Detailed") }}</a>
+                    href="{{ url_for('admin.admin_form', section='myusage', before=before, view='detail') }}">{{ _("Detailed") }}</a>
                 <a class="{{ 'on' if view=='aggregate' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='myusage', before=before, view='aggregate') }}">{{
-                    _("Aggregate") }}</a>
-                <a class="{{ 'on' if view=='billed' else '' }}"
-                    href="{{ url_for('admin.admin_form', section='myusage', before=before, view='billed') }}">{{
-                    _("Billed") }}</a>
+                    href="{{ url_for('admin.admin_form', section='myusage', before=before, view='aggregate') }}">{{ _("Aggregate") }}</a>
             </div>
 
             {% if view in ['detail','aggregate'] %}
@@ -538,12 +506,6 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                             CSV</button></a>
                 </div>
             </div>
-
-            <form method="post" action="{{ url_for('admin.create_self_receipt') }}" style="display:inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="before" value="{{ before }}">
-                <button type="submit">{{ _("Create Receipt") }}</button>
-            </form>
 
             {% if view == 'detail' %}
             {% if rows and rows|length>0 %}
@@ -620,34 +582,48 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <p class="muted">No rows for the given range.</p>
             {% endif %}
             {% endif %}
+            {% endif %}
+        </div>
 
-            {% else %} {# view == 'billed' #}
-            <h4>Pending (unpaid) receipts</h4>
-            {% if my_pending_receipts and my_pending_receipts|length>0 %}
-            <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span></p>
+        {# ================= INVOICES (ALL USERS) — payments removed, add "Trend & Monthly" ================= #}
+        {% elif section == 'billing' %}
+        <div class="card">
+            <h3>{{ _("Invoices")}}</h3>
+
+            <div class="tabs">
+                <a class="{{ 'on' if (bview or 'invoices')=='invoices' else '' }}"
+                    href="{{ url_for('admin.admin_form', section='billing', bview='invoices') }}">Invoices</a>
+                <a class="{{ 'on' if bview=='trend' else '' }}"
+                    href="{{ url_for('admin.admin_form', section='billing', bview='trend', year=year or '', u=selected_user or '', month=month or '') }}">
+                    Trend & Monthly
+                </a>
+            </div>
+
+            {% if (bview or 'invoices') == 'invoices' %}
+            <h4>{{ _("Pending Invoices") }}</h4>
+            {% if pending and pending|length>0 %}
             <table>
                 <thead>
                     <tr>
                         <th>ID</th>
+                        <th>User</th>
                         <th>Period</th>
                         <th>Total (฿)</th>
                         <th>Created</th>
+                        <th>Status</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for r in my_pending_receipts %}
+                    {% for r in pending %}
                     <tr>
                         <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                        <td>{{ r['username'] }}</td>
                         <td>{{ r['start'] }} → {{ r['end'] }}</td>
                         <td>฿{{ '%.2f'|format(r['total']) }}</td>
                         <td>{{ r['created_at']|dt_local }}</td>
+                        <td>{{ r['status'] }}</td>
                         <td>
-                            <!-- <form method="get" action="{{ url_for('payments.start_receipt_payment', rid=r['id']) }}"
-                                style="display:inline">
-                                <button type="submit">Pay now</button>
-                            </form> -->
-
                             <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
                                 style="display:inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -662,138 +638,192 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             <p class="muted">Nothing pending 🎉</p>
             {% endif %}
 
-            <h4 style="margin-top:1rem">Paid receipts</h4>
-            {% if my_paid_receipts and my_paid_receipts|length>0 %}
-            <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_paid) }}</span></p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Period</th>
-                        <th>Total (฿)</th>
-                        <th>Paid at</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in my_paid_receipts %}
-                    <tr>
-                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                        <td>{{ r['start'] }} → {{ r['end'] }}</td>
-                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['paid_at']|dt_local or '—' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="muted">No paid receipts yet.</p>
-            {% endif %}
-            {% endif %}
-        </div>
+            <div class="card" style="margin-top:1rem">
+                <h4>{{ _("Paid Invoices") }}</h4>
+                {% if paid and paid|length>0 %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Period</th>
+                            <th>Total (฿)</th>
+                            <th>Paid at</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in paid %}
+                        <tr>
+                            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                            <td>{{ r['username'] }}</td>
+                            <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                            <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                            <td>{{ r['paid_at']|dt_local or '—' }}</td>
+                            <td>{{ r['status'] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="muted">No paid invoices yet.</p>
+                {% endif %}
+                <div style="margin-top:.5rem">
+                    <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history
+                            (CSV)</button></a>
+                </div>
+            </div>
 
-        {# ================= BILLING (ALL USERS) ================= #}
-        {% elif section == 'billing' %}
-        <div class="card">
-            <h3>{{ _("Pending Receipts")}}</h3>
-            {% if pending and pending|length>0 %}
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>User</th>
-            <th>Period</th>
-            <th>Total (฿)</th>
-            <th>Created</th>
-            <th>Status</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for r in pending %}
-        <tr>
-            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-            <td>{{ r['username'] }}</td>
-            <td>{{ r['start'] }} → {{ r['end'] }}</td>
-            <td>฿{{ '%.2f'|format(r['total']) }}</td>
-            <td>{{ r['created_at']|dt_local }}</td>
-            <td>{{ r['status'] }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-            {% else %}
-            <p class="muted">Nothing pending 🎉</p>
-            {% endif %}
-        </div>
-        <div class="card" style="margin-top:1rem">
-            <h3>Paid Receipts</h3>
-            {% if paid and paid|length>0 %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>User</th>
-                        <th>Period</th>
-                        <th>Total (฿)</th>
-                        <th>Paid at</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in paid %}
-                    <tr>
-                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                        <td>{{ r['username'] }}</td>
-                        <td>{{ r['start'] }} → {{ r['end'] }}</td>
-                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['paid_at']|dt_local or '—' }}</td>
-                        <td>{{ r['status'] }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p class="muted">No paid receipts yet.</p>
-            {% endif %}
-        </div>
+            {% else %} {# bview == 'trend' #}
+            {# ===== Filters: pick user + year + (optional) month ===== #}
+            <form method="get" autocomplete="off" style="margin-bottom:.75rem">
+                <div class="grid2 controls" style="grid-template-columns: 1fr 1fr 1fr auto;">
+                    <div class="field">
+                        <label for="u">User</label>
+                        <input id="u" name="u" type="search" value="{{ selected_user or '' }}" placeholder="username"
+                            list="userlist2" autocomplete="off" spellcheck="false">
+                        <datalist id="userlist2">
+                            {% for u in all_users %}<option value="{{ u }}"></option>{% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="field">
+                        <label for="year">Year</label>
+                        <input id="year" name="year" type="number" min="2000" max="2100" step="1"
+                            value="{{ year or current_year }}">
+                    </div>
+                    <div class="field">
+                        <label for="month">Month (optional)</label>
+                        <select id="month" name="month">
+                            <option value="">—</option>
+                            {% for m in range(1,13) %}
+                            <option value="{{ m }}" {{ 'selected' if month and m==month|int else '' }}>
+                                {{ "%02d"|format(m) }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="actions">
+                        <input type="hidden" name="section" value="billing">
+                        <input type="hidden" name="bview" value="trend">
+                        <button type="submit">Apply</button>
+                    </div>
+                </div>
+            </form>
 
+            {% if selected_user %}
+            <h4 style="margin:.25rem 0">{{ selected_user }} — {{ year or current_year }}</h4>
 
-        <div class="card">
-            <h3>{{ _("Download Payment History")}}</h3>
-            <p class="muted">Exports all <b>paid</b> receipts.</p>
-            <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
+            {# --- Monthly trend (aggregated) --- #}
+            <div class="card" style="margin-top:.5rem">
+                <h3>Monthly totals (aggregated)</h3>
+                {% if monthly_agg and monthly_agg|length>0 %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th>Jobs</th>
+                            <th>CPU core-hrs</th>
+                            <th>GPU hrs</th>
+                            <th>Mem GB-hrs (used)</th>
+                            <th>Total Cost (฿)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in monthly_agg %}
+                        <tr>
+                            <td>{{ "%02d"|format(r['month']) }}</td>
+                            <td>{{ r['jobs'] }}</td>
+                            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <p class="muted" style="margin-top:.25rem">
+                    <span class="chip">Year total: ฿{{ '%.2f'|format(year_total or 0) }}</span>
+                </p>
+                {% else %}
+                <p class="muted">No usage for this year/user.</p>
+                {% endif %}
+            </div>
+
+            {# --- Optional monthly detail (when a month is chosen) --- #}
+            {% if month and month_detail_rows %}
+            <div class="card" style="margin-top:1rem">
+                <h3>Details for {{ selected_user }} — {{ year or current_year }}-{{ "%02d"|format(month|int) }}</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>JobID</th>
+                                <th>Elapsed</th>
+                                <th>End</th>
+                                <th>State</th>
+                                <th>CPU core-hrs</th>
+                                <th>GPU (count)</th>
+                                <th>GPU hrs</th>
+                                <th>Mem (GB alloc)</th>
+                                <th>Mem GB-hrs <small>(used)</small></th>
+                                <th>Mem GB-hrs <small>(alloc)</small></th>
+                                <th>Tier</th>
+                                <th>Cost (฿)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in month_detail_rows %}
+                            <tr>
+                                <td>{{ r['JobID'] }}</td>
+                                <td>{{ r['Elapsed'] }}</td>
+                                <td>{{ r['End']|dt_local }}</td>
+                                <td>{{ r['State'] }}</td>
+                                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                                <td>{{ r['GPU_Count'] }}</td>
+                                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                                <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                                <td>{{ r['tier']|upper }}</td>
+                                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="muted" style="margin-top:.5rem">
+                    <span class="chip">Jobs: {{ month_detail_rows|length }}</span>
+                    <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu_m or 0) }}</span>
+                    <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu_m or 0) }}</span>
+                    <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem_m or 0) }}</span>
+                    <span class="chip">Total: ฿{{ '%.2f'|format(month_total or 0) }}</span>
+                </div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            <p class="muted">Choose a user and year to view monthly trends and (optionally) a month’s detailed usage.
+            </p>
+            {% endif %}
+            {% endif %}
         </div>
 
         {% else %}
         <p class="muted">Unknown section.</p>
         {% endif %}
-
     </main>
 </div>
+
 <script>
-
     function syncTabLinks(q) {
-            const tabs = document.querySelectorAll('.tabs a');
-            tabs.forEach(a => {
-                const url = new URL(a.href, window.location.origin);
-                if ((q || '').trim()) {
-                    url.searchParams.set('q', q);
-                } else {
-                    url.searchParams.delete('q');
-                }
-                a.href = url.toString();
-            });
-        }
-
-        // call from applyFilter():
-        function applyFilter() {
-            const q = inp ? inp.value : '';
-            filterTableByUser(tblDetail, q);
-            filterTableByUser(tblAgg, q);
-            filterTableByUser(tblRaw, q);
-            updateCounter(q);
-            syncTabLinks(q); // <— add this
-        }
-
+        const tabs = document.querySelectorAll('.tabs a');
+        tabs.forEach(a => {
+            const url = new URL(a.href, window.location.origin);
+            if ((q || '').trim()) { url.searchParams.set('q', q); }
+            else { url.searchParams.delete('q'); }
+            a.href = url.toString();
+        });
+    }
 
     (function () {
         const form = document.getElementById('usage-form');
@@ -801,21 +831,12 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
         const resetBtn = document.getElementById('reset-q');
         const counter = document.getElementById('q-counter');
 
-        // Tables we can filter on the client
         const tblDetail = document.getElementById('usage-detail');
         const tblAgg = document.getElementById('usage-agg');
-        const tblRaw = document.getElementById('usage-raw'); // optional: comment out if you don't want to filter raw
+        const tblRaw = document.getElementById('usage-raw');
 
-        // Utility: debounce
-        const debounce = (fn, ms = 150) => {
-            let t;
-            return (...args) => {
-                clearTimeout(t);
-                t = setTimeout(() => fn.apply(null, args), ms);
-            };
-        };
+        const debounce = (fn, ms = 150) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn.apply(null, args), ms); }; };
 
-        // Find the "User" column index in a table (by header text)
         function findUserColIndex(table) {
             if (!table) return -1;
             const ths = table.querySelectorAll('thead th');
@@ -825,19 +846,12 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             return -1;
         }
 
-        // Generic filter for a table by "User" column
         function filterTableByUser(table, q) {
             if (!table) return { shown: 0, total: 0 };
-
             const userCol = findUserColIndex(table);
-            if (userCol === -1) {
-                // If there's no "User" column (e.g., detail table always has one, agg has one),
-                // we skip this table.
-                return { shown: 0, total: 0 };
-            }
+            if (userCol === -1) return { shown: 0, total: 0 };
             const rows = table.querySelectorAll('tbody tr');
             const qq = (q || '').trim().toLowerCase();
-
             let shown = 0;
             rows.forEach(tr => {
                 const cells = tr.children;
@@ -849,44 +863,31 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             return { shown, total: rows.length };
         }
 
-        // Update the counter text, combining all visible tables on the page
         function updateCounter(q) {
-            const parts = [];
-            // Only count tables that exist on this view
+            if (!counter) return;
             const a = filterTableByUser(tblDetail, q);
             const b = filterTableByUser(tblAgg, q);
-            const c = filterTableByUser(tblRaw, q);   // comment this out if you don't want to live-filter Raw
+            const c = filterTableByUser(tblRaw, q);
             const totals = [a, b, c].filter(x => x.total > 0);
-
-            if (totals.length === 0) {
-                counter && (counter.textContent = '');
-                return;
-            }
-
+            if (totals.length === 0) { counter.textContent = ''; return; }
             const shown = totals.reduce((s, x) => s + x.shown, 0);
             const total = totals.reduce((s, x) => s + x.total, 0);
-            if (!counter) return;
-
-            if ((q || '').trim()) {
-                counter.textContent = `Showing ${shown} of ${total} row(s) for “${q}” (local filter)`;
-            } else {
-                counter.textContent = `Showing all ${total} row(s)`;
-            }
+            counter.textContent = (q || '').trim()
+                ? `Showing ${shown} of ${total} row(s) for “${q}” (local filter)`
+                : `Showing all ${total} row(s)`;
         }
 
-        // Live filter on input
         function applyFilter() {
             const q = inp ? inp.value : '';
-            // Filter whichever table(s) is/are present on this view
             filterTableByUser(tblDetail, q);
             filterTableByUser(tblAgg, q);
-            filterTableByUser(tblRaw, q);   // comment out to skip raw
+            filterTableByUser(tblRaw, q);
             updateCounter(q);
+            syncTabLinks(q);
         }
 
         const applyFilterDebounced = debounce(applyFilter, 150);
 
-        // Show datalist on focus (your original helper)
         if (inp) {
             inp.addEventListener('focus', function () {
                 if (!this.value) {
@@ -896,22 +897,13 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
                     setTimeout(() => { this.value = v; }, 10);
                 }
             });
-
-            // Real-time filtering while typing
             inp.addEventListener('input', applyFilterDebounced);
-
-            // Optional: if you ALSO want to refresh from server after a pause, uncomment:
-            // const submitDebounced = debounce(() => form && form.submit(), 800);
-            // inp.addEventListener('input', submitDebounced);
         }
 
-        // Reset search: clear and show everything (no reload)
         if (resetBtn && inp) {
             resetBtn.addEventListener('click', function () {
                 inp.value = '';
-                applyFilter(); // instantly show all rows
-
-                // Keep URL tidy (remove ?q=...) without reloading
+                applyFilter();
                 if (history && history.replaceState) {
                     const url = new URL(window.location.href);
                     url.searchParams.delete('q');
@@ -920,11 +912,7 @@ details.footnotes summary { cursor: pointer; color: #374151; font-weight: 600; }
             });
         }
 
-        // Initial counter state on load
         applyFilter();
     })();
 </script>
-
-
-
 {% endblock %}

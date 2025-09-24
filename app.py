@@ -14,8 +14,8 @@ from controllers.admin import admin_bp
 from controllers.api import api_bp
 from controllers.auth import auth_bp, login_manager, admin_required
 from controllers.user import user_bp
-from controllers.payments import payments_bp
-from controllers.payments import webhook as payments_webhook
+# from controllers.payments import payments_bp
+# from controllers.payments import webhook as payments_webhook
 from services.metrics import init_app as init_metrics, REQUEST_COUNT, REQUEST_LATENCY
 from sqlalchemy import text
 from flask import jsonify
@@ -117,7 +117,7 @@ def create_app(test_config: dict | None = None):
     # ---- CSRF ----
     csrf = CSRFProtect()
     csrf.init_app(app)
-    csrf.exempt(payments_webhook)
+    # csrf.exempt(payments_webhook)
     app.jinja_env.globals["csrf_token"] = generate_csrf
 
     @app.errorhandler(CSRFError)

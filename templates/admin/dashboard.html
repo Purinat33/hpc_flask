@@ -8,7 +8,8 @@
         <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='usage',  type='mu') }}">Usage Tables</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='myusage') }}">My Usage</a>
-        <a class="slink" href="{{ url_for('admin.admin_form', section='billing') }}">Billing</a>
+        <a class="slink {{ 'on' if section=='billing' else '' }}"
+            href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
         <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
         <a class="slink on" href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">Dashboard</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
