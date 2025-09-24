@@ -3,7 +3,7 @@
 
 {% block content %}
 <h2>Receipt #{{ r['id'] }} — {{ r['status'] }}</h2>
-<p>Period: {{ r['start'] }} → {{ r['end'] }}</p>
+<p>Period: {{ r['start']|dt_local }} → {{ r['end']|dt_local }}</p>
 <p>Total: ฿{{ '%.2f'|format(r['total']) }}</p>
 
 {# --- ACTIONS MOVED TO TOP --- #}

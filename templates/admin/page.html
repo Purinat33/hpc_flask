@@ -638,7 +638,7 @@
             <tr>
                 <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                 <td>{{ r['username'] }}</td>
-                <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
                 <td>฿{{ '%.2f'|format(r['total']) }}</td>
                 <td>{{ r['created_at']|dt_local }}</td>
                 <td>{{ r['status'] }}</td>
@@ -675,7 +675,7 @@
                 <tr>
                     <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                     <td>{{ r['username'] }}</td>
-                    <td>{{ r['start'] }} → {{ r['end'] }}</td>
+                    <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
                     <td>฿{{ '%.2f'|format(r['total']) }}</td>
                     <td>{{ r['paid_at']|dt_local or '—' }}</td>
                     <td>{{ r['status'] }}</td>
