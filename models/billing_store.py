@@ -1,4 +1,5 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
+from typing import Tuple, Optional
 from models.schema import Receipt, Payment, PaymentEvent
 from decimal import Decimal
 from sqlalchemy import select
@@ -421,3 +422,137 @@ def paid_receipts_csv():
         ])
     out.seek(0)
     return ("paid_receipts_history.csv", out.read())
+
+
+def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = None) -> Tuple[bool, str]:
+    """
+    Revert a PAID receipt back to PENDING.
+    - Cancels any internal_admin succeeded Payment(s)
+    - Refuses to proceed if any non-internal succeeded Payment exists
+    - Clears paid fields on Receipt
+    - Keeps invoice_no as-is
+    - Emits PaymentEvent(s)
+    Returns (ok, message).
+    """
+    now = datetime.now(timezone.utc)
+    PROVIDER_INTERNAL = "internal_admin"
+
+    with session_scope() as s:
+        rcpt = (
+            s.query(Receipt)
+            .with_for_update()
+            .filter(Receipt.id == receipt_id)
+            .one_or_none()
+        )
+        if rcpt is None:
+            return False, "receipt_not_found"
+        if rcpt.status == "void":
+            # don’t mutate void receipts
+            s.add(PaymentEvent(
+                provider=PROVIDER_INTERNAL,
+                external_event_id=None,
+                payment_id=None,
+                event_type="admin.revert_noop_void",
+                raw=json.dumps({"receipt_id": receipt_id, "actor": actor}),
+                signature_ok=1,
+                received_at=now,
+            ))
+            return False, "already_void"
+        if rcpt.status == "pending":
+            s.add(PaymentEvent(
+                provider=PROVIDER_INTERNAL,
+                external_event_id=None,
+                payment_id=None,
+                event_type="admin.revert_noop_pending",
+                raw=json.dumps({"receipt_id": receipt_id, "actor": actor}),
+                signature_ok=1,
+                received_at=now,
+            ))
+            return True, "already_pending"
+
+        # must be 'paid' here
+        succeeded = s.execute(
+            select(Payment).where(
+                Payment.receipt_id == receipt_id,
+                Payment.status == "succeeded",
+            )
+        ).scalars().all()
+
+        # Disallow revert if there is a real external collection
+        external_succeeded = [
+            p for p in succeeded if p.provider != PROVIDER_INTERNAL]
+        if external_succeeded:
+            s.add(PaymentEvent(
+                provider=PROVIDER_INTERNAL,
+                external_event_id=None,
+                payment_id=None,
+                event_type="admin.revert_blocked_external_payment",
+                raw=json.dumps({
+                    "receipt_id": receipt_id,
+                    "actor": actor,
+                    "reason": reason,
+                    "external_providers": sorted({p.provider for p in external_succeeded}),
+                    "payment_ids": [p.id for p in external_succeeded],
+                }),
+                signature_ok=1,
+                received_at=now,
+            ))
+            return False, "has_external_succeeded_payment"
+
+        # Cancel internal_admin succeeded payments (if any)
+        for p in succeeded:
+            # only internal_admin should be here due to guard above
+            p.status = "canceled"
+            p.updated_at = now
+            s.add(p)
+            s.add(PaymentEvent(
+                provider=PROVIDER_INTERNAL,
+                external_event_id=None,
+                payment_id=p.id,
+                event_type="admin.payment_canceled",
+                raw=json.dumps({
+                    "receipt_id": receipt_id,
+                    "payment_id": p.id,
+                    "amount_cents": p.amount_cents,
+                    "currency": p.currency,
+                    "actor": actor,
+                    "reason": reason,
+                }),
+                signature_ok=1,
+                received_at=now,
+            ))
+
+        # Revert receipt fields
+        prev = {
+            "paid_at": (rcpt.paid_at.isoformat().replace("+00:00", "Z") if rcpt.paid_at else None),
+            "method": rcpt.method,
+            "tx_ref": rcpt.tx_ref,
+            "approved_by": rcpt.approved_by,
+            "approved_at": (rcpt.approved_at.isoformat().replace("+00:00", "Z") if rcpt.approved_at else None),
+            "invoice_no": rcpt.invoice_no,
+        }
+        rcpt.status = "pending"
+        rcpt.paid_at = None
+        rcpt.method = None
+        rcpt.tx_ref = None
+        rcpt.approved_by = None
+        rcpt.approved_at = None
+        # keep rcpt.invoice_no unchanged
+        s.add(rcpt)
+
+        s.add(PaymentEvent(
+            provider=PROVIDER_INTERNAL,
+            external_event_id=None,
+            payment_id=None,
+            event_type="admin.receipt_reverted_to_pending",
+            raw=json.dumps({
+                "receipt_id": receipt_id,
+                "actor": actor,
+                "reason": reason,
+                "previous": prev,
+            }),
+            signature_ok=1,
+            received_at=now,
+        ))
+
+        return True, "ok"

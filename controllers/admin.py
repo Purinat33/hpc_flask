@@ -1,7 +1,7 @@
 from weasyprint import HTML
 from flask import current_app, make_response
 # add at top if not imported
-from models.billing_store import get_receipt_with_items, list_receipts
+from models.billing_store import get_receipt_with_items, list_receipts, revert_receipt_to_pending
 from flask import flash  # add at top if not imported
 from calendar import monthrange
 from services.forecast import build_daily_series, multi_horizon_forecast
@@ -829,6 +829,35 @@ def mark_paid(rid: int):
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
 
+@admin_bp.post("/admin/receipts/<int:rid>/revert")
+@login_required
+@fresh_login_required
+@admin_required
+def revert_paid(rid: int):
+    reason = (request.form.get("reason") or "").strip() or None
+    ok, msg = revert_receipt_to_pending(rid, current_user.username, reason)
+    audit(
+        "receipt.revert.admin",
+        target=f"receipt={rid}",
+        status=200 if ok else 400,
+        extra={"actor": current_user.username, "msg": msg, "reason": reason}
+    )
+    if ok:
+        flash("Reverted to pending.", "success")
+    else:
+        if msg == "has_external_succeeded_payment":
+            flash(
+                "Cannot revert: receipt has a succeeded external payment (refund first).", "error")
+        elif msg == "already_pending":
+            flash("No change: already pending.", "info")
+        elif msg == "already_void":
+            flash("Cannot revert a void receipt.", "error")
+        else:
+            flash("Revert failed.", "error")
+    return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
+
+
+
 @admin_bp.get("/admin/paid.csv")
 @login_required
 @admin_required
@@ -1262,3 +1291,5 @@ def admin_receipt_pdf(rid: int):
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
     return resp
+
+
