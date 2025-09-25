@@ -1,5 +1,5 @@
 # controllers/user.py
-from flask import make_response
+from flask import current_app, make_response
 from weasyprint import HTML
 import pandas as pd
 from models.billing_store import list_receipts, get_receipt_with_items
@@ -295,7 +295,7 @@ def receipt_pdf(rid: int):
         org=ORG_INFO(),   # see helper below
         DISPLAY_TZ=APP_TZ,
     )
-    pdf = HTML(string=html, base_url=request.url_root).write_pdf()
+    pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'

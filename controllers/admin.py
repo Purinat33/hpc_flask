@@ -1,5 +1,5 @@
 from weasyprint import HTML
-from flask import make_response
+from flask import current_app, make_response
 # add at top if not imported
 from models.billing_store import get_receipt_with_items, list_receipts
 from flask import flash  # add at top if not imported
@@ -1257,7 +1257,7 @@ def admin_receipt_pdf(rid: int):
         org=ORG_INFO(),
         DISPLAY_TZ=APP_TZ,
     )
-    pdf = HTML(string=html, base_url=request.url_root).write_pdf()
+    pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
