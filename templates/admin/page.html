@@ -749,10 +749,27 @@
                     <label for="inv-q">Search user or #id</label>
                     <input id="inv-q" type="search" placeholder="alice  •  #123  •  ali">
                 </div>
+            
                 <div class="field">
-                    <label for="inv-month">Month</label>
-                    <input id="inv-month" type="month" value="{{ (year and month) and '%04d-%02d'|format(year, month) or '' }}">
+                    <label>Year / Month</label>
+                    <div style="display:flex; gap:.5rem;">
+                        <select id="inv-year">
+                            <option value="">All years</option>
+                            {% for yopt in range(current_year-5, current_year+1) %}
+                            <option value="{{ yopt }}" {{ 'selected' if year==yopt else '' }}>{{ yopt }}</option>
+                            {% endfor %}
+                        </select>
+                        <select id="inv-monthsel">
+                            <option value="">All months</option>
+                            {% for mopt in range(1,13) %}
+                            <option value="{{ '%02d'|format(mopt) }}" {{ 'selected' if (month and mopt==month|int) else '' }}>
+                                {{ '%02d'|format(mopt) }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
+            
                 <div class="actions">
                     <button type="button" id="inv-reset" class="btn-secondary">Reset</button>
                 </div>
@@ -781,6 +798,7 @@
                         data-username="{{ (r['username'] or '')|lower }}"
                         data-start="{{ r['start'].isoformat() }}"
                         data-end="{{ r['end'].isoformat() }}"
+                        data-ym="{{ r['period_ym'] }}"
                         >
                         <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                         <td>{{ r['username'] }}</td>
@@ -827,6 +845,7 @@
       data-username="{{ (r['username'] or '')|lower }}"
       data-start="{{ r['start'].isoformat() }}"
       data-end="{{ r['end'].isoformat() }}"
+      data-ym="{{ r['period_ym'] }}"
       >
                             <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                             <td>{{ r['username'] }}</td>
@@ -969,23 +988,16 @@
 <script>
     (function () {
         const q = document.getElementById('inv-q');
-        const m = document.getElementById('inv-month');
+        const y = document.getElementById('inv-year');
+        const mo = document.getElementById('inv-monthsel');
         const reset = document.getElementById('inv-reset');
 
         const rows = Array.from(document.querySelectorAll('#pending-table tbody tr, #paid-table tbody tr'));
 
-        function ym(iso) {
-            if (!iso) return '';
-            const d = new Date(iso);
-            if (isNaN(d)) return '';
-            const y = d.getUTCFullYear();
-            const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-            return `${y}-${mo}`;
-        }
-
         function apply() {
             const qv = (q && q.value || '').trim().toLowerCase();
-            const mv = (m && m.value || '').trim();
+            const yv = (y && y.value || '').trim();           // "2025" or ""
+            const mv = (mo && mo.value || '').trim();         // "09" or ""
 
             let shownP = 0, totalP = 0, shownD = 0, totalD = 0;
 
@@ -993,11 +1005,19 @@
                 const status = tr.dataset.status;
                 const id = tr.dataset.id || '';
                 const user = tr.dataset.username || '';
-                const yms = ym(tr.dataset.start);
+                const rowYM = tr.dataset.ym || (tr.dataset.start || '').slice(0, 7); // fallback if needed
 
                 const matchQ = !qv || user.includes(qv) || id.includes(qv);
-                const matchM = !mv || yms === mv;
-                const ok = matchQ && matchM;
+
+                // Month/Year logic:
+                // - If year+month chosen => exact match "YYYY-MM"
+                // - If only year chosen  => prefix match "YYYY-"
+                // - If neither           => accept all
+                let matchYM = true;
+                if (yv && mv) matchYM = (rowYM === `${yv}-${mv}`);
+                else if (yv) matchYM = rowYM.startsWith(`${yv}-`);
+
+                const ok = matchQ && matchYM;
 
                 tr.style.display = ok ? '' : 'none';
                 if (status === 'pending') { totalP++; if (ok) shownP++; }
@@ -1009,25 +1029,34 @@
             if (pc) pc.textContent = totalP ? `Showing ${shownP}/${totalP}` : '';
             if (dc) dc.textContent = totalD ? `Showing ${shownD}/${totalD}` : '';
 
-            // Persist filter state in URL (no backend required)
+            // Persist state in URL
             const url = new URL(window.location.href);
             qv ? url.searchParams.set('inv_q', qv) : url.searchParams.delete('inv_q');
-            mv ? url.searchParams.set('inv_month', mv) : url.searchParams.delete('inv_month');
+            yv ? url.searchParams.set('inv_y', yv) : url.searchParams.delete('inv_y');
+            mv ? url.searchParams.set('inv_m', mv) : url.searchParams.delete('inv_m');
             history.replaceState({}, '', url.toString());
         }
 
         // Wire up
         if (q) q.addEventListener('input', apply);
-        if (m) m.addEventListener('change', apply);
-        if (reset) reset.addEventListener('click', () => { if (q) q.value = ''; if (m) m.value = ''; apply(); });
+        if (y) y.addEventListener('change', apply);
+        if (mo) mo.addEventListener('change', apply);
+        if (reset) reset.addEventListener('click', () => {
+            if (q) q.value = '';
+            if (y) y.value = '';
+            if (mo) mo.value = '';
+            apply();
+        });
 
         // Hydrate from URL
         const url = new URL(window.location.href);
         if (q && url.searchParams.get('inv_q')) q.value = url.searchParams.get('inv_q');
-        if (m && url.searchParams.get('inv_month')) m.value = url.searchParams.get('inv_month');
+        if (y && url.searchParams.get('inv_y')) y.value = url.searchParams.get('inv_y');
+        if (mo && url.searchParams.get('inv_m')) mo.value = url.searchParams.get('inv_m');
 
         apply();
     })();
 </script>
+
 
 {% endblock %}

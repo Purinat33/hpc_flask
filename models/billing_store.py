@@ -51,6 +51,10 @@ def _now_utc() -> datetime:
     return now_utc()
 
 
+def _local_ym(dt: datetime) -> str:
+    return dt.astimezone(_tz_from_app()).strftime("%Y-%m")
+
+
 def billed_job_ids() -> set[str]:
     with session_scope() as s:
         rows = s.execute(select(ReceiptItem.job_key)).all()
@@ -85,6 +89,7 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "rate_gpu": float(r.rate_gpu),
                 "rate_mem": float(r.rate_mem),
                 "rates_locked_at": r.rates_locked_at,
+                "period_ym": _local_ym(r.start),
             })
         return out
 
@@ -287,6 +292,7 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
                 "pricing_tier": r.pricing_tier,
                 "rate_cpu": float(r.rate_cpu), "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
                 "rates_locked_at": r.rates_locked_at,
+                "period_ym": _local_ym(r.start),
             })
         return out
 
