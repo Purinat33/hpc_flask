@@ -1,10 +1,14 @@
-from models.billing_store import list_receipts  # add at top if not imported
+from weasyprint import HTML
+from flask import make_response
+# add at top if not imported
+from models.billing_store import get_receipt_with_items, list_receipts
 from flask import flash  # add at top if not imported
 from calendar import monthrange
 from services.forecast import build_daily_series, multi_horizon_forecast
 from services.accounting import derive_journal, trial_balance, income_statement, balance_sheet
 from flask import jsonify
 from datetime import timedelta
+from services.org_info import ORG_INFO
 from services.pricing_sim import build_pricing_components, simulate_vs_current
 import io
 from datetime import date, datetime
@@ -564,7 +568,7 @@ def admin_form():
                         y = current_year
                     ym_start = f"{y}-01-01"
                     ym_end = (date.today().isoformat() if y == date.today().year
-                            else f"{y}-12-31")
+                              else f"{y}-12-31")
 
                     # Fetch all users, compute costs, then filter by user if selected
                     df_raw, data_source, ds_notes = fetch_jobs_with_fallbacks(
@@ -609,7 +613,7 @@ def admin_form():
                             .sort_values("_month")
                         )
                         g.rename(columns={"Cost": "Cost (฿)",
-                                "_month": "month"}, inplace=True)
+                                          "_month": "month"}, inplace=True)
                         monthly_agg = g[["month", "jobs", "CPU_Core_Hours", "GPU_Hours",
                                         "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict("records")
                         year_total = float(g["Cost (฿)"].sum())
@@ -631,7 +635,8 @@ def admin_form():
                                 for c in cols:
                                     if c not in dmonth.columns:
                                         dmonth[c] = ""
-                                month_detail_rows = dmonth[cols].to_dict("records")
+                                month_detail_rows = dmonth[cols].to_dict(
+                                    "records")
                                 # chips
                                 tot_cpu_m = float(pd.to_numeric(dmonth.get(
                                     "CPU_Core_Hours"), errors="coerce").fillna(0).sum())
@@ -1233,3 +1238,27 @@ def create_month_invoices():
         flash(f"Error creating invoices: {e}", "error")
 
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
+
+
+@admin_bp.get("/admin/receipts/<int:rid>.pdf")
+@login_required
+@admin_required
+def admin_receipt_pdf(rid: int):
+    rec, items = get_receipt_with_items(rid)
+    if not rec:
+        audit("receipt.pdf.not_found", target=f"receipt={rid}", status=404,
+              extra={"actor": current_user.username})
+        return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
+
+    html = render_template(
+        "invoices/invoice.html",
+        r=rec,
+        rows=items,
+        org=ORG_INFO(),
+        DISPLAY_TZ=APP_TZ,
+    )
+    pdf = HTML(string=html, base_url=request.url_root).write_pdf()
+    resp = make_response(pdf)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
+    return resp

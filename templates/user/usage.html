@@ -257,6 +257,7 @@
             <th>Period</th>
             <th>Total (฿)</th>
             <th>Created</th>
+            <th>Invoice</th>
         </tr>
     </thead>
     <tbody>
@@ -266,6 +267,7 @@
             <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
             <td>{{ r['created_at']|dt_local }}</td>
+            <td><a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}">Download PDF</a></td>
         </tr>
         {% endfor %}
     </tbody>
@@ -284,6 +286,7 @@
             <th>Period</th>
             <th>Total (฿)</th>
             <th>Paid at</th>
+            <th>Invoice</th>
         </tr>
     </thead>
     <tbody>
@@ -293,6 +296,9 @@
             <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
             <td>{{ r['paid_at']|dt_local or '—' }}</td>
+            <td>
+                <a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a>
+            </td>
         </tr>
         {% endfor %}
     </tbody>

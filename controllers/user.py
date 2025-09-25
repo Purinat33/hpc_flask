@@ -1,4 +1,6 @@
 # controllers/user.py
+from flask import make_response
+from weasyprint import HTML
 import pandas as pd
 from models.billing_store import list_receipts, get_receipt_with_items
 from flask import Blueprint, render_template, request, Response, url_for, redirect
@@ -9,7 +11,9 @@ from services.data_sources import fetch_jobs_with_fallbacks
 from services.billing import compute_costs
 from models.billing_store import billed_job_ids, canonical_job_id
 from models.audit_store import audit
+from services.datetimex import APP_TZ
 from services.metrics import CSV_DOWNLOADS
+from services.org_info import ORG_INFO
 
 user_bp = Blueprint("user", __name__)
 
@@ -272,3 +276,27 @@ def my_usage_csv():
     CSV_DOWNLOADS.labels(kind="user_usage").inc()
     return Response(out.read(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@user_bp.get("/me/receipts/<int:rid>.pdf")
+@login_required
+def receipt_pdf(rid: int):
+    rec, items = get_receipt_with_items(rid)
+    is_admin = getattr(current_user, "is_admin", False)
+    if not rec or (rec["username"] != current_user.username and not is_admin):
+        audit("receipt.pdf.denied", target=f"receipt={rid}", status=403,
+              extra={"actor": current_user.username})
+        return redirect(url_for("user.my_receipts"))
+
+    html = render_template(
+        "invoices/invoice.html",
+        r=rec,
+        rows=items,
+        org=ORG_INFO(),   # see helper below
+        DISPLAY_TZ=APP_TZ,
+    )
+    pdf = HTML(string=html, base_url=request.url_root).write_pdf()
+    resp = make_response(pdf)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
+    return resp

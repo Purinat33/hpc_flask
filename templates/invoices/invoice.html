@@ -1,0 +1,268 @@
+{# templates/invoices/invoice.html #}
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Invoice #{{ r.id }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 22mm 16mm;
+        }
+
+        body {
+            font: 12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
+            color: #111;
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin: 0;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .col {
+            flex: 1;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .muted {
+            color: #666;
+        }
+
+        .box {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .mt-1 {
+            margin-top: 8px;
+        }
+
+        .mt-2 {
+            margin-top: 14px;
+        }
+
+        .mt-3 {
+            margin-top: 22px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+
+        th {
+            text-align: left;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+        }
+
+        tfoot td {
+            border-top: 1px solid #ddd;
+        }
+
+        .totals td {
+            padding: 6px 8px;
+        }
+
+        .grand {
+            font-weight: 700;
+            font-size: 1.05em;
+        }
+
+        .w-60 {
+            width: 60%;
+        }
+
+        .w-20 {
+            width: 20%;
+        }
+
+        .stamp {
+            font-weight: 700;
+            text-transform: uppercase;
+            border: 2px solid #16a34a;
+            color: #16a34a;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .watermark {
+            position: fixed;
+            top: 45%;
+            left: 10%;
+            font-size: 72px;
+            color: #16a34a22;
+            transform: rotate(-20deg);
+        }
+    </style>
+</head>
+
+<body>
+
+    {% if r.status == 'paid' %}
+    <div class="watermark">PAID</div>
+    {% endif %}
+
+    <!-- Header -->
+    <div class="row">
+        <div class="col">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="logo" style="height:46px;">
+            <h2 class="mt-1">{{ org.name }}</h2>
+            <div class="muted">{{ org.address_line1 }}{% if org.address_line2 %}, {{ org.address_line2 }}{% endif %}
+            </div>
+            <div class="muted">{{ org.city }} {{ org.postcode }}, {{ org.country }}</div>
+            {% if org.tax_id %}<div class="muted">Tax ID: {{ org.tax_id }}</div>{% endif %}
+            {% if org.email %}<div class="muted">{{ org.email }}</div>{% endif %}
+            {% if org.phone %}<div class="muted">{{ org.phone }}</div>{% endif %}
+        </div>
+        <div class="col right">
+            <h1>INVOICE</h1>
+            <div class="mt-1">
+                <div><b>No.</b> INV-{{ "%06d"|format(r.id) }}</div>
+                <div><b>Date</b> {{ r.created_at|dt_local(fmt="%Y-%m-%d") }}</div>
+                <div><b>Status</b>
+                    {% if r.status == 'paid' %}<span class="stamp">PAID</span>
+                    {% else %}PENDING{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill To + Period -->
+    <div class="row mt-2">
+        <div class="col box">
+            <div class="muted">Bill To</div>
+            <div><b>{{ r.username }}</b></div>
+            {# if you ever store user's org/address, render here #}
+        </div>
+        <div class="col box right" style="margin-left:12px;">
+            <div class="muted">Billing Period</div>
+            <div><b>{{ r.start|dt_local(fmt="%Y-%m-%d") }}</b> to <b>{{ r.end|dt_local(fmt="%Y-%m-%d") }}</b></div>
+            <div class="muted">Timezone: {{ DISPLAY_TZ }}</div>
+            <div class="muted">Tier: {{ (r.pricing_tier or 'mu')|upper }}</div>
+        </div>
+    </div>
+
+    <!-- Line Items -->
+    <div class="mt-3">
+        <table>
+            <thead>
+                <tr>
+                    <th class="w-60">Description</th>
+                    <th class="w-20 right">Qty / Hours</th>
+                    <th class="w-20 right">Amount (฿)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# A simple, concise summary #}
+                <tr>
+                    <td>
+                        CPU core-hours @ ฿{{ '%.2f'|format(r.rate_cpu) }} / core-hour
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format(rows|sum(attribute='cpu_core_hours')) }}
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format((rows|sum(attribute='cpu_core_hours')) * r.rate_cpu) }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        GPU hours @ ฿{{ '%.2f'|format(r.rate_gpu) }} / GPU-hour
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format(rows|sum(attribute='gpu_hours')) }}
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format((rows|sum(attribute='gpu_hours')) * r.rate_gpu) }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Memory GB-hours (used) @ ฿{{ '%.2f'|format(r.rate_mem) }} / GB-hour
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format(rows|sum(attribute='mem_gb_hours')) }}
+                    </td>
+                    <td class="right">
+                        {{ '%.2f'|format((rows|sum(attribute='mem_gb_hours')) * r.rate_mem) }}
+                    </td>
+                </tr>
+
+                {# Optional: uncomment to include a compact job list (second page if long)
+      <tr>
+        <td colspan="3" style="padding-top:12px;">
+          <div class="muted">Jobs included:</div>
+          <div>
+            {% for i in rows[:40] %}
+              {{ i.job_id_display }}{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% if rows|length > 40 %} … {% endif %}
+          </div>
+        </td>
+      </tr>
+      #}
+            </tbody>
+            <tfoot>
+                <tr class="totals">
+                    <td></td>
+                    <td class="right"><b>Subtotal</b></td>
+                    <td class="right">฿{{ '%.2f'|format(r.total) }}</td>
+                </tr>
+                {# Add VAT if needed
+      <tr class="totals">
+        <td></td><td class="right">VAT 7%</td>
+        <td class="right">฿{{ '%.2f'|format(r.total * 0.07) }}</td>
+      </tr>
+      <tr class="totals grand">
+        <td></td><td class="right">Total</td>
+        <td class="right">฿{{ '%.2f'|format(r.total * 1.07) }}</td>
+      </tr>
+      #}
+                <tr class="totals grand">
+                    <td></td>
+                    <td class="right">Total</td>
+                    <td class="right">฿{{ '%.2f'|format(r.total) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <!-- Notes / Payment Instructions -->
+    <div class="mt-3">
+        <div class="muted">Payment</div>
+        {% if r.status == 'paid' %}
+        <div>Paid at {{ r.paid_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}. Ref {{ r.tx_ref or '-' }}.</div>
+        {% else %}
+        <div>Please settle within 30 days.</div>
+        <div>Bank: {{ org.bank_name }} &middot; Account: {{ org.bank_acct }} &middot; Name: {{ org.bank_holder }}</div>
+        {# you can embed a QR image if you have one:
+       <img src="{{ url_for('static', filename='img/qr-bank.png') }}" style="height:110px">
+    #}
+        {% endif %}
+    </div>
+
+</body>
+
+</html>
