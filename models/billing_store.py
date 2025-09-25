@@ -21,6 +21,7 @@ from models.schema import Receipt, ReceiptItem
 from models import rates_store
 from services.datetimex import now_utc, to_iso_z
 import re
+from calendar import monthrange
 
 
 def _gen_invoice_no(rcpt: Receipt) -> str:
@@ -556,3 +557,76 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
         ))
 
         return True, "ok"
+
+
+def _month_bounds_local_utc(y: int, m: int) -> tuple[datetime, datetime]:
+    first = date(y, m, 1)
+    last = date(y, m, monthrange(y, m)[1])
+    return _day_start_utc(first), _day_end_utc(last)
+
+
+def bulk_void_pending_invoices_for_month(year: int, month: int, actor: str, reason: str | None = None) -> tuple[int, int]:
+    """
+    Void (undo) ALL PENDING receipts for the given local year-month.
+    Deletes their items so the jobs become unbilled again.
+    Returns (voided_count, skipped_paid_or_void).
+    """
+    start_utc, end_utc = _month_bounds_local_utc(year, month)
+    voided = 0
+    skipped = 0
+    now = datetime.now(timezone.utc)
+
+    with session_scope() as s:
+        # Pull all receipts that overlap the exact month window created by create_month_invoices()
+        q = (
+            s.query(Receipt)
+             .with_for_update(of=Receipt)
+             .filter(
+                 Receipt.start >= start_utc,
+                 Receipt.end <= end_utc,
+            )
+        )
+        for r in q.all():
+            if r.status == "pending":
+                # Delete items → free jobs for re-invoicing
+                s.execute(delete(ReceiptItem).where(
+                    ReceiptItem.receipt_id == r.id))
+                r.status = "void"
+                s.add(r)
+                # per-receipt audit event
+                s.add(PaymentEvent(
+                    provider="internal_admin",
+                    external_event_id=None,
+                    payment_id=None,
+                    event_type="admin.receipt_voided_pending",
+                    raw=json.dumps({
+                        "receipt_id": r.id,
+                        "username": r.username,
+                        "actor": actor,
+                        "reason": reason,
+                        "year": year, "month": month
+                    }),
+                    signature_ok=1,
+                    received_at=now,
+                ))
+                voided += 1
+            else:
+                # leave paid or already-void alone
+                skipped += 1
+
+        # summary event (nice for audit grep)
+        s.add(PaymentEvent(
+            provider="internal_admin",
+            external_event_id=None,
+            payment_id=None,
+            event_type="admin.bulk_void_month_completed",
+            raw=json.dumps({
+                "year": year, "month": month,
+                "actor": actor, "reason": reason,
+                "voided": voided, "skipped": skipped
+            }),
+            signature_ok=1,
+            received_at=now,
+        ))
+
+    return voided, skipped

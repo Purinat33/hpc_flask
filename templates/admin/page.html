@@ -723,6 +723,26 @@
                 <small class="muted" style="margin-left:.5rem;">Creates one pending invoice per user for the chosen
                     month.</small>
             </form>
+            <form method="post" action="{{ url_for('admin.bulk_revert_month_invoices') }}" style="margin:.5rem 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label>Year
+                    <input type="number" name="year" min="2000" max="2100" step="1" value="{{ year or current_year }}">
+                </label>
+                <label style="margin-left:.5rem;">Month
+                    <select name="month" required>
+                        {% for m in range(1,13) %}
+                        <option value="{{ m }}" {{ 'selected' if (month and m==month|int) else '' }}>{{ "%02d"|format(m) }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <input type="hidden" name="reason" value="admin bulk revert" />
+                <button type="submit" class="btn btn-warning" style="margin-left:.5rem;"
+                    onclick="return confirm('Revert ALL PENDING invoices for this month? This will delete their line items and mark them VOID. Paid invoices are not changed.');">
+                    Revert all PENDING invoices for this month
+                </button>
+                <small class="muted" style="margin-left:.5rem;">Does not affect PAID invoices.</small>
+            </form>
+
 
             <h4>{{ _("Pending Invoices") }}</h4>
             {% if pending and pending|length>0 %}

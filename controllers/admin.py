@@ -41,6 +41,7 @@ from models.base import session_scope
 from models.schema import User
 from services.data_sources import fetch_jobs_with_fallbacks
 import calendar
+from models.billing_store import bulk_void_pending_invoices_for_month
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -1237,3 +1238,51 @@ def admin_receipt_pdf(rid: int):
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
     return resp
+
+
+@admin_bp.post("/admin/invoices/revert_month")
+@login_required
+@fresh_login_required
+@admin_required
+def bulk_revert_month_invoices():
+    try:
+        y = int((request.form.get("year") or "").strip())
+        m = int((request.form.get("month") or "").strip())
+        if not (2000 <= y <= 2100 and 1 <= m <= 12):
+            raise ValueError("Invalid year/month")
+    except Exception:
+        flash("Invalid year/month", "error")
+        return redirect(url_for("admin.admin_form", section="billing"))
+
+    reason = (request.form.get("reason")
+              or "").strip() or "bulk revert pending"
+
+    try:
+        voided, skipped = bulk_void_pending_invoices_for_month(
+            y, m, current_user.username, reason
+        )
+
+        evt = "admin.bulk_revert_month.completed" if voided > 0 else "admin.bulk_revert_month.noop"
+        audit(
+            evt,
+            target=f"month={y}-{m:02d}",
+            status=200,
+            extra={
+                "actor": current_user.username,
+                "voided": int(voided),
+                "skipped": int(skipped),
+                "reason": reason,
+            },
+        )
+    except Exception as e:
+        audit(
+            "admin.bulk_revert_month.error",
+            target=f"month={y}-{m:02d}",
+            status=500,
+            extra={
+                "actor": current_user.username,
+                "reason": reason,
+                "error": str(e),
+            },
+        )
+    return redirect(url_for("admin.admin_form", section="billing"))
