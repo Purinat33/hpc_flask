@@ -743,10 +743,25 @@
                 <small class="muted" style="margin-left:.5rem;">Does not affect PAID invoices.</small>
             </form>
 
+            <!-- Filters (client-side) -->
+            <div class="grid2 controls" style="grid-template-columns: 1fr 1fr auto; margin:.5rem 0;">
+                <div class="field">
+                    <label for="inv-q">Search user or #id</label>
+                    <input id="inv-q" type="search" placeholder="alice  •  #123  •  ali">
+                </div>
+                <div class="field">
+                    <label for="inv-month">Month</label>
+                    <input id="inv-month" type="month" value="{{ (year and month) and '%04d-%02d'|format(year, month) or '' }}">
+                </div>
+                <div class="actions">
+                    <button type="button" id="inv-reset" class="btn-secondary">Reset</button>
+                </div>
+            </div>
 
-            <h4>{{ _("Pending Invoices") }}</h4>
+
+            <h4>{{ _("Pending Invoices") }} <small id="pending-counter" class="muted"></small></h4>
             {% if pending and pending|length>0 %}
-            <table>
+            <table id="pending-table">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -760,7 +775,13 @@
                 </thead>
                 <tbody>
                     {% for r in pending %}
-                    <tr>
+                    <tr
+                        data-status="pending"
+                        data-id="{{ r['id'] }}"
+                        data-username="{{ (r['username'] or '')|lower }}"
+                        data-start="{{ r['start'].isoformat() }}"
+                        data-end="{{ r['end'].isoformat() }}"
+                        >
                         <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                         <td>{{ r['username'] }}</td>
                         <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
@@ -783,9 +804,9 @@
             {% endif %}
 
             <div class="card" style="margin-top:1rem">
-                <h4>{{ _("Paid Invoices") }}</h4>
+                <h4>{{ _("Paid Invoices") }} <small id="paid-counter" class="muted"></small></h4></h4>
                 {% if paid and paid|length>0 %}
-                <table>
+                <table id="paid-table">
                     <thead>
                         <tr>
                             <th>ID</th>
@@ -800,7 +821,13 @@
                     </thead>
                     <tbody>
                         {% for r in paid %}
-                        <tr>
+                        <tr
+                              data-status="paid"
+      data-id="{{ r['id'] }}"
+      data-username="{{ (r['username'] or '')|lower }}"
+      data-start="{{ r['start'].isoformat() }}"
+      data-end="{{ r['end'].isoformat() }}"
+      >
                             <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                             <td>{{ r['username'] }}</td>
                             <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
@@ -939,4 +966,68 @@
         applyFilter();
     })();
 </script>
+<script>
+    (function () {
+        const q = document.getElementById('inv-q');
+        const m = document.getElementById('inv-month');
+        const reset = document.getElementById('inv-reset');
+
+        const rows = Array.from(document.querySelectorAll('#pending-table tbody tr, #paid-table tbody tr'));
+
+        function ym(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            if (isNaN(d)) return '';
+            const y = d.getUTCFullYear();
+            const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+            return `${y}-${mo}`;
+        }
+
+        function apply() {
+            const qv = (q && q.value || '').trim().toLowerCase();
+            const mv = (m && m.value || '').trim();
+
+            let shownP = 0, totalP = 0, shownD = 0, totalD = 0;
+
+            rows.forEach(tr => {
+                const status = tr.dataset.status;
+                const id = tr.dataset.id || '';
+                const user = tr.dataset.username || '';
+                const yms = ym(tr.dataset.start);
+
+                const matchQ = !qv || user.includes(qv) || id.includes(qv);
+                const matchM = !mv || yms === mv;
+                const ok = matchQ && matchM;
+
+                tr.style.display = ok ? '' : 'none';
+                if (status === 'pending') { totalP++; if (ok) shownP++; }
+                if (status === 'paid') { totalD++; if (ok) shownD++; }
+            });
+
+            const pc = document.getElementById('pending-counter');
+            const dc = document.getElementById('paid-counter');
+            if (pc) pc.textContent = totalP ? `Showing ${shownP}/${totalP}` : '';
+            if (dc) dc.textContent = totalD ? `Showing ${shownD}/${totalD}` : '';
+
+            // Persist filter state in URL (no backend required)
+            const url = new URL(window.location.href);
+            qv ? url.searchParams.set('inv_q', qv) : url.searchParams.delete('inv_q');
+            mv ? url.searchParams.set('inv_month', mv) : url.searchParams.delete('inv_month');
+            history.replaceState({}, '', url.toString());
+        }
+
+        // Wire up
+        if (q) q.addEventListener('input', apply);
+        if (m) m.addEventListener('change', apply);
+        if (reset) reset.addEventListener('click', () => { if (q) q.value = ''; if (m) m.value = ''; apply(); });
+
+        // Hydrate from URL
+        const url = new URL(window.location.href);
+        if (q && url.searchParams.get('inv_q')) q.value = url.searchParams.get('inv_q');
+        if (m && url.searchParams.get('inv_month')) m.value = url.searchParams.get('inv_month');
+
+        apply();
+    })();
+</script>
+
 {% endblock %}
