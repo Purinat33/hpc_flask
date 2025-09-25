@@ -21,7 +21,17 @@
                 <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
                 <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
                 <td>{{ r['status'] }}</td>
-                <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                <td>
+                    ฿{{ '%.2f'|format(r.get('total', 0)) }}
+                    {% if r.get('tax_amount', 0) > 0 %}
+                    <div class="muted" style="font-size:.85em">
+                        = ฿{{ '%.2f'|format(r.get('subtotal', 0)) }}
+                        + {{ r.get('tax_label','VAT') }}
+                        {{ '%.2f'|format(r.get('tax_rate', 0)) }}%
+                        (฿{{ '%.2f'|format(r.get('tax_amount', 0)) }})
+                    </div>
+                    {% endif %}
+                </td>
                 <td>{{ r['created_at']|dt_local }}</td>
             </tr>
             {% endfor %}

@@ -4,17 +4,16 @@
 {% block content %}
 <h2>Receipt #{{ r['id'] }} — {{ r['status'] }}</h2>
 <p>Period: {{ r['start']|dt_local }} → {{ r['end']|dt_local }}</p>
-<p>Total: ฿{{ '%.2f'|format(r['total']) }}</p>
 
-{# --- ACTIONS MOVED TO TOP --- #}
-<div class="toolbar" style="margin: .5rem 0;">
-    {% if r['status'] == 'pending' and is_owner %}
-    {% elif r['status'] == 'pending' and not is_owner %}
-    <p class="muted" style="display:inline-block;margin:0 0 0 .25rem;">
-        Only the receipt owner can start payment.
-    </p>
+<p style="margin:.25rem 0 1rem 0;">
+    <b>Total:</b> ฿{{ '%.2f'|format(r.get('total', 0)) }}
+    {% if r.get('tax_amount', 0) > 0 %}
+    <span class="muted"> (includes {{ r.get('tax_label','VAT') }}
+        {{ '%.2f'|format(r.get('tax_rate', 0)) }}%)</span>
     {% endif %}
+</p>
 
+<div class="toolbar" style="margin: .5rem 0;">
     {% if r['status'] == 'paid' %}
     <p class="muted" style="display:inline-block;margin:0 0 0 .5rem;">
         Paid at {{ r['paid_at']|dt_local or '—' }}
@@ -46,4 +45,34 @@
         {% endfor %}
     </tbody>
 </table>
+
+<!-- Totals summary -->
+<div style="max-width:420px;margin:1rem 0 0 auto;border:1px solid #eee;border-radius:6px;">
+    <table style="width:100%;border-collapse:collapse;">
+        <tbody>
+            <tr>
+                <td style="padding:.4rem .6rem;" class="muted">Subtotal</td>
+                <td style="padding:.4rem .6rem;text-align:right;">
+                    ฿{{ '%.2f'|format(r.get('subtotal', r.get('total', 0) - r.get('tax_amount', 0))) }}
+                </td>
+            </tr>
+            {% if r.get('tax_amount', 0) > 0 %}
+            <tr>
+                <td style="padding:.4rem .6rem;" class="muted">
+                    {{ r.get('tax_label','VAT') }} {{ '%.2f'|format(r.get('tax_rate', 0)) }}%
+                </td>
+                <td style="padding:.4rem .6rem;text-align:right;">
+                    ฿{{ '%.2f'|format(r.get('tax_amount', 0)) }}
+                </td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td style="padding:.4rem .6rem;font-weight:700;">Total</td>
+                <td style="padding:.4rem .6rem;text-align:right;font-weight:700;">
+                    ฿{{ '%.2f'|format(r.get('total', 0)) }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
 {% endblock %}
