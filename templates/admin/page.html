@@ -22,7 +22,7 @@
             href="{{ url_for('admin.admin_form', section='myusage', before=before, view=view) }}">{{ _("My Usage") }}</a>
 
         <a class="slink {{ 'on' if section=='billing' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
+            href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Invoices") }}</a>
 
         <a class="slink {{ 'on' if section=='audit' else '' }}" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
 
@@ -232,249 +232,364 @@
             </table>
         </div>
 
-        {# ================= ALL-USERS USAGE ================= #}
-        {% elif section == 'usage' %}
-        <div class="card">
-            <h3>{{ _("Usage Preview")}} (slurmrestd → sacct → test.csv)</h3>
+{# ================= ALL-USERS USAGE ================= #}
+{% elif section == 'usage' %}
+<div class="card">
+    <h3>{{ _("Usage Preview")}} (slurmrestd → sacct → test.csv)</h3>
 
-            <form method="get" autocomplete="off" id="usage-form">
-                <div class="grid2 controls">
-                    <div class="field">
-                        <label for="before">Jobs completed before</label>
-                        <input id="before" type="date" name="before" value="{{ before }}">
-                    </div>
-                    <div class="field">
-                        <label for="q-inp">Filter by user</label>
-                        <small id="q-counter" class="muted" style="display:block;margin-top:.25rem"></small>
-                        <input id="q-inp" name="q" type="search" value="{{ q or '' }}"
-                            placeholder="Start typing a username" list="userlist" autocomplete="off" spellcheck="false"
-                            autocapitalize="off" autocorrect="off" data-1p-ignore="true" data-lpignore="true">
-                        <datalist id="userlist">
-                            {% for u in all_users %}
-                            <option value="{{ u }}"></option>
-                            {% endfor %}
-                        </datalist>
-                    </div>
-                    <div class="actions">
-                        <button type="submit">Fetch Usage</button>
-                        <button type="button" id="reset-q" class="btn-secondary">Reset Search</button>
-                    </div>
-                </div>
+    {# ---- Tabs: Detailed | Aggregate | Trend & Monthly ---- #}
+    <div class="tabs">
+        <a class="{{ 'on' if view=='detail' else '' }}" href="{{ q
+                and url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q)
+                or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">
+            Detailed
+        </a>
+
+        <a class="{{ 'on' if view=='aggregate' else '' }}" href="{{ q
+                and url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q)
+                or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">
+            Aggregate
+        </a>
+
+        <a class="{{ 'on' if view=='trend' else '' }}"
+            href="{{ url_for('admin.admin_form', section='usage', view='trend') }}">
+            Trend & Monthly
+        </a>
+    </div>
+
+    {# ---------------- DETAIL + AGGREGATE ---------------- #}
+    {% if view in ['detail','aggregate'] %}
+
+    <form method="get" autocomplete="off" id="usage-form">
+        <div class="grid2 controls">
+            <div class="field">
+                <label for="before">Jobs completed before</label>
+                <input id="before" type="date" name="before" value="{{ before }}">
+            </div>
+            <div class="field">
+                <label for="q-inp">Filter by user</label>
+                <small id="q-counter" class="muted" style="display:block;margin-top:.25rem"></small>
+                <input id="q-inp" name="q" type="search" value="{{ q or '' }}" placeholder="Start typing a username"
+                    list="userlist" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"
+                    data-1p-ignore="true" data-lpignore="true">
+                <datalist id="userlist">
+                    {% for u in all_users %}
+                    <option value="{{ u }}"></option>
+                    {% endfor %}
+                </datalist>
+            </div>
+            <div class="actions">
+                <button type="submit">Fetch Usage</button>
+                <button type="button" id="reset-q" class="btn-secondary">Reset Search</button>
+            </div>
+        </div>
+        <input type="hidden" name="section" value="usage">
+        <input type="hidden" name="type" value="{{ tier }}">
+        <input type="hidden" name="view" value="{{ view }}">
+    </form>
+
+    <div class="right muted">
+        Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} — {{ notes|join(' | ') }}{% endif %}
+    </div>
+    <div class="clear"></div>
+
+    {# Legend + footnotes #}
+    <div class="formula" style="margin:.5rem 0 .25rem 0">
+        <div>
+            <b>CPU</b>:
+            <span class="hl-primary">
+                <abbr
+                    title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
+                    TotalCPU (steps)</abbr>
+                <a href="#fn-totalcpu" class="fn">[1]</a>
+            </span>
+            <small>or</small>
+            <span class="hl-fallback1">
+                <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW / 3600</abbr>
+                <a href="#fn-cputimeraw" class="fn">[2]</a>
+            </span>
+            <small>or</small>
+            <span class="hl-fallback2">
+                <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS × Elapsed</abbr>
+                <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
+            </span>
+        </div>
+
+        <div>
+            <b>MEM</b>:
+            <span class="hl-primary">
+                <abbr
+                    title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
+                    AveRSS(GB) × Elapsed (steps)</abbr>
+                <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
+            </span>
+            <small>or</small>
+            <span class="hl-fallback2">
+                <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES ×
+                    Elapsed</abbr>
+                <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
+            </span>
+        </div>
+
+        <div>
+            <b>GPU</b>:
+            <span class="hl-primary">
+                <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU × Elapsed</abbr>
+                <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
+            </span>
+            <small>or</small>
+            <span class="hl-fallback2">
+                <abbr title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU
+                    × Elapsed</abbr>
+                <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
+            </span>
+        </div>
+    </div>
+
+    {% if view == 'detail' %}
+    {% if rows and rows|length>0 %}
+    <div class="table-wrap" id="usage-detail-wrap">
+        <table id="usage-detail">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>JobID</th>
+                    <th>Elapsed</th>
+                    <th>End</th>
+                    <th>State</th>
+                    <th>CPU core-hrs</th>
+                    <th>GPU (count)</th>
+                    <th>GPU hrs</th>
+                    <th>Mem (GB alloc)</th>
+                    <th>Mem GB-hrs <small>(used)</small></th>
+                    <th>Mem GB-hrs <small>(alloc)</small></th>
+                    <th>Tier</th>
+                    <th>Cost (฿)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td>{{ r['User'] }}</td>
+                    <td>{{ r['JobID'] }}</td>
+                    <td>{{ r['Elapsed'] }}</td>
+                    <td>{{ r['End']|dt_local }}</td>
+                    <td>{{ r['State'] }}</td>
+                    <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                    <td>{{ r['GPU_Count'] }}</td>
+                    <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                    <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                    <td>{{ r['tier']|upper }}</td>
+                    <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="muted" style="margin-top:.5rem">
+        <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
+        <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
+        <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
+        <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
+    </div>
+    {% else %}
+    <p class="muted">No rows for the given range.</p>
+    {% endif %}
+
+    <details class="raw">
+        <summary>Show raw fetched data (parents + steps)</summary>
+        {% if raw_cols and raw_rows %}
+        <div class="table-wrap">
+            <table id="usage-raw">
+                <thead>
+                    <tr>{% for c in raw_cols %}<th>{{ c }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for r in raw_rows %}
+                    <tr>{% for c in raw_cols %}<td>{{ r.get(c) }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
+        {% else %}
+        <p class="muted">No raw rows.</p>
+        {% endif %}
+    </details>
+
+    {% else %} {# view == 'aggregate' #}
+    {% if agg_rows and agg_rows|length>0 %}
+    <p class="muted"><span class="chip">Grand total: ฿{{ '%.2f'|format(grand_total) }}</span></p>
+    <table id="usage-agg">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Tier</th>
+                <th>Jobs</th>
+                <th>CPU core-hrs</th>
+                <th>GPU hrs</th>
+                <th>Mem GB-hrs (used)</th>
+                <th>Total Cost (฿)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in agg_rows %}
+            <tr>
+                <td>{{ r['User'] }}</td>
+                <td>{{ r['tier']|upper }}</td>
+                <td>{{ r['jobs'] }}</td>
+                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="muted" style="margin-top:.5rem">
+        <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
+        <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
+        <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
+        <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
+    </div>
+    {% else %}
+    <p class="muted">No rows for the given range.</p>
+    {% endif %}
+    {% endif %} {# /detail-or-aggregate #}
+
+    {# ---------------- TREND & MONTHLY ---------------- #}
+    {% elif view == 'trend' %}
+    <form method="get" autocomplete="off" style="margin-bottom:.75rem">
+        <div class="grid2 controls" style="grid-template-columns: 1fr 1fr 1fr auto;">
+            <div class="field">
+                <label for="u">User</label>
+                <input id="u" name="u" type="search" value="{{ selected_user or '' }}" placeholder="username"
+                    list="userlist_trend" autocomplete="off" spellcheck="false">
+                <datalist id="userlist_trend">
+                    {% for u in all_users %}<option value="{{ u }}"></option>{% endfor %}
+                </datalist>
+            </div>
+            <div class="field">
+                <label for="year">Year</label>
+                <input id="year" name="year" type="number" min="2000" max="2100" step="1"
+                    value="{{ year or current_year }}">
+            </div>
+            <div class="field">
+                <label for="month">Month (optional)</label>
+                <select id="month" name="month">
+                    <option value="">—</option>
+                    {% for m in range(1,13) %}
+                    <option value="{{ m }}" {{ 'selected' if month and m==month|int else '' }}>{{ "%02d"|format(m) }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="actions">
                 <input type="hidden" name="section" value="usage">
-                <input type="hidden" name="type" value="{{ tier }}">
-            </form>
-
-            <div class="right muted">
-                Source: <b>{{ data_source or '—' }}</b>{% if notes and notes|length>0 %} —
-                {{ notes|join(' | ') }}{% endif %}
+                <input type="hidden" name="view" value="trend">
+                <button type="submit">Apply</button>
             </div>
-            <div class="clear"></div>
+        </div>
+    </form>
 
-            {# Legend + footnotes retained #}
-            <div class="formula" style="margin:.5rem 0 .25rem 0">
-                <div>
-                    <b>CPU</b>:
-                    <span class="hl-primary">
-                        <abbr
-                            title="Total CPU time consumed per step (HH:MM:SS). We sum across all steps of the job and convert to hours.">Σ
-                            TotalCPU (steps)</abbr>
-                        <a href="#fn-totalcpu" class="fn">[1]</a>
-                    </span>
-                    <small>or</small>
-                    <span class="hl-fallback1">
-                        <abbr title="CPU time in seconds (integer). Divide by 3600 to get hours.">CPUTimeRAW /
-                            3600</abbr>
-                        <a href="#fn-cputimeraw" class="fn">[2]</a>
-                    </span>
-                    <small>or</small>
-                    <span class="hl-fallback2">
-                        <abbr title="Allocated CPU cores from TRES × wall-clock runtime (hours).">AllocCPUS ×
-                            Elapsed</abbr>
-                        <a href="#fn-alloccpus" class="fn">[3]</a><a href="#fn-elapsed" class="fn">[4]</a>
-                    </span>
-                </div>
+    {% if selected_user %}
+    <h4 style="margin:.25rem 0">{{ selected_user }} — {{ year or current_year }}</h4>
 
-                <div>
-                    <b>MEM</b>:
-                    <span class="hl-primary">
-                        <abbr
-                            title="Average resident set size per step (converted to GB) × the step’s wall-clock hours, summed over steps.">Σ
-                            AveRSS(GB) × Elapsed (steps)</abbr>
-                        <a href="#fn-averss" class="fn">[5]</a><a href="#fn-elapsed" class="fn">[4]</a>
-                    </span>
-                    <small>or</small>
-                    <span class="hl-fallback2">
-                        <abbr title="Memory allocated (GB) parsed from TRES mem= × wall-clock hours.">Mem_from_TRES ×
-                            Elapsed</abbr>
-                        <a href="#fn-memfromtres" class="fn">[6]</a><a href="#fn-elapsed" class="fn">[4]</a>
-                    </span>
-                </div>
+    <div class="card" style="margin-top:.5rem">
+        <h3>Monthly totals (aggregated)</h3>
+        {% if monthly_agg and monthly_agg|length>0 %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Jobs</th>
+                    <th>CPU core-hrs</th>
+                    <th>GPU hrs</th>
+                    <th>Mem GB-hrs (used)</th>
+                    <th>Total Cost (฿)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in monthly_agg %}
+                <tr>
+                    <td>{{ "%02d"|format(r['month']) }}</td>
+                    <td>{{ r['jobs'] }}</td>
+                    <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                    <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                    <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                    <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="muted" style="margin-top:.25rem">
+            <span class="chip">Year total: ฿{{ '%.2f'|format(year_total or 0) }}</span>
+        </p>
+        {% else %}
+        <p class="muted">No usage for this year/user.</p>
+        {% endif %}
+    </div>
 
-                <div>
-                    <b>GPU</b>:
-                    <span class="hl-primary">
-                        <abbr title="Number of GPUs allocated (from AllocTRES) × wall-clock hours.">AllocGPU ×
-                            Elapsed</abbr>
-                        <a href="#fn-allocgpu" class="fn">[7]</a><a href="#fn-elapsed" class="fn">[4]</a>
-                    </span>
-                    <small>or</small>
-                    <span class="hl-fallback2">
-                        <abbr
-                            title="Requested GPUs (from ReqTRES) × wall-clock hours (fallback if AllocTRES lacks GPU).">ReqGPU
-                            × Elapsed</abbr>
-                        <a href="#fn-reqgpu" class="fn">[8]</a><a href="#fn-elapsed" class="fn">[4]</a>
-                    </span>
-                </div>
-            </div>
-
-            <details class="footnotes">
-                <summary>What do these variables mean?</summary>
-                <ol class="fn-list">
-                    <li id="fn-totalcpu"><span class="fn-var">TotalCPU</span> — Slurm field (HH:MM:SS[.fff]) per
-                        job/step; sum, convert to core-hours.</li>
-                    <li id="fn-cputimeraw"><span class="fn-var">CPUTimeRAW</span> — CPU seconds; divide by 3600.</li>
-                    <li id="fn-alloccpus"><span class="fn-var">AllocCPUS</span> — from <span
-                            class="fn-var">AllocTRES</span> / <span class="fn-var">ReqTRES</span>.</li>
-                    <li id="fn-elapsed"><span class="fn-var">Elapsed</span> — D-HH:MM:SS; convert to hours.</li>
-                    <li id="fn-averss"><span class="fn-var">AveRSS</span> — average RSS per step; convert to GB.</li>
-                    <li id="fn-memfromtres"><span class="fn-var">Mem_from_TRES</span> — mem= in TRES, GB.</li>
-                    <li id="fn-allocgpu"><span class="fn-var">AllocGPU</span> — gres/gpu= in AllocTRES.</li>
-                    <li id="fn-reqgpu"><span class="fn-var">ReqGPU</span> — fallback from ReqTRES.</li>
-                </ol>
-                <div class="muted" style="margin-top:.25rem">
-                    Notes: “steps” like <span class="fn-var">.batch</span>, <span class="fn-var">.0</span> roll up to
-                    parent job or array task.
-                </div>
-            </details>
-
-            <div class="tabs">
-                <a class="{{ 'on' if view=='detail' else '' }}" href="{{ q
-               and url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail', q=q)
-               or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='detail') }}">
-                    Detailed
-                </a>
-                <a class="{{ 'on' if view=='aggregate' else '' }}" href="{{ q
-               and url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate', q=q)
-               or  url_for('admin.admin_form', section='usage', before=before, type=tier, view='aggregate') }}">
-                    Aggregate
-                </a>
-            </div>
-
-            {% if view == 'detail' %}
-            {% if rows and rows|length>0 %}
-            <div class="table-wrap" id="usage-detail-wrap">
-                <table id="usage-detail">
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th>JobID</th>
-                            <th>Elapsed</th>
-                            <th>End</th>
-                            <th>State</th>
-                            <th>CPU core-hrs</th>
-                            <th>GPU (count)</th>
-                            <th>GPU hrs</th>
-                            <th>Mem (GB alloc)</th>
-                            <th>Mem GB-hrs <small>(used)</small></th>
-                            <th>Mem GB-hrs <small>(alloc)</small></th>
-                            <th>Tier</th>
-                            <th>Cost (฿)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for r in rows %}
-                        <tr>
-                            <td>{{ r['User'] }}</td>
-                            <td>{{ r['JobID'] }}</td>
-                            <td>{{ r['Elapsed'] }}</td>
-                            <td>{{ r['End']|dt_local }}</td>
-                            <td>{{ r['State'] }}</td>
-                            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                            <td>{{ r['GPU_Count'] }}</td>
-                            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                            <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
-                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
-                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
-                            <td>{{ r['tier']|upper }}</td>
-                            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="muted" style="margin-top:.5rem">
-                <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
-                <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
-                <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
-                <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
-            </div>
-            {% else %}
-            <p class="muted">No rows for the given range.</p>
-            {% endif %}
-
-            <details class="raw">
-                <summary>Show raw fetched data (parents + steps)</summary>
-                {% if raw_cols and raw_rows %}
-                <div class="table-wrap">
-                    <table id="usage-raw">
-                        <thead>
-                            <tr>{% for c in raw_cols %}<th>{{ c }}</th>{% endfor %}</tr>
-                        </thead>
-                        <tbody>
-                            {% for r in raw_rows %}
-                            <tr>{% for c in raw_cols %}<td>{{ r.get(c) }}</td>{% endfor %}</tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <p class="muted" style="margin-top:.25rem">Showing first {{ raw_rows|length }} row(s).</p>
-                {% else %}
-                <p class="muted">No raw rows.</p>
-                {% endif %}
-            </details>
-
-            {% else %}
-            {% if agg_rows and agg_rows|length>0 %}
-            <p class="muted"><span class="chip">Grand total: ฿{{ '%.2f'|format(grand_total) }}</span></p>
-            <table id="usage-agg">
+    {% if month and month_detail_rows %}
+    <div class="card" style="margin-top:1rem">
+        <h3>Details for {{ selected_user }} — {{ year or current_year }}-{{ "%02d"|format(month|int) }}</h3>
+        <div class="table-wrap">
+            <table>
                 <thead>
                     <tr>
-                        <th>User</th>
-                        <th>Tier</th>
-                        <th>Jobs</th>
+                        <th>JobID</th>
+                        <th>Elapsed</th>
+                        <th>End</th>
+                        <th>State</th>
                         <th>CPU core-hrs</th>
+                        <th>GPU (count)</th>
                         <th>GPU hrs</th>
-                        <th>Mem GB-hrs (used)</th>
-                        <th>Total Cost (฿)</th>
+                        <th>Mem (GB alloc)</th>
+                        <th>Mem GB-hrs <small>(used)</small></th>
+                        <th>Mem GB-hrs <small>(alloc)</small></th>
+                        <th>Tier</th>
+                        <th>Cost (฿)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for r in agg_rows %}
+                    {% for r in month_detail_rows %}
                     <tr>
-                        <td>{{ r['User'] }}</td>
-                        <td>{{ r['tier']|upper }}</td>
-                        <td>{{ r['jobs'] }}</td>
+                        <td>{{ r['JobID'] }}</td>
+                        <td>{{ r['Elapsed'] }}</td>
+                        <td>{{ r['End']|dt_local }}</td>
+                        <td>{{ r['State'] }}</td>
                         <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
+                        <td>{{ r['GPU_Count'] }}</td>
                         <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
+                        <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
                         <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                        <td>{{ r['tier']|upper }}</td>
                         <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <div class="muted" style="margin-top:.5rem">
-                <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu) }}</span>
-                <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu) }}</span>
-                <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem) }}</span>
-                <span class="chip">Elapsed hrs: {{ '%.2f'|format(tot_elapsed) }}</span>
-            </div>
-            {% else %}
-            <p class="muted">No rows for the given range.</p>
-            {% endif %}
-            {% endif %}
         </div>
+        <div class="muted" style="margin-top:.5rem">
+            <span class="chip">Jobs: {{ month_detail_rows|length }}</span>
+            <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu_m or 0) }}</span>
+            <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu_m or 0) }}</span>
+            <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem_m or 0) }}</span>
+            <span class="chip">Total: ฿{{ '%.2f'|format(month_total or 0) }}</span>
+        </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="muted">Choose a user and year to view monthly trends and (optionally) a month’s detailed usage.</p>
+    {% endif %}
+    {% endif %} {# /trend #}
+</div>
 
-        {# ================= ADMIN'S OWN USAGE (Billed tab removed; no "Create Receipt") ================= #}
+
+        {# ================= ADMIN'S OWN USAGE (unchanged) ================= #}
         {% elif section == 'myusage' %}
         <div class="card">
             <h3>{{ _("Usage Preview") }}</h3>
@@ -585,256 +700,116 @@
             {% endif %}
         </div>
 
-        {# ================= INVOICES (ALL USERS) — payments removed, add "Trend & Monthly" ================= #}
-{% elif section == 'billing' %}
-<div class="card">
-    <h3>{{ _("Invoices")}}</h3>
+        {# ================= INVOICES (ALL USERS) — Trend removed ================= #}
+        {% elif section == 'billing' %}
+        <div class="card">
+            <h3>{{ _("Invoices")}}</h3>
 
-    <div class="tabs">
-        <a class="{{ 'on' if (bview or 'invoices')=='invoices' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing', bview='invoices') }}">Invoices</a>
-        <a class="{{ 'on' if bview=='trend' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing', bview='trend', year=year or '', u=selected_user or '', month=month or '') }}">
-            Trend & Monthly
-        </a>
-    </div>
-
-    {% if (bview or 'invoices') == 'invoices' %}
-    <!-- Create Monthly Invoices -->
-    <form method="post" action="{{ url_for('admin.create_month_invoices') }}" style="margin:.5rem 0;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label>Year
-            <input type="number" name="year" min="2000" max="2100" step="1" value="{{ (year or '') or current_year }}">
-        </label>
-        <label style="margin-left:.5rem;">Month
-            <select name="month" required>
-                {% for m in range(1,13) %}
-                <option value="{{ m }}" {{ 'selected' if (month and m==month|int) else '' }}>{{ "%02d"|format(m) }}
-                </option>
-                {% endfor %}
-            </select>
-        </label>
-        <button type="submit" style="margin-left:.5rem;">Create Monthly Invoices</button>
-        <small class="muted" style="margin-left:.5rem;">Creates one pending invoice per user for the chosen
-            month.</small>
-    </form>
-
-    <h4>{{ _("Pending Invoices") }}</h4>
-    {% if pending and pending|length>0 %}
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>User</th>
-                <th>Period</th>
-                <th>Total (฿)</th>
-                <th>Created</th>
-                <th>Status</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in pending %}
-            <tr>
-                <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                <td>{{ r['username'] }}</td>
-                <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
-                <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                <td>{{ r['created_at']|dt_local }}</td>
-                <td>{{ r['status'] }}</td>
-                <td>
-                    <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}" style="display:inline">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit">{{ _("Mark as paid") }}</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">Nothing pending 🎉</p>
-    {% endif %}
-
-    <div class="card" style="margin-top:1rem">
-        <h4>{{ _("Paid Invoices") }}</h4>
-        {% if paid and paid|length>0 %}
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>User</th>
-                    <th>Period</th>
-                    <th>Total (฿)</th>
-                    <th>Paid at</th>
-                    <th>Status</th>
-                    <th>Invoice</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in paid %}
-                <tr>
-                    <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                    <td>{{ r['username'] }}</td>
-                    <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
-                    <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                    <td>{{ r['paid_at']|dt_local or '—' }}</td>
-                    <td>{{ r['status'] }}</td>
-                    <td><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a></td>
-                    <td>
-                        <form method="post" action="{{ url_for('admin.revert_paid', rid=r.id) }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="reason" value="clicked revert in admin UI" />
-                            <button class="btn btn-warning btn-sm" onclick="return confirm('Revert this invoice to pending?')">
-                                Revert to pending
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <div style="margin-top:.5rem">
-            <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history (CSV)</button></a>
-        </div>
-        {% else %}
-        <p class="muted">No paid invoices yet.</p>
-        {% endif %}
-    </div>
-
-            {% else %} {# bview == 'trend' #}
-            {# ===== Filters: pick user + year + (optional) month ===== #}
-            <form method="get" autocomplete="off" style="margin-bottom:.75rem">
-                <div class="grid2 controls" style="grid-template-columns: 1fr 1fr 1fr auto;">
-                    <div class="field">
-                        <label for="u">User</label>
-                        <input id="u" name="u" type="search" value="{{ selected_user or '' }}" placeholder="username"
-                            list="userlist2" autocomplete="off" spellcheck="false">
-                        <datalist id="userlist2">
-                            {% for u in all_users %}<option value="{{ u }}"></option>{% endfor %}
-                        </datalist>
-                    </div>
-                    <div class="field">
-                        <label for="year">Year</label>
-                        <input id="year" name="year" type="number" min="2000" max="2100" step="1"
-                            value="{{ year or current_year }}">
-                    </div>
-                    <div class="field">
-                        <label for="month">Month (optional)</label>
-                        <select id="month" name="month">
-                            <option value="">—</option>
-                            {% for m in range(1,13) %}
-                            <option value="{{ m }}" {{ 'selected' if month and m==month|int else '' }}>
-                                {{ "%02d"|format(m) }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="actions">
-                        <input type="hidden" name="section" value="billing">
-                        <input type="hidden" name="bview" value="trend">
-                        <button type="submit">Apply</button>
-                    </div>
-                </div>
+            <!-- Create Monthly Invoices -->
+            <form method="post" action="{{ url_for('admin.create_month_invoices') }}" style="margin:.5rem 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label>Year
+                    <input type="number" name="year" min="2000" max="2100" step="1" value="{{ year or current_year }}">
+                </label>
+                <label style="margin-left:.5rem;">Month
+                    <select name="month" required>
+                        {% for m in range(1,13) %}
+                        <option value="{{ m }}" {{ 'selected' if (month and m==month|int) else '' }}>
+                            {{ "%02d"|format(m) }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <button type="submit" style="margin-left:.5rem;">Create Monthly Invoices</button>
+                <small class="muted" style="margin-left:.5rem;">Creates one pending invoice per user for the chosen
+                    month.</small>
             </form>
 
-            {% if selected_user %}
-            <h4 style="margin:.25rem 0">{{ selected_user }} — {{ year or current_year }}</h4>
+            <h4>{{ _("Pending Invoices") }}</h4>
+            {% if pending and pending|length>0 %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>User</th>
+                        <th>Period</th>
+                        <th>Total (฿)</th>
+                        <th>Created</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in pending %}
+                    <tr>
+                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                        <td>{{ r['username'] }}</td>
+                        <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
+                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                        <td>{{ r['created_at']|dt_local }}</td>
+                        <td>{{ r['status'] }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
+                                style="display:inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">{{ _("Mark as paid") }}</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="muted">Nothing pending 🎉</p>
+            {% endif %}
 
-            {# --- Monthly trend (aggregated) --- #}
-            <div class="card" style="margin-top:.5rem">
-                <h3>Monthly totals (aggregated)</h3>
-                {% if monthly_agg and monthly_agg|length>0 %}
+            <div class="card" style="margin-top:1rem">
+                <h4>{{ _("Paid Invoices") }}</h4>
+                {% if paid and paid|length>0 %}
                 <table>
                     <thead>
                         <tr>
-                            <th>Month</th>
-                            <th>Jobs</th>
-                            <th>CPU core-hrs</th>
-                            <th>GPU hrs</th>
-                            <th>Mem GB-hrs (used)</th>
-                            <th>Total Cost (฿)</th>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Period</th>
+                            <th>Total (฿)</th>
+                            <th>Paid at</th>
+                            <th>Status</th>
+                            <th>Invoice</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for r in monthly_agg %}
+                        {% for r in paid %}
                         <tr>
-                            <td>{{ "%02d"|format(r['month']) }}</td>
-                            <td>{{ r['jobs'] }}</td>
-                            <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                            <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                            <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
-                            <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                            <td>{{ r['username'] }}</td>
+                            <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
+                            <td>฿{{ '%.2f'|format(r['total']) }}</td>
+                            <td>{{ r['paid_at']|dt_local or '—' }}</td>
+                            <td>{{ r['status'] }}</td>
+                            <td><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a></td>
+                            <td>
+                                <form method="post" action="{{ url_for('admin.revert_paid', rid=r.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="reason" value="clicked revert in admin UI" />
+                                    <button class="btn btn-warning btn-sm"
+                                        onclick="return confirm('Revert this invoice to pending?')">
+                                        Revert to pending
+                                    </button>
+                                </form>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
-                <p class="muted" style="margin-top:.25rem">
-                    <span class="chip">Year total: ฿{{ '%.2f'|format(year_total or 0) }}</span>
-                </p>
+                <div style="margin-top:.5rem">
+                    <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history
+                            (CSV)</button></a>
+                </div>
                 {% else %}
-                <p class="muted">No usage for this year/user.</p>
+                <p class="muted">No paid invoices yet.</p>
                 {% endif %}
             </div>
-
-            {# --- Optional monthly detail (when a month is chosen) --- #}
-            {% if month and month_detail_rows %}
-            <div class="card" style="margin-top:1rem">
-                <h3>Details for {{ selected_user }} — {{ year or current_year }}-{{ "%02d"|format(month|int) }}</h3>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>JobID</th>
-                                <th>Elapsed</th>
-                                <th>End</th>
-                                <th>State</th>
-                                <th>CPU core-hrs</th>
-                                <th>GPU (count)</th>
-                                <th>GPU hrs</th>
-                                <th>Mem (GB alloc)</th>
-                                <th>Mem GB-hrs <small>(used)</small></th>
-                                <th>Mem GB-hrs <small>(alloc)</small></th>
-                                <th>Tier</th>
-                                <th>Cost (฿)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for r in month_detail_rows %}
-                            <tr>
-                                <td>{{ r['JobID'] }}</td>
-                                <td>{{ r['Elapsed'] }}</td>
-                                <td>{{ r['End']|dt_local }}</td>
-                                <td>{{ r['State'] }}</td>
-                                <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
-                                <td>{{ r['GPU_Count'] }}</td>
-                                <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                                <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
-                                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
-                                <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
-                                <td>{{ r['tier']|upper }}</td>
-                                <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="muted" style="margin-top:.5rem">
-                    <span class="chip">Jobs: {{ month_detail_rows|length }}</span>
-                    <span class="chip">CPU core-hrs: {{ '%.2f'|format(tot_cpu_m or 0) }}</span>
-                    <span class="chip">GPU hrs: {{ '%.2f'|format(tot_gpu_m or 0) }}</span>
-                    <span class="chip">Mem GB-hrs (used): {{ '%.2f'|format(tot_mem_m or 0) }}</span>
-                    <span class="chip">Total: ฿{{ '%.2f'|format(month_total or 0) }}</span>
-                </div>
-            </div>
-            {% endif %}
-
-            {% else %}
-            <p class="muted">Choose a user and year to view monthly trends and (optionally) a month’s detailed usage.
-            </p>
-            {% endif %}
-            {% endif %}
         </div>
 
         {% else %}

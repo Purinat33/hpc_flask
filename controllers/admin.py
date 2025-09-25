@@ -156,17 +156,19 @@ def admin_form():
     if section == "myusage":
         if view not in {"detail", "aggregate"}:
             view = "detail"
+    elif section == "usage":
+        if view not in {"detail", "aggregate", "trend"}:
+            view = "detail"
     else:
         if view not in {"detail", "aggregate"}:
             view = "detail"
 
-    # for legacy usage pages
+    # legacy usage pages
     EPOCH_START = "1970-01-01"
     before = request.args.get("before") or date.today().isoformat()
     start_d, end_d = EPOCH_START, before
 
-    # NEW: query parts for billing "trend" subview
-    bview = (request.args.get("bview") or "invoices").strip().lower()
+    # query parts for *usage trend* subview (moved here)
     selected_user = (request.args.get("u") or "").strip()
     try:
         year = int(request.args.get("year") or date.today().year)
@@ -200,6 +202,12 @@ def admin_form():
     raw_rows: list[dict] = []
     header_classes: dict[str, str] = {}
     all_users: list[str] = []
+
+    # usage-trend context
+    monthly_agg = []
+    month_detail_rows = []
+    year_total = 0.0
+    tot_cpu_m = tot_gpu_m = tot_mem_m = month_total = 0.0
 
     # Dashboard-only context
     kpis: dict = {}
@@ -260,7 +268,6 @@ def admin_form():
         notes.extend(ds_notes or [])
         df = cap("compute_costs", lambda: compute_costs(df), pd.DataFrame())
 
-        # cutoff (UTC-aware) + ensure End exists
         def _cutoff_df():
             if "End" in df.columns:
                 end_series = pd.to_datetime(
@@ -276,7 +283,6 @@ def admin_form():
 
         df = cap("cutoff", _cutoff_df, df)
 
-        # unbilled view
         def _unbilled():
             d = df.copy()
             d["JobKey"] = d["JobID"].astype(str).map(canonical_job_id)
@@ -285,7 +291,6 @@ def admin_form():
 
         df_unbilled = cap("unbilled", _unbilled, pd.DataFrame())
 
-        # ---- KPIs ----
         kpis["unbilled_cost"] = cap(
             "kpi.unbilled_cost",
             lambda: float(_ensure_col_local(df_unbilled, "Cost (฿)",
@@ -324,7 +329,6 @@ def admin_form():
             0,
         )
 
-        # ---- Series ----
         def _series_daily():
             if df.empty or "End" not in df.columns or "Cost (฿)" not in df.columns:
                 return ([], [])
@@ -355,7 +359,6 @@ def admin_form():
         series["top_users_labels"], series["top_users_values"] = cap(
             "series.top_users", _series_top_users, ([], []))
 
-        # ---- Totals chips ----
         tot_cpu = cap("totals.cpu", lambda: float(
             _ensure_col(df, "CPU_Core_Hours", 0).sum()), 0.0)
         tot_gpu = cap("totals.gpu", lambda: float(
@@ -371,8 +374,6 @@ def admin_form():
         tot_elapsed = cap("totals.elapsed", lambda: float(
             _ensure_col(df, "Elapsed_Hours", 0).sum()), 0.0)
 
-        # (node/energy/throughput series left as-is for brevity)
-
         return render_template(
             "admin/dashboard.html",
             current_user=current_user,
@@ -385,104 +386,191 @@ def admin_form():
     # ---- USAGE / MYUSAGE / BILLING / TIERS ----
     try:
         if section == "usage":
-            # RAW (parents+steps)
-            df_raw, data_source, notes = fetch_jobs_with_fallbacks(
-                start_d, end_d)
+            # --- three subviews: detail | aggregate | trend ---
+            if view in {"detail", "aggregate"}:
+                # RAW (parents+steps)
+                df_raw, data_source, notes = fetch_jobs_with_fallbacks(
+                    start_d, end_d)
 
-            if not df_raw.empty:
-                if "End" in df_raw.columns:
-                    end_series = pd.to_datetime(
-                        df_raw["End"], errors="coerce", utc=True)
-                    cutoff_utc = _to_utc_day_end(end_d)
-                    df_raw = df_raw[end_series.notna() & (
-                        end_series <= cutoff_utc)]
-                    df_raw["End"] = end_series
+                if not df_raw.empty:
+                    if "End" in df_raw.columns:
+                        end_series = pd.to_datetime(
+                            df_raw["End"], errors="coerce", utc=True)
+                        cutoff_utc = _to_utc_day_end(end_d)
+                        df_raw = df_raw[end_series.notna() & (
+                            end_series <= cutoff_utc)]
+                        df_raw["End"] = end_series
 
-                # all users (for datalist) BEFORE q filter
-                if "User" in df_raw.columns:
-                    all_users = sorted(
-                        u for u in df_raw["User"].astype(str).fillna("").str.strip().unique() if u
-                    )
+                    # all users (for datalist) BEFORE q filter
+                    if "User" in df_raw.columns:
+                        all_users = sorted(
+                            u for u in df_raw["User"].astype(str).fillna("").str.strip().unique() if u
+                        )
 
-                # optional partial-user filter
-                if q_user and "User" in df_raw.columns and "JobID" in df_raw.columns:
-                    df_raw["JobKey"] = df_raw["JobID"].astype(
+                    # optional partial-user filter
+                    if q_user and "User" in df_raw.columns and "JobID" in df_raw.columns:
+                        df_raw["JobKey"] = df_raw["JobID"].astype(
+                            str).map(canonical_job_id)
+                        parents = df_raw[df_raw["JobID"].astype(
+                            str) == df_raw["JobKey"]].copy()
+                        user_str = parents["User"].astype(str).fillna("")
+                        keep_keys = set(
+                            parents.loc[user_str.str.contains(
+                                q_user, case=False, regex=False), "JobKey"]
+                        )
+                        df_raw = df_raw[df_raw["JobKey"].isin(
+                            keep_keys)].drop(columns=["JobKey"])
+
+                    raw_cols = list(df_raw.columns)
+                    raw_rows = df_raw.head(200).to_dict(orient="records")
+
+                # computed (parent-aggregated), hide already billed
+                df = compute_costs(
+                    df_raw.copy() if df_raw is not None else pd.DataFrame())
+                if not df.empty:
+                    df["JobKey"] = df["JobID"].astype(
                         str).map(canonical_job_id)
-                    parents = df_raw[df_raw["JobID"].astype(
-                        str) == df_raw["JobKey"]].copy()
-                    user_str = parents["User"].astype(str).fillna("")
-                    keep_keys = set(
-                        parents.loc[user_str.str.contains(
-                            q_user, case=False, regex=False), "JobKey"]
+                    already = billed_job_ids()
+                    df = df[~df["JobKey"].isin(already)]
+
+                # totals
+                tot_cpu = float(_ensure_col(df, "CPU_Core_Hours", 0).sum())
+                tot_gpu = float(_ensure_col(df, "GPU_Hours", 0).sum())
+                tot_mem = float(_ensure_col(df, "Mem_GB_Hours_Used", 0).sum())
+                tot_elapsed = float(_ensure_col(df, "Elapsed_Hours", 0).sum())
+
+                # detail rows
+                cols = [
+                    "User", "JobID", "Elapsed", "End", "State",
+                    "CPU_Core_Hours",
+                    "GPU_Count", "GPU_Hours",
+                    "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                    "tier", "Cost (฿)"
+                ]
+                for c in cols:
+                    if c not in df.columns:
+                        df[c] = ""
+                rows = df[cols].to_dict(orient="records")
+
+                # aggregate rows
+                if not df.empty:
+                    agg = (
+                        df.groupby(["User", "tier"], dropna=False)
+                        .agg(
+                            jobs=("JobID", "count"),
+                            CPU_Core_Hours=("CPU_Core_Hours", "sum"),
+                            GPU_Hours=("GPU_Hours", "sum"),
+                            Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
+                            Cost=("Cost (฿)", "sum"),
+                        ).reset_index()
                     )
-                    df_raw = df_raw[df_raw["JobKey"].isin(
-                        keep_keys)].drop(columns=["JobKey"])
+                    agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
+                    agg_rows = agg[["User", "tier", "jobs", "CPU_Core_Hours",
+                                    "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict(orient="records")
+                    grand_total = float(agg["Cost (฿)"].sum())
+                else:
+                    grand_total = 0.0
 
-                raw_cols = list(df_raw.columns)
-                raw_rows = df_raw.head(200).to_dict(orient="records")
+                header_classes = {c: "" for c in raw_cols}
+                for c in raw_cols:
+                    if c == "TotalCPU":
+                        header_classes[c] = "hl-primary"
+                    elif c == "CPUTimeRAW":
+                        header_classes[c] = "hl-fallback1"
+                    elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
+                        header_classes[c] = "hl-fallback2"
+                    elif c == "AveRSS":
+                        header_classes[c] = "hl-primary"
 
-            # computed (parent-aggregated), hide already billed
-            df = compute_costs(
-                df_raw.copy() if df_raw is not None else pd.DataFrame())
-            if not df.empty:
-                df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
-                already = billed_job_ids()
-                df = df[~df["JobKey"].isin(already)]
+            else:  # view == "trend"
+                try:
+                    y = int(year or current_year)
+                except Exception:
+                    y = current_year
+                ym_start = f"{y}-01-01"
+                ym_end = (date.today().isoformat() if y ==
+                          date.today().year else f"{y}-12-31")
 
-            # totals
-            tot_cpu = float(_ensure_col(df, "CPU_Core_Hours", 0).sum())
-            tot_gpu = float(_ensure_col(df, "GPU_Hours", 0).sum())
-            tot_mem = float(_ensure_col(df, "Mem_GB_Hours_Used", 0).sum())
-            tot_elapsed = float(_ensure_col(df, "Elapsed_Hours", 0).sum())
+                # Fetch all users, compute costs
+                df_raw, data_source, ds_notes = fetch_jobs_with_fallbacks(
+                    ym_start, ym_end)
+                notes.extend(ds_notes or [])
+                df = compute_costs(df_raw)
 
-            # detail rows
-            cols = [
-                "User", "JobID", "Elapsed", "End", "State",
-                "CPU_Core_Hours",
-                "GPU_Count", "GPU_Hours",
-                "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
-                "tier", "Cost (฿)"
-            ]
-            for c in cols:
-                if c not in df.columns:
-                    df[c] = ""
-            rows = df[cols].to_dict(orient="records")
+                if "End" in df.columns:
+                    end_series = pd.to_datetime(
+                        df["End"], errors="coerce", utc=True)
+                    cutoff_utc = pd.Timestamp(
+                        ym_end, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                    df = df[end_series.notna() & (
+                        end_series <= cutoff_utc)].copy()
+                    df["End"] = end_series
+                else:
+                    df["End"] = pd.NaT
 
-            # aggregate rows
-            if not df.empty:
-                agg = (
-                    df.groupby(["User", "tier"], dropna=False)
-                    .agg(
-                        jobs=("JobID", "count"),
-                        CPU_Core_Hours=("CPU_Core_Hours", "sum"),
-                        GPU_Hours=("GPU_Hours", "sum"),
-                        Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
-                        Cost=("Cost (฿)", "sum"),
-                    ).reset_index()
-                )
-                agg.rename(columns={"Cost": "Cost (฿)"}, inplace=True)
-                agg_rows = agg[["User", "tier", "jobs", "CPU_Core_Hours",
-                                "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict(orient="records")
-                grand_total = float(agg["Cost (฿)"].sum())
-            else:
-                grand_total = 0.0
+                # Build "all_users" list (for datalist)
+                if "User" in df_raw.columns:
+                    all_users = sorted(u for u in df_raw["User"].astype(
+                        str).fillna("").str.strip().unique() if u)
 
-            # header emphasis for RAW
-            header_classes = {c: "" for c in raw_cols}
-            for c in raw_cols:
-                if c == "TotalCPU":
-                    header_classes[c] = "hl-primary"
-                elif c == "CPUTimeRAW":
-                    header_classes[c] = "hl-fallback1"
-                elif c in {"AllocTRES", "ReqTRES", "Elapsed"}:
-                    header_classes[c] = "hl-fallback2"
-                elif c == "AveRSS":
-                    header_classes[c] = "hl-primary"
+                # Filter to selected user (optional)
+                if selected_user:
+                    df = df[df["User"].astype(str).str.strip(
+                    ).str.lower() == selected_user.lower()]
+
+                # Monthly aggregate
+                if not df.empty and selected_user:
+                    df["_month"] = df["End"].dt.month
+                    g = (
+                        df.groupby("_month", dropna=True)
+                        .agg(
+                            jobs=("JobID", "count"),
+                            CPU_Core_Hours=("CPU_Core_Hours", "sum"),
+                            GPU_Hours=("GPU_Hours", "sum"),
+                            Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
+                            Cost=("Cost (฿)", "sum"),
+                        )
+                        .reset_index()
+                        .sort_values("_month")
+                    )
+                    g.rename(columns={"Cost": "Cost (฿)",
+                             "_month": "month"}, inplace=True)
+                    monthly_agg = g[["month", "jobs", "CPU_Core_Hours", "GPU_Hours",
+                                     "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict("records")
+                    year_total = float(g["Cost (฿)"].sum())
+
+                    # Optional: month detail if ?month= supplied
+                    if month:
+                        try:
+                            m = int(month)
+                        except Exception:
+                            m = None
+                        if m and 1 <= m <= 12 and "End" in df.columns:
+                            dmonth = df[df["End"].dt.month == m].copy()
+                            cols = [
+                                "JobID", "Elapsed", "End", "State",
+                                "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
+                                "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
+                                "tier", "Cost (฿)"
+                            ]
+                            for c in cols:
+                                if c not in dmonth.columns:
+                                    dmonth[c] = ""
+                            month_detail_rows = dmonth[cols].to_dict("records")
+                            # chips
+                            tot_cpu_m = float(pd.to_numeric(dmonth.get(
+                                "CPU_Core_Hours"), errors="coerce").fillna(0).sum())
+                            tot_gpu_m = float(pd.to_numeric(dmonth.get(
+                                "GPU_Hours"), errors="coerce").fillna(0).sum())
+                            mem_col = "Mem_GB_Hours_Used" if "Mem_GB_Hours_Used" in dmonth.columns else "Mem_GB_Hours"
+                            tot_mem_m = float(pd.to_numeric(dmonth.get(
+                                mem_col), errors="coerce").fillna(0).sum())
+                            month_total = float(pd.to_numeric(dmonth.get(
+                                "Cost (฿)"), errors="coerce").fillna(0).sum())
 
         elif section == "myusage":
             df_raw, data_source, notes = fetch_jobs_with_fallbacks(
-                start_d, end_d, username=current_user.username
-            )
+                start_d, end_d, username=current_user.username)
 
             if not df_raw.empty and "End" in df_raw.columns:
                 end_series = pd.to_datetime(
@@ -531,151 +619,16 @@ def admin_form():
                     agg_rows = agg[["tier", "jobs", "CPU_Core_Hours",
                                     "GPU_Hours", "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict(orient="records")
 
-                # totals (safe)
                 tot_cpu = float(_ensure_col(df, "CPU_Core_Hours", 0).sum())
                 tot_gpu = float(_ensure_col(df, "GPU_Hours", 0).sum())
                 tot_mem = float(_ensure_col(df, "Mem_GB_Hours_Used", 0).sum())
                 tot_elapsed = float(_ensure_col(df, "Elapsed_Hours", 0).sum())
                 grand_total = float(_ensure_col(df, "Cost (฿)", 0).sum())
 
-            # (no billed view here anymore for admin's own usage)
-
         elif section == "billing":
-            # === New admin Billing views ===
-            # bview=invoices | trend
-            bview = (request.args.get("bview") or "invoices").strip().lower()
-            year = request.args.get("year")
-            month = request.args.get("month")
-            selected_user = (request.args.get("u") or "").strip()
-
-            # Always show invoice lists
+            # Invoices only (trend moved to usage)
             pending = admin_list_receipts(status="pending") or []
             paid = admin_list_receipts(status="paid") or []
-
-            # Trend view (admin can see any user)
-            monthly_agg = []
-            month_detail_rows = []
-            year_total = 0.0
-            tot_cpu_m = tot_gpu_m = tot_mem_m = month_total = 0.0
-            current_year = date.today().year
-
-            if bview == "trend":
-                try:
-                    # Inputs & window
-                    try:
-                        y = int(year or current_year)
-                    except Exception:
-                        y = current_year
-                    ym_start = f"{y}-01-01"
-                    ym_end = (date.today().isoformat() if y == date.today().year
-                              else f"{y}-12-31")
-
-                    # Fetch all users, compute costs, then filter by user if selected
-                    df_raw, data_source, ds_notes = fetch_jobs_with_fallbacks(
-                        ym_start, ym_end)
-                    notes.extend(ds_notes or [])
-                    df = compute_costs(df_raw)
-
-                    if "End" in df.columns:
-                        end_series = pd.to_datetime(
-                            df["End"], errors="coerce", utc=True)
-                        cutoff_utc = pd.Timestamp(
-                            ym_end, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
-                        df = df[end_series.notna() & (
-                            end_series <= cutoff_utc)].copy()
-                        df["End"] = end_series
-                    else:
-                        df["End"] = pd.NaT
-
-                    if selected_user:
-                        df = df[df["User"].astype(str).str.strip(
-                        ).str.lower() == selected_user.lower()]
-
-                    # Build "all_users" list (for datalist)
-                    if "User" in df_raw.columns:
-                        all_users = sorted(u for u in df_raw["User"].astype(
-                            str).fillna("").str.strip().unique() if u)
-
-                    # Monthly aggregate for this user (or empty selection)
-                    if not df.empty and selected_user:
-                        # Month number from End (local months based on timestamp date)
-                        df["_month"] = df["End"].dt.month
-                        g = (
-                            df.groupby("_month", dropna=True)
-                            .agg(
-                                jobs=("JobID", "count"),
-                                CPU_Core_Hours=("CPU_Core_Hours", "sum"),
-                                GPU_Hours=("GPU_Hours", "sum"),
-                                Mem_GB_Hours_Used=("Mem_GB_Hours_Used", "sum"),
-                                Cost=("Cost (฿)", "sum"),
-                            )
-                            .reset_index()
-                            .sort_values("_month")
-                        )
-                        g.rename(columns={"Cost": "Cost (฿)",
-                                          "_month": "month"}, inplace=True)
-                        monthly_agg = g[["month", "jobs", "CPU_Core_Hours", "GPU_Hours",
-                                        "Mem_GB_Hours_Used", "Cost (฿)"]].to_dict("records")
-                        year_total = float(g["Cost (฿)"].sum())
-
-                        # Optional: month detail if ?month= supplied
-                        if month:
-                            try:
-                                m = int(month)
-                            except Exception:
-                                m = None
-                            if m and 1 <= m <= 12 and "End" in df.columns:
-                                dmonth = df[df["End"].dt.month == m].copy()
-                                cols = [
-                                    "JobID", "Elapsed", "End", "State",
-                                    "CPU_Core_Hours", "GPU_Count", "GPU_Hours",
-                                    "Memory_GB", "Mem_GB_Hours_Used", "Mem_GB_Hours_Alloc",
-                                    "tier", "Cost (฿)"
-                                ]
-                                for c in cols:
-                                    if c not in dmonth.columns:
-                                        dmonth[c] = ""
-                                month_detail_rows = dmonth[cols].to_dict(
-                                    "records")
-                                # chips
-                                tot_cpu_m = float(pd.to_numeric(dmonth.get(
-                                    "CPU_Core_Hours"), errors="coerce").fillna(0).sum())
-                                tot_gpu_m = float(pd.to_numeric(dmonth.get(
-                                    "GPU_Hours"), errors="coerce").fillna(0).sum())
-                                # prefer used memory column when present
-                                mem_col = "Mem_GB_Hours_Used" if "Mem_GB_Hours_Used" in dmonth.columns else "Mem_GB_Hours"
-                                tot_mem_m = float(pd.to_numeric(dmonth.get(
-                                    mem_col), errors="coerce").fillna(0).sum())
-                                month_total = float(pd.to_numeric(dmonth.get(
-                                    "Cost (฿)"), errors="coerce").fillna(0).sum())
-
-                except Exception as e:
-                    notes.append(f"billing.trend: {e}")
-
-            # Render with additional context used by template
-            return render_template(
-                "admin/page.html",
-                section="billing",
-                current_user=current_user,
-                pending=pending, paid=paid,
-                # trend context
-                bview=bview,
-                selected_user=selected_user,
-                year=(year or ""),
-                month=(month or ""),
-                current_year=current_year,
-                monthly_agg=monthly_agg,
-                month_detail_rows=month_detail_rows,
-                year_total=year_total,
-                tot_cpu_m=tot_cpu_m, tot_gpu_m=tot_gpu_m, tot_mem_m=tot_mem_m, month_total=month_total,
-                all_users=all_users,
-                notes=notes,
-                url_for=url_for,
-            )
-
-            # default invoices view
-            pending = admin_list_receipts(status="pending")
-            paid = admin_list_receipts(status="paid")
 
         elif section == "tiers":
             notes = []
@@ -701,9 +654,7 @@ def admin_form():
                 df_jobs, _, _ = fetch_jobs_with_fallbacks(jobs_start, jobs_end)
                 if not df_jobs.empty and "User" in df_jobs.columns:
                     job_users = [
-                        u for u in
-                        df_jobs["User"].astype(str).fillna(
-                            "").str.strip().unique().tolist()
+                        u for u in df_jobs["User"].astype(str).fillna("").str.strip().unique().tolist()
                         if u
                     ]
             except Exception as e:
@@ -729,11 +680,8 @@ def admin_form():
                 return t if t else classify_user_type(u)
 
             tier_rows = [
-                {
-                    "username": u,
-                    "tier": current_tier_for(u),
-                    "overridden": (u.strip().lower() in ov),
-                }
+                {"username": u, "tier": current_tier_for(
+                    u), "overridden": (u.strip().lower() in ov)}
                 for u in usernames
             ]
 
@@ -769,19 +717,18 @@ def admin_form():
         sum_paid=sum_paid,
         raw_cols=raw_cols, raw_rows=raw_rows, header_classes=header_classes,
         url_for=url_for, q=q_user, all_users=all_users,
-        # trend defaults (for when section!=billing or bview!=trend)
-        bview=(locals().get("bview") or "invoices"),
-        selected_user=locals().get("selected_user", ""),
-        year=locals().get("year", date.today().year),
-        current_year=date.today().year,
-        month=locals().get("month"),
-        monthly_agg=locals().get("monthly_agg", []),
-        year_total=locals().get("year_total", 0.0),
-        month_detail_rows=locals().get("month_detail_rows", []),
-        tot_cpu_m=locals().get("tot_cpu_m", 0.0),
-        tot_gpu_m=locals().get("tot_gpu_m", 0.0),
-        tot_mem_m=locals().get("tot_mem_m", 0.0),
-        month_total=locals().get("month_total", 0.0),
+        # usage trend context
+        selected_user=selected_user,
+        year=year,
+        current_year=current_year,
+        month=month,
+        monthly_agg=monthly_agg,
+        month_detail_rows=month_detail_rows,
+        year_total=year_total,
+        tot_cpu_m=tot_cpu_m,
+        tot_gpu_m=tot_gpu_m,
+        tot_mem_m=tot_mem_m,
+        month_total=month_total,
     )
 
 
@@ -855,7 +802,6 @@ def revert_paid(rid: int):
         else:
             flash("Revert failed.", "error")
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
-
 
 
 @admin_bp.get("/admin/paid.csv")
@@ -1291,5 +1237,3 @@ def admin_receipt_pdf(rid: int):
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
     return resp
-
-
