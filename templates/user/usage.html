@@ -250,6 +250,13 @@
 <h4>Pending (unpaid) invoices</h4>
 {% if my_pending_receipts and my_pending_receipts|length>0 %}
 <p class="muted"><span class="chip">Total: ฿{{ '%.2f'|format(sum_pending) }}</span></p>
+{% if TAX_UI and TAX_UI.enabled %}
+<div style="font-size:.85em; color:#666; margin:.25rem 0 .5rem 0;">
+    <span style="display:inline-block; padding:.15rem .5rem; border:1px solid #ddd; border-radius:999px;">
+        {{ TAX_UI.label }} {{ '%.0f'|format(TAX_UI.rate) }}% {{ 'Included' if TAX_UI.inclusive else 'Added' }}
+    </span>
+</div>
+{% endif %}
 <table>
     <thead>
         <tr>

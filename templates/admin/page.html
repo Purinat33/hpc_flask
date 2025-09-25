@@ -779,6 +779,13 @@
 
 
             <h4>{{ _("Pending Invoices") }} <small id="pending-counter" class="muted"></small></h4>
+            {% if section == 'billing' and TAX_UI and TAX_UI.enabled %}
+            <div style="font-size:.85em; color:#666; margin:.25rem 0 .5rem 0;">
+                <span style="display:inline-block; padding:.15rem .5rem; border:1px solid #ddd; border-radius:999px;">
+                    {{ TAX_UI.label }} {{ '%.0f'|format(TAX_UI.rate) }}% {{ 'Included' if TAX_UI.inclusive else 'Added' }}
+                </span>
+            </div>
+            {% endif %}
             {% if pending and pending|length>0 %}
             <div class="table-wrap">
             <table id="pending-table">

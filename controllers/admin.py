@@ -42,6 +42,7 @@ from models.schema import User
 from services.data_sources import fetch_jobs_with_fallbacks
 import calendar
 from models.billing_store import bulk_void_pending_invoices_for_month
+from models.billing_store import _tax_cfg
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -699,6 +700,13 @@ def admin_form():
     except Exception as e:
         notes.append(str(e))
 
+    tax_enabled, tax_label, tax_rate, tax_inclusive = _tax_cfg()
+    TAX_UI = {
+        "enabled": bool(tax_enabled and (tax_rate or 0) > 0),
+        "label": tax_label,
+        "rate": float(tax_rate or 0),
+        "inclusive": bool(tax_inclusive),
+    }
     return render_template(
         "admin/page.html",
         section=section,
@@ -730,6 +738,7 @@ def admin_form():
         tot_gpu_m=tot_gpu_m,
         tot_mem_m=tot_mem_m,
         month_total=month_total,
+        TAX_UI=TAX_UI,
     )
 
 

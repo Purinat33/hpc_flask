@@ -14,7 +14,7 @@ from models.audit_store import audit
 from services.datetimex import APP_TZ
 from services.metrics import CSV_DOWNLOADS
 from services.org_info import ORG_INFO
-
+from models.billing_store import _tax_cfg
 user_bp = Blueprint("user", __name__)
 
 
@@ -237,6 +237,13 @@ def my_usage():
         notes.append(str(e))
 
     # Render with everything the template expects (even if empty)
+    tax_enabled, tax_label, tax_rate, tax_inclusive = _tax_cfg()
+    TAX_UI = {
+        "enabled": bool(tax_enabled and (tax_rate or 0) > 0),
+        "label": tax_label,
+        "rate": float(tax_rate or 0),
+        "inclusive": bool(tax_inclusive),
+    }
     return render_template(
         "user/usage.html",
         current_user=current_user,
@@ -258,6 +265,7 @@ def my_usage():
         month_detail_rows=month_detail_rows,
         year_total=year_total,
         tot_cpu_m=tot_cpu_m, tot_gpu_m=tot_gpu_m, tot_mem_m=tot_mem_m, month_total=month_total,
+        TAX_UI=TAX_UI,
     )
 
 
