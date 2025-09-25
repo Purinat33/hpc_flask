@@ -855,7 +855,7 @@
                             <td>{{ r['status'] }}</td>
                             <td><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a></td>
                             <td>
-                                <form method="post" action="{{ url_for('admin.revert_paid', rid=r.id) }}">
+                                <form method="post" action="{{ url_for('admin.revert_paid', rid=r['id']) }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="reason" value="clicked revert in admin UI" />
                                     <button class="btn btn-warning btn-sm"
