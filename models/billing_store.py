@@ -22,6 +22,13 @@ from services.datetimex import now_utc, to_iso_z
 import re
 
 
+def _gen_invoice_no(rcpt: Receipt) -> str:
+    # Use local month stamp + padded receipt id for readability & uniqueness
+    local_start = rcpt.start.astimezone(_tz_from_app())
+    yyyymm = local_start.strftime("%Y%m")
+    return f"MUAI-INV-{yyyymm}-{rcpt.id:06d}"
+
+
 def canonical_job_id(s: str) -> str:
     s = (s or "").strip()
     if not s:
@@ -68,6 +75,9 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "method": r.method,
                 "tx_ref": r.tx_ref,
                 # NEW:
+                "invoice_no": r.invoice_no,
+                "approved_by": r.approved_by,
+                "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
                 "rate_cpu": float(r.rate_cpu),
                 "rate_gpu": float(r.rate_gpu),
@@ -100,6 +110,9 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
                 "method": r.method,
                 "tx_ref": r.tx_ref,
                 # NEW:
+                "invoice_no": r.invoice_no,
+                "approved_by": r.approved_by,
+                "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
                 "rate_cpu": float(r.rate_cpu),
                 "rate_gpu": float(r.rate_gpu),
@@ -267,6 +280,8 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
                 "total": float(r.total), "status": r.status,
                 # datetime (UTC)
                 "created_at": r.created_at, "paid_at": r.paid_at,
+                "method": r.method, "tx_ref": r.tx_ref,
+                "invoice_no": r.invoice_no, "approved_by": r.approved_by, "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
                 "rate_cpu": float(r.rate_cpu), "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
                 "rates_locked_at": r.rates_locked_at,
@@ -350,6 +365,11 @@ def mark_receipt_paid(receipt_id: int, actor: str) -> bool:
         rcpt.paid_at = now
         rcpt.method = PROVIDER          # optional but handy to show in UI
         rcpt.tx_ref = f"payment:{pay.id}"
+        rcpt.approved_by = actor
+        rcpt.approved_at = now
+        if not rcpt.invoice_no:
+            rcpt.invoice_no = _gen_invoice_no(rcpt)
+
         s.add(rcpt)
 
         # Create a PaymentEvent linked to this payment
@@ -362,6 +382,7 @@ def mark_receipt_paid(receipt_id: int, actor: str) -> bool:
                 "receipt_id": receipt_id,
                 "payment_id": pay.id,
                 "actor": actor,
+                "invoice_no": rcpt.invoice_no,
                 "note": "Manual mark paid from admin UI"
             }),
             signature_ok=1,
@@ -379,7 +400,7 @@ def paid_receipts_csv():
     w = csv.writer(out)
     w.writerow([
         "id", "username", "start", "end",
-        "total_THB", "status", "created_at", "paid_at",
+        "total_THB", "status", "created_at", "paid_at", "approved_by", "approved_at",
         "pricing_tier", "rate_cpu", "rate_gpu", "rate_mem", "rates_locked_at",
     ])
     for r in rows:
@@ -391,6 +412,9 @@ def paid_receipts_csv():
             r["created_at"].isoformat(),
             (r["paid_at"].isoformat().replace(
                 "+00:00", "Z") if r["paid_at"] else ""),
+            r.get("approved_by", ""),
+            (r["approved_at"].isoformat().replace(
+                "+00:00", "Z") if r.get("approved_at") else ""),
             r.get("pricing_tier", ""), r.get("rate_cpu", ""), r.get(
                 "rate_gpu", ""), r.get("rate_mem", ""),
             r["rates_locked_at"].isoformat(),

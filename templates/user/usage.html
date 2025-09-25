@@ -297,7 +297,7 @@
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
             <td>{{ r['paid_at']|dt_local or '—' }}</td>
             <td>
-                <a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a>
+                <a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}">PDF</a>
             </td>
         </tr>
         {% endfor %}

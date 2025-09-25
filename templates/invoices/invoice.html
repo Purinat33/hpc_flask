@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="utf-8">
-    <title>Invoice #{{ r.id }}</title>
+    <title>Invoice {{ r.invoice_no or ('INV-' ~ '%06d'|format(r.id)) }}</title>
     <style>
         @page {
             size: A4;
@@ -139,7 +139,7 @@
         <div class="col right">
             <h1>INVOICE</h1>
             <div class="mt-1">
-                <div><b>No.</b> INV-{{ "%06d"|format(r.id) }}</div>
+                <div><b>No.</b> {{ r.invoice_no or ('INV-' ~ '%06d'|format(r.id)) }}</div>
                 <div><b>Date</b> {{ r.created_at|dt_local(fmt="%Y-%m-%d") }}</div>
                 <div><b>Status</b>
                     {% if r.status == 'paid' %}<span class="stamp">PAID</span>
@@ -254,6 +254,12 @@
         <div class="muted">Payment</div>
         {% if r.status == 'paid' %}
         <div>Paid at {{ r.paid_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}. Ref {{ r.tx_ref or '-' }}.</div>
+            {% if r.approved_by %}
+            <div class="mt-1 box">
+                <div><b>Approved by:</b> {{ r.approved_by }}</div>
+                <div><b>Approval date:</b> {{ r.approved_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}</div>
+            </div>
+            {% endif %}
         {% else %}
         <div>Please settle within 30 days.</div>
         <div>Bank: {{ org.bank_name }} &middot; Account: {{ org.bank_acct }} &middot; Name: {{ org.bank_holder }}</div>

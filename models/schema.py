@@ -57,6 +57,13 @@ class Receipt(Base):
     method:     Mapped[str | None] = mapped_column(String)
     tx_ref:     Mapped[str | None] = mapped_column(String)
 
+    invoice_no:  Mapped[str | None] = mapped_column(
+        String, unique=True)   # e.g. INV-202502-000123
+    approved_by: Mapped[str | None] = mapped_column(
+        String)                # admin username
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
+
     __table_args__ = (
         CheckConstraint("total >= 0", name="ck_receipts_total_ge_0"),
         CheckConstraint("status in ('pending','paid','void')",
