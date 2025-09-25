@@ -116,13 +116,48 @@
             transform: rotate(-20deg);
         }
         .vat-row td { border-top: 1px solid #eee; }
+
+          /* Always-on logo watermark (no rotation) */
+        .logo-watermark{
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* no rotate */
+            opacity: 0.05;                   /* subtle; tweak 0.04–0.10 */
+            width: 70%;
+            max-width: 900px;
+            z-index: 0;                      /* stays behind everything */
+            pointer-events: none;
+        }
+        .logo-watermark img{
+            width: 100%;
+            height: auto;
+            display: block;
+            filter: grayscale(100%);         /* optional */
+        }
+
+        /* PAID watermark (text), separate class & higher in the stack */
+        .paid-watermark{
+            position: fixed;
+            right: 16mm;       /* move away from middle */
+            top: 28mm;
+            font-size: 72px;
+            color: #16a34a;    /* solid color… */
+            opacity: 0.22;     /* …but controlled by opacity (higher than before) */
+            transform: rotate(-12deg);  /* you can set to 0deg if you prefer straight */
+            z-index: 3;        /* above logo watermark and content */
+            pointer-events: none;
+        }
     </style>
 </head>
 
 <body>
+    <div class="logo-watermark">
+        <img src="{{ org.watermark_logo or 'img/logo.png' }}" alt="watermark">
+    </div>
 
     {% if r.status == 'paid' %}
-    <div class="watermark">PAID</div>
+    <div class="paid-watermark">PAID</div>
     {% endif %}
 
     <!-- Header -->
