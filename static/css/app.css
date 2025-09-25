@@ -523,13 +523,136 @@ tbody tr:last-child td {
     /* override the base table{ overflow: hidden } */
 }
 
-/* don’t let long tokens blow up columns */
+/* ---------- TABLES ---------- */
+/* stop mid-word breaks that make the table look cut off */
 .card>table th,
 .card>table td {
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    /* was: anywhere */
+    word-break: normal;
 }
 
+/* a helper to keep certain columns on one line */
+.nowrap {
+    white-space: nowrap;
+}
+
+/* optional: make the Period column readable but non-breaking */
+td.period {
+    white-space: nowrap;
+}
+
+/* use the existing table-wrap as the only scroll container */
 .table-wrap {
     max-width: 100%;
     overflow: auto;
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+}
+
+.table-wrap>table {
+    width: max-content;
+    /* grow to content width */
+    min-width: 100%;
+    /* but never smaller than the container */
+    border: 0;
+    /* wrapper has the border/radius */
+    border-radius: 0;
+}
+
+/* ---------- FILTER BARS / FORMS ---------- */
+/* use one consistent grid for the inline filter bars */
+.controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    /* search | year/mo | buttons */
+    gap: .75rem 1rem;
+    align-items: end;
+}
+
+/* normalize heights so inputs & buttons align cleanly */
+.controls input,
+.controls select {
+    height: 2.55rem;
+}
+
+.controls .actions button {
+    height: 2.55rem;
+}
+
+/* breathe a little space between inputs & buttons */
+.controls .actions {
+    padding-left: .25rem;
+}
+
+/* inline year/month forms up top */
+.form-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem .75rem;
+    align-items: end;
+}
+
+.form-inline label {
+    margin-top: 0;
+}
+
+/* kill extra label margin */
+.form-inline small {
+    align-self: center;
+}
+
+/* keep helper text centered */
+
+/* ========== FORCE SINGLE-LINE CELLS + HORIZONTAL SCROLL ========== */
+
+/* 1) The wrapper is the scroll container */
+.card .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+    /* keep vertical within page */
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+}
+
+/* 2) Let the table grow to the width of its content */
+.card .table-wrap>table {
+    table-layout: auto;
+    /* size columns by content */
+    width: max-content !important;
+    /* beat earlier width:100% */
+    min-width: 100%;
+    /* still fill when content is narrow */
+    border: 0;
+    /* wrapper carries the border */
+    border-radius: 0;
+}
+
+/* 3) Absolutely no wrapping in these tables */
+#pending-table th,
+#pending-table td,
+#paid-table th,
+#paid-table td,
+#usage-detail th,
+#usage-detail td,
+#usage-agg th,
+#usage-agg td {
+    white-space: nowrap;
+    overflow-wrap: normal !important;
+    /* undo 'anywhere' from page style */
+    word-break: normal;
+}
+
+/* (optional) keep header sticky inside the scroll area */
+.card .table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8fafc;
+    box-shadow: 0 1px 0 var(--bd);
+}
+
+.card .table-wrap {
+    -webkit-overflow-scrolling: touch;
 }

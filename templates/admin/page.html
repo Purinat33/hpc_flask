@@ -628,42 +628,44 @@
                 <span class="chip">Jobs: {{ rows|length }}</span>
                 <span class="chip">Total: ฿{{ '%.2f'|format(grand_total) }}</span>
             </p>
+            <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>JobID</th>
+                        <th class="nowrap">JobID</th>
                         <th>Elapsed</th>
                         <th>End</th>
-                        <th>State</th>
+                        <th class="nowrap">State</th>
                         <th>CPU core-hrs</th>
                         <th>GPU (count)</th>
                         <th>GPU hrs</th>
-                        <th>Mem (GB alloc)</th>
-                        <th>Mem GB-hrs <small>(used)</small></th>
-                        <th>Mem GB-hrs <small>(alloc)</small></th>
+                        <th class="nowrap">Mem (GB alloc)</th>
+                        <th class="nowrap">Mem GB-hrs <small>(used)</small></th>
+                        <th class="nowrap">Mem GB-hrs <small>(alloc)</small></th>
                         <th>Tier</th>
-                        <th>Cost (฿)</th>
+                        <th class="nowrap">Cost (฿)</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in rows %}
                     <tr>
-                        <td>{{ r['JobID'] }}</td>
+                        <td class="nowrap">{{ r['JobID'] }}</td>
                         <td>{{ r['Elapsed'] }}</td>
                         <td>{{ r['End']|dt_local }}</td>
-                        <td>{{ r['State'] }}</td>
+                        <td class="nowrap">{{ r['State'] }}</td>
                         <td>{{ '%.2f'|format(r['CPU_Core_Hours']) }}</td>
                         <td>{{ r['GPU_Count'] }}</td>
                         <td>{{ '%.2f'|format(r['GPU_Hours']) }}</td>
-                        <td>{{ '%.2f'|format(r['Memory_GB']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
-                        <td>{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
+                        <td class="nowrap">{{ '%.2f'|format(r['Memory_GB']) }}</td>
+                        <td class="nowrap">{{ '%.2f'|format(r['Mem_GB_Hours_Used']) }}</td>
+                        <td class="nowrap">{{ '%.2f'|format(r['Mem_GB_Hours_Alloc']) }}</td>
                         <td>{{ r['tier']|upper }}</td>
-                        <td>฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
+                        <td class="nowrap">฿{{ '%.2f'|format(r['Cost (฿)']) }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <p class="muted">No rows for the given range.</p>
             {% endif %}
@@ -706,7 +708,7 @@
             <h3>{{ _("Invoices")}}</h3>
 
             <!-- Create Monthly Invoices -->
-            <form method="post" action="{{ url_for('admin.create_month_invoices') }}" style="margin:.5rem 0;">
+            <form method="post" action="{{ url_for('admin.create_month_invoices') }}" class="form-inline" style="margin:.5rem 0;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>Year
                     <input type="number" name="year" min="2000" max="2100" step="1" value="{{ year or current_year }}">
@@ -723,7 +725,7 @@
                 <small class="muted" style="margin-left:.5rem;">Creates one pending invoice per user for the chosen
                     month.</small>
             </form>
-            <form method="post" action="{{ url_for('admin.bulk_revert_month_invoices') }}" style="margin:.5rem 0;">
+            <form method="post" action="{{ url_for('admin.bulk_revert_month_invoices') }}" class="form-inline" style="margin:.5rem 0;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label>Year
                     <input type="number" name="year" min="2000" max="2100" step="1" value="{{ year or current_year }}">
@@ -778,16 +780,17 @@
 
             <h4>{{ _("Pending Invoices") }} <small id="pending-counter" class="muted"></small></h4>
             {% if pending and pending|length>0 %}
+            <div class="table-wrap">
             <table id="pending-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th class="nowrap">ID</th>
                         <th>User</th>
-                        <th>Period</th>
-                        <th>Total (฿)</th>
-                        <th>Created</th>
-                        <th>Status</th>
-                        <th>Action</th>
+                        <th class="nowrap">Period</th>
+                        <th class="nowrap">Total (฿)</th>
+                        <th class="nowrap">Created</th>
+                        <th class="nowrap">Status</th>
+                        <th class="nowrap">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -800,13 +803,13 @@
                         data-end="{{ r['end'].isoformat() }}"
                         data-ym="{{ r['period_ym'] }}"
                         >
-                        <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                        <td>{{ r['username'] }}</td>
-                        <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
-                        <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                        <td>{{ r['created_at']|dt_local }}</td>
-                        <td>{{ r['status'] }}</td>
-                        <td>
+                        <td class="nowrap"><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                        <td class="nowrap">{{ r['username'] }}</td>
+                        <td class="nowrap">{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
+                        <td class="nowrap">฿{{ '%.2f'|format(r['total']) }}</td>
+                        <td class="nowrap">{{ r['created_at']|dt_local }}</td>
+                        <td class="nowrap">{{ r['status'] }}</td>
+                        <td class="nowrap">
                             <form method="post" action="{{ url_for('admin.mark_paid', rid=r['id']) }}"
                                 style="display:inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -817,6 +820,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+</div>
             {% else %}
             <p class="muted">Nothing pending 🎉</p>
             {% endif %}
@@ -824,17 +828,18 @@
             <div class="card" style="margin-top:1rem">
                 <h4>{{ _("Paid Invoices") }} <small id="paid-counter" class="muted"></small></h4></h4>
                 {% if paid and paid|length>0 %}
+                <div class="table-wrap">
                 <table id="paid-table">
                     <thead>
                         <tr>
-                            <th>ID</th>
+                            <th class="nowrap">ID</th>
                             <th>User</th>
-                            <th>Period</th>
-                            <th>Total (฿)</th>
-                            <th>Paid at</th>
-                            <th>Status</th>
-                            <th>Invoice</th>
-                            <th>Action</th>
+                            <th class="nowrap">Period</th>
+                            <th class="nowrap">Total (฿)</th>
+                            <th class="nowrap">Paid at</th>
+                            <th class="nowrap">Status</th>
+                            <th class="nowrap">Invoice</th>
+                            <th class="nowrap">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -847,14 +852,14 @@
       data-end="{{ r['end'].isoformat() }}"
       data-ym="{{ r['period_ym'] }}"
       >
-                            <td><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
-                            <td>{{ r['username'] }}</td>
-                            <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
-                            <td>฿{{ '%.2f'|format(r['total']) }}</td>
-                            <td>{{ r['paid_at']|dt_local or '—' }}</td>
-                            <td>{{ r['status'] }}</td>
-                            <td><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a></td>
-                            <td>
+                            <td class="nowrap"><a href="{{ url_for('user.view_receipt', rid=r['id']) }}">#{{ r['id'] }}</a></td>
+                            <td class="nowrap">{{ r['username'] }}</td>
+                            <td class="nowrap">{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
+                            <td class="nowrap">฿{{ '%.2f'|format(r['total']) }}</td>
+                            <td class="nowrap">{{ r['paid_at']|dt_local or '—' }}</td>
+                            <td class="nowrap">{{ r['status'] }}</td>
+                            <td class="nowrap"><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}">PDF</a></td>
+                            <td class="nowrap">
                                 <form method="post" action="{{ url_for('admin.revert_paid', rid=r['id']) }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="reason" value="clicked revert in admin UI" />
@@ -868,6 +873,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
                 <div style="margin-top:.5rem">
                     <a href="{{ url_for('admin.paid_csv') }}"><button type="button">Download paid history
                             (CSV)</button></a>
