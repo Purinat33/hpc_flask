@@ -22,6 +22,15 @@ from models import rates_store
 from services.datetimex import now_utc, to_iso_z
 import re
 from calendar import monthrange
+import os
+
+
+def _tax_cfg():
+    enabled = os.getenv("BILLING_TAX_ENABLED", "0") == "1"
+    label = os.getenv("BILLING_TAX_LABEL", "VAT")
+    rate_pct = float(os.getenv("BILLING_TAX_RATE", "7.0") or 0)
+    inclusive = os.getenv("BILLING_TAX_INCLUSIVE", "0") == "1"
+    return enabled, label, rate_pct, inclusive
 
 
 def _gen_invoice_no(rcpt: Receipt) -> str:
@@ -90,53 +99,50 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "rate_mem": float(r.rate_mem),
                 "rates_locked_at": r.rates_locked_at,
                 "period_ym": _local_ym(r.start),
+                "currency": r.currency,
+                "subtotal": float(r.subtotal),
+                "tax_label": r.tax_label,
+                "tax_rate": float(r.tax_rate),
+                "tax_amount": float(r.tax_amount),
+
             })
         return out
 
 
+# models/billing_store.py
 def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
         if not r:
             return {}, []
         items = s.execute(
-            select(ReceiptItem)
-            .where(ReceiptItem.receipt_id == receipt_id)
-            .order_by(ReceiptItem.job_id_display)
+            select(ReceiptItem).where(ReceiptItem.receipt_id ==
+                                      receipt_id).order_by(ReceiptItem.job_id_display)
         ).scalars().all()
         return (
             {
-                "id": r.id,
-                "username": r.username,
-                "start": r.start,
-                "end": r.end,
-                "total": float(r.total),
-                "status": r.status,
-                "created_at": r.created_at,
-                "paid_at": r.paid_at,
-                "method": r.method,
-                "tx_ref": r.tx_ref,
-                # NEW:
-                "invoice_no": r.invoice_no,
-                "approved_by": r.approved_by,
-                "approved_at": r.approved_at,
-                "pricing_tier": r.pricing_tier,
-                "rate_cpu": float(r.rate_cpu),
-                "rate_gpu": float(r.rate_gpu),
-                "rate_mem": float(r.rate_mem),
+                "id": r.id, "username": r.username, "start": r.start, "end": r.end,
+                "status": r.status, "created_at": r.created_at, "paid_at": r.paid_at,
+                "method": r.method, "tx_ref": r.tx_ref,
+                "invoice_no": r.invoice_no, "approved_by": r.approved_by, "approved_at": r.approved_at,
+                "pricing_tier": r.pricing_tier, "rate_cpu": float(r.rate_cpu),
+                "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
                 "rates_locked_at": r.rates_locked_at,
+
+                # NEW fields the template needs
+                "currency": r.currency,
+                "subtotal": float(r.subtotal),
+                "tax_label": r.tax_label,
+                "tax_rate": float(r.tax_rate),
+                "tax_amount": float(r.tax_amount),
+                "total": float(r.total),        # keep total as gross
             },
             [
                 {
-                    "receipt_id": i.receipt_id,
-                    "job_key": i.job_key,
-                    "job_id_display": i.job_id_display,
-                    "cost": float(i.cost),
-                    "cpu_core_hours": float(i.cpu_core_hours),
-                    "gpu_hours": float(i.gpu_hours),
-                    "mem_gb_hours": float(i.mem_gb_hours),
-                }
-                for i in items
+                    "receipt_id": i.receipt_id, "job_key": i.job_key, "job_id_display": i.job_id_display,
+                    "cost": float(i.cost), "cpu_core_hours": float(i.cpu_core_hours),
+                    "gpu_hours": float(i.gpu_hours), "mem_gb_hours": float(i.mem_gb_hours),
+                } for i in items
             ],
         )
 
@@ -161,70 +167,81 @@ def _day_end_utc(d: date) -> datetime:
 
 
 def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable[dict]) -> Tuple[int, float, list[dict]]:
-    """
-    `start` / `end` are ISO dates (YYYY-MM-DD) coming from UI.
-    We store *precise* UTC instants:
-      start = local 00:00:00 converted to UTC
-      end   = local 23:59:59 converted to UTC
-    """
     now = _now_utc()
     rows = list(rows)
     inserted: List[dict] = []
     total = 0.0
 
-    # Determine tier & snapshot rates
     tier = next((str((r.get("tier") or "")).lower()
                 for r in rows if r.get("tier")), "mu")
     snap = rates_store.get_rate_for_tier(tier)
 
-    # Build precise UTC bounds
     start_dt_utc = _day_start_utc(date.fromisoformat(start))
     end_dt_utc = _day_end_utc(date.fromisoformat(end))
 
     with session_scope() as s:
         r = Receipt(
             username=username,
-            start=start_dt_utc,
-            end=end_dt_utc,
-            total=0.0,
-            status="pending",
-            created_at=now,
+            start=start_dt_utc, end=end_dt_utc,
+            status="pending", created_at=now,
             pricing_tier=tier,
-            rate_cpu=float(snap["cpu"]),
-            rate_gpu=float(snap["gpu"]),
-            rate_mem=float(snap["mem"]),
+            rate_cpu=float(snap["cpu"]), rate_gpu=float(snap["gpu"]), rate_mem=float(snap["mem"]),
             rates_locked_at=now,
+            currency="THB",                 # NEW default
+            subtotal=0.0,                   # will set below
+            tax_label=None, tax_rate=0.0, tax_amount=0.0,
+            total=0.0,                      # will set below
         )
         s.add(r)
-        s.flush()  # obtain r.id
+        s.flush()
 
         for row in rows:
             job_key = canonical_job_id(str(row["JobID"]))
             item = ReceiptItem(
-                receipt_id=r.id,
-                job_key=job_key,
-                job_id_display=str(row["JobID"]),
+                receipt_id=r.id, job_key=job_key, job_id_display=str(
+                    row["JobID"]),
                 cost=float(row.get("Cost (฿)", 0.0)),
                 cpu_core_hours=float(row.get("CPU_Core_Hours", 0.0)),
                 gpu_hours=float(row.get("GPU_Hours", 0.0)),
-                # ✅ use used-hours to match UI/logic
                 mem_gb_hours=float(row.get("Mem_GB_Hours_Used", 0.0)),
             )
             s.add(item)
-            total += float(item.cost)
+            c = float(item.cost)
+            total += c
             inserted.append({
-                "job_key": job_key,
-                "job_id_display": item.job_id_display,
-                "cost": float(item.cost),
-                "cpu_core_hours": float(item.cpu_core_hours),
-                "gpu_hours": float(item.gpu_hours),
-                "mem_gb_hours": float(item.mem_gb_hours),
+                "job_key": job_key, "job_id_display": item.job_id_display,
+                "cost": c, "cpu_core_hours": float(item.cpu_core_hours),
+                "gpu_hours": float(item.gpu_hours), "mem_gb_hours": float(item.mem_gb_hours),
             })
 
-        r.total = float(total)
+        # === tax math ===
+        subtotal_raw = round(float(total), 2)
+
+        tax_enabled, tax_label, tax_rate, tax_inclusive = _tax_cfg()
+        if tax_enabled and tax_rate > 0:
+            if tax_inclusive:
+                tax_amount = round(
+                    subtotal_raw - (subtotal_raw / (1 + tax_rate/100)), 2)
+                subtotal = round(subtotal_raw - tax_amount, 2)
+                grand = subtotal_raw
+            else:
+                tax_amount = round(subtotal_raw * (tax_rate/100), 2)
+                subtotal = subtotal_raw
+                grand = round(subtotal + tax_amount, 2)
+            r.tax_label = tax_label
+            r.tax_rate = float(tax_rate)
+            r.tax_amount = float(tax_amount)
+        else:
+            subtotal = subtotal_raw
+            grand = subtotal
+
+        # persist amounts
+        r.subtotal = float(subtotal)
+        r.total = float(grand)   # **gross** total is the canonical amount
         s.add(r)
 
-    return r.id, float(total), inserted
+    # return grand if you want; existing callers can keep using the 2nd tuple element
+    return r.id, float(r.total), inserted
 
 
 def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None):
@@ -274,24 +291,37 @@ def list_billed_items_for_user(username: str, status: str | None = None) -> list
 def admin_list_receipts(status: str | None = None) -> list[dict]:
     with session_scope() as s:
         q = select(Receipt)
-        if status:
+        if status in ("pending", "paid", "void"):
             q = q.where(Receipt.status == status)
         q = q.order_by(Receipt.created_at.desc(), Receipt.id.desc())
+
         rows = s.execute(q).scalars().all()
-        out = []
+        out: list[dict] = []
         for r in rows:
             out.append({
-                "id": r.id, "username": r.username,
-                "start": r.start,         # date
-                "end": r.end,             # date
-                "total": float(r.total), "status": r.status,
-                # datetime (UTC)
-                "created_at": r.created_at, "paid_at": r.paid_at,
-                "method": r.method, "tx_ref": r.tx_ref,
-                "invoice_no": r.invoice_no, "approved_by": r.approved_by, "approved_at": r.approved_at,
+                "id": r.id,
+                "username": r.username,
+                "start": r.start,
+                "end": r.end,
+                "status": r.status,
+                "created_at": r.created_at,
+                "paid_at": r.paid_at,
+                "method": r.method,
+                "tx_ref": r.tx_ref,
+                "invoice_no": r.invoice_no,
+                "approved_by": r.approved_by,
+                "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
-                "rate_cpu": float(r.rate_cpu), "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
+                "rate_cpu": float(r.rate_cpu or 0),
+                "rate_gpu": float(r.rate_gpu or 0),
+                "rate_mem": float(r.rate_mem or 0),
                 "rates_locked_at": r.rates_locked_at,
+                "currency": r.currency or "THB",
+                "subtotal": float(r.subtotal or 0),
+                "tax_label": r.tax_label,
+                "tax_rate": float(r.tax_rate or 0),
+                "tax_amount": float(r.tax_amount or 0),
+                "total": float(r.total or 0),        # gross
                 "period_ym": _local_ym(r.start),
             })
         return out
@@ -408,22 +438,29 @@ def paid_receipts_csv():
     w = csv.writer(out)
     w.writerow([
         "id", "username", "start", "end",
-        "total_THB", "status", "created_at", "paid_at", "approved_by", "approved_at",
+        "currency", "subtotal", "tax_label", "tax_rate_pct", "tax_amount", "total",
+        "status", "created_at", "paid_at", "approved_by", "approved_at",
         "pricing_tier", "rate_cpu", "rate_gpu", "rate_mem", "rates_locked_at",
     ])
     for r in rows:
         w.writerow([
             r["id"], r["username"],
-            r["start"].isoformat(),
-            r["end"].isoformat(),
-            f"{float(r['total']):.2f}", r["status"],
+            r["start"].isoformat(), r["end"].isoformat(),
+            r.get("currency", "THB"),
+            f"{float(r.get('subtotal', 0)):,.2f}",
+            r.get("tax_label") or "",
+            f"{float(r.get('tax_rate', 0)):,.2f}",
+            f"{float(r.get('tax_amount', 0)):,.2f}",
+            f"{float(r.get('total', 0)):,.2f}",
+            r["status"],
             r["created_at"].isoformat(),
             (r["paid_at"].isoformat().replace(
                 "+00:00", "Z") if r["paid_at"] else ""),
             r.get("approved_by", ""),
             (r["approved_at"].isoformat().replace(
                 "+00:00", "Z") if r.get("approved_at") else ""),
-            r.get("pricing_tier", ""), r.get("rate_cpu", ""), r.get(
+            r.get("pricing_tier", ""),
+            r.get("rate_cpu", ""), r.get(
                 "rate_gpu", ""), r.get("rate_mem", ""),
             r["rates_locked_at"].isoformat(),
         ])

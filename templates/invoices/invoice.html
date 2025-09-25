@@ -115,6 +115,7 @@
             color: #16a34a22;
             transform: rotate(-20deg);
         }
+        .vat-row td { border-top: 1px solid #eee; }
     </style>
 </head>
 
@@ -209,6 +210,13 @@
                         {{ '%.2f'|format((rows|sum(attribute='mem_gb_hours')) * r.rate_mem) }}
                     </td>
                 </tr>
+                            {% if r.tax_amount and r.tax_amount > 0 %}
+                            <tr class="vat-row">
+                                <td></td>
+                                <td class="right">{{ r.tax_label or 'VAT' }} {{ '%.2f'|format(r.tax_rate) }}%</td>
+                                <td class="right">฿{{ '%.2f'|format(r.tax_amount) }}</td>
+                            </tr>
+                            {% endif %}
 
                 {# Optional: uncomment to include a compact job list (second page if long)
       <tr>
@@ -224,22 +232,13 @@
       </tr>
       #}
             </tbody>
+
             <tfoot>
                 <tr class="totals">
                     <td></td>
                     <td class="right"><b>Subtotal</b></td>
-                    <td class="right">฿{{ '%.2f'|format(r.total) }}</td>
+                    <td class="right">฿{{ '%.2f'|format(r.subtotal) }}</td>
                 </tr>
-                {# Add VAT if needed
-      <tr class="totals">
-        <td></td><td class="right">VAT 7%</td>
-        <td class="right">฿{{ '%.2f'|format(r.total * 0.07) }}</td>
-      </tr>
-      <tr class="totals grand">
-        <td></td><td class="right">Total</td>
-        <td class="right">฿{{ '%.2f'|format(r.total * 1.07) }}</td>
-      </tr>
-      #}
                 <tr class="totals grand">
                     <td></td>
                     <td class="right">Total</td>

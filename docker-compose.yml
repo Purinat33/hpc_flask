@@ -122,6 +122,10 @@ services:
       COPILOT_TOP_K: "6"        # how many chunks to send to the LLM
       COPILOT_MIN_SIM: "0.28"   # below this → “I don’t know”
       COPILOT_RATE_LIMIT_PER_MIN: "12"  # per IP
+      BILLING_TAX_ENABLED: "1"      # "0" disables VAT entirely
+      BILLING_TAX_LABEL: "VAT"      # label on the invoice
+      BILLING_TAX_RATE: "7.0"       # percent
+      BILLING_TAX_INCLUSIVE: "0"    # "1" if your rates already include tax
     depends_on:
       pg:
         condition: service_healthy
@@ -169,5 +173,5 @@ services:
 
 volumes:
   pgdata:
-  ollama:
-  copilot_index: 
+  # ollama:
+  # copilot_index: 

@@ -1,6 +1,6 @@
 # models/schema.py
 from sqlalchemy import (
-    PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
+    Boolean, PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,7 +33,21 @@ class Receipt(Base):
         String, nullable=False)  # optional FK to users.username
     start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     end:   Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    currency:  Mapped[str] = mapped_column(
+        String(3), nullable=False, default="THB")
 
+    # New tax-aware amounts
+    subtotal:   Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0)  # ex-tax
+    tax_label:  Mapped[str | None] = mapped_column(
+        String)                          # e.g. 'VAT'
+    tax_rate:   Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0)   # percent
+    tax_amount: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0)   # absolute
+    tax_inclusive: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False)
+    
     # NEW: snapshot of pricing inputs locked at creation-time
     pricing_tier:  Mapped[str] = mapped_column(
         String, nullable=False)   # 'mu' | 'gov' | 'private'
@@ -70,6 +84,8 @@ class Receipt(Base):
                         name="ck_receipts_status"),
         CheckConstraint("pricing_tier in ('mu','gov','private')",
                         name="ck_receipts_tier"),
+        CheckConstraint("subtotal >= 0", name="ck_receipts_subtotal_ge_0"),
+        CheckConstraint("tax_amount >= 0", name="ck_receipts_tax_ge_0"),
     )
 
 
