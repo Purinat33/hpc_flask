@@ -33,9 +33,11 @@ def view_receipt(rid: int):
     rec, items = get_receipt_with_items(rid)
     is_admin = getattr(current_user, "is_admin", False)
     if not rec or (rec.get("username") != current_user.username and not is_admin):
-        audit(action="receipt.view.denied",
-              target=f"receipt={rid}", status=403,
-              extra={"actor": current_user.username})
+        audit(
+            "invoice.view.denied",
+            target_type="receipt", target_id=str(rid),
+            outcome="failure", status=403
+        )
         return redirect(url_for("user.my_receipts"))
     return render_template("user/receipt_detail.html", r=rec, rows=items,
                            is_owner=(rec.get("username") == current_user.username))
@@ -292,8 +294,12 @@ def receipt_pdf(rid: int):
     rec, items = get_receipt_with_items(rid)
     is_admin = getattr(current_user, "is_admin", False)
     if not rec or (rec["username"] != current_user.username and not is_admin):
-        audit("receipt.pdf.denied", target=f"receipt={rid}", status=403,
-              extra={"actor": current_user.username})
+        audit(
+            "invoice.pdf",
+            target_type="receipt", target_id=str(rid),
+            outcome="failure", status=403,
+            error_code="forbidden"
+        )
         return redirect(url_for("user.my_receipts"))
 
     html = render_template(
@@ -316,8 +322,12 @@ def receipt_pdf_th(rid: int):
     rec, items = get_receipt_with_items(rid)
     is_admin = getattr(current_user, "is_admin", False)
     if not rec or (rec["username"] != current_user.username and not is_admin):
-        audit("receipt_th.pdf.denied", target=f"receipt={rid}", status=403,
-              extra={"actor": current_user.username})
+        audit(
+            "invoice.pdf",
+            target_type="receipt", target_id=str(rid),
+            outcome="failure", status=403,
+            error_code="forbidden_th"
+        )
         return redirect(url_for("user.my_receipts"))
 
     html = render_template(

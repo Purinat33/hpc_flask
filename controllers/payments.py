@@ -106,8 +106,14 @@ def webhook():
     # First, persist the event (idempotent on external_event_id)
     eid = record_webhook_event(
         provider.name, evt.external_event_id, evt.event_type, evt.raw, evt.signature_ok)
-    audit("payment.webhook", target=f"provider={provider.name}", status=200 if evt.signature_ok else 400,
-          extra={"event_id": eid, "etype": evt.event_type})
+    audit(
+        "payment.webhook",
+        target_type="provider", target_id=provider.name,
+        outcome="success" if evt.signature_ok else "failure",
+        status=200 if evt.signature_ok else 400,
+        error_code=None if evt.signature_ok else "bad_signature",
+        extra={"note": f"event_id={eid}; etype={evt.event_type}"}
+    )
 
     if not evt.signature_ok:
         abort(400)
@@ -120,8 +126,14 @@ def webhook():
             currency=evt.currency,
             provider=provider.name,
         )
-        audit("payment.finalize", target=f"external={evt.external_payment_id}", status=200 if ok else 409,
-              extra={"currency": evt.currency, "amount_cents": evt.amount_cents})
+        audit(
+            "payment.finalize",
+            target_type="external", target_id=str(evt.external_payment_id),
+            outcome="success" if ok else "failure",
+            status=200 if ok else 409,
+            error_code=None if ok else "amount_mismatch",
+            extra={"note": f"{evt.currency} {evt.amount_cents}"}
+        )
         WEBHOOK_EVENTS.labels(
             provider=provider.name, event="payment_succeeded", outcome="ok").inc()
 

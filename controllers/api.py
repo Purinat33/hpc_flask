@@ -61,8 +61,10 @@ def update_formula():
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)
     # AUDIT
-    audit("rates.update",
-          target=f"type={tier}",
-          status=200,
-          extra={"new_rates": rates[tier]})
+    audit(
+        "rate.update",
+        target_type="tier", target_id=tier,
+        outcome="success", status=200,
+        extra={"new": rates[tier]}
+    )
     return jsonify({"ok": True, "updated": {tier: rates[tier]}})

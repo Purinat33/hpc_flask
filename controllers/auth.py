@@ -41,10 +41,12 @@ def admin_required(f):
             return login_manager.unauthorized()
         if not getattr(current_user, "is_admin", False):
             FORBIDDEN_REDIRECTS.inc()
-            audit(action="auth.forbidden",
-                  target=f"user={current_user.username}",
-                  status=403,
-                  extra={"path": request.path})
+            audit(
+                "auth.forbidden",
+                target_type="user", target_id=(getattr(current_user, "username", "") or "anonymous"),
+                outcome="failure", status=403,
+                extra={"reason": "not_admin"}
+            )
             return redirect(url_for("playground"))
         return f(*args, **kwargs)
     return wrapper
@@ -83,35 +85,36 @@ def login_post():
     locked, sec_left = is_locked(u or "unknown", ip)
     if locked:
         LOCKOUT_ACTIVE.inc()
-        audit(action="auth.lockout.active",
-              target=f"user={u or 'unknown'}",
-              status=423,
-              extra={"ip": ip, "seconds_left": sec_left})
+        audit(
+            "auth.lockout.active",
+            target_type="user", target_id=(u or "unknown"),
+            outcome="failure", status=423,
+            extra={"note": f"seconds_left={sec_left}"}
+        )
         return redirect(url_for("auth.login", err="locked", left=sec_left, u=u))
 
     # Check password
     if not verify_password(u, p):
         LOGIN_FAILURES.labels(reason="bad_credentials").inc()
-        audit(action="auth.login.failure",
-              target=f"user={u or 'unknown'}",
-              status=401,
-              extra={"reason": "bad_credentials", "ip": ip, "ua": request.headers.get("User-Agent")})
-
+        audit(
+            "auth.login.failure",
+            target_type="user", target_id=(u or "unknown"),
+            outcome="failure", status=401,
+            error_code="bad_credentials",
+            extra={"reason": "bad_credentials"}
+        )
         locked_now = register_failure(u or "unknown", ip)
         if locked_now:
             # best-effort seconds-left (new full lock window)
             LOCKOUT_START.inc()
             lock_sec = int(current_app.config.get(
                 "AUTH_THROTTLE_LOCK_SEC", 300))
-            audit(action="auth.lockout.start",
-                  target=f"user={u or 'unknown'}",
-                  status=423,
-                  extra={
-                      "ip": ip,
-                      "window_sec": current_app.config.get("AUTH_THROTTLE_WINDOW_SEC", 60),
-                      "max_fails": current_app.config.get("AUTH_THROTTLE_MAX_FAILS", 5),
-                      "lock_sec": lock_sec,
-                  })
+            audit(
+                "auth.lockout.start",
+                target_type="user", target_id=(u or "unknown"),
+                outcome="failure", status=423,
+                extra={"note": f"lock_sec={lock_sec}"}
+            )
             return redirect(url_for("auth.login", err="locked", left=lock_sec, u=u))
 
         # generic invalid-credentials message
@@ -126,17 +129,19 @@ def login_post():
     login_user(User(row["username"], row["role"]))
     LOGIN_SUCCESSES.inc()
 
-    audit(action="auth.login.success",
-          target=f"user={row['username']}",
-          status=200,
-          extra={"role": row["role"], "ip": ip, "ua": request.headers.get("User-Agent")})
-
+    audit(
+        "auth.login.success",
+        target_type="user", target_id=row["username"],
+        outcome="success", status=200,
+        extra={"note": f"role={row['role']}"}
+    )
     if was_locked:
         LOCKOUT_END.inc()
-        audit(action="auth.lockout.end",
-              target=f"user={row['username']}",
-              status=200,
-              extra={"ip": ip})
+        audit(
+            "auth.lockout.end",
+            target_type="user", target_id=row["username"],
+            outcome="success", status=200
+        )
 
     # Always land on home; ignore ?next=
     return redirect(url_for("playground"))
@@ -145,6 +150,10 @@ def login_post():
 @auth_bp.post("/logout")
 @login_required
 def logout():
-    audit("auth.logout", target=f"user={current_user.username}", status=200)
+    audit(
+        "auth.logout",
+        target_type="user", target_id=current_user.username,
+        outcome="success", status=200
+    )
     logout_user()
     return redirect(url_for("auth.login"))

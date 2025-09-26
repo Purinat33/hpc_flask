@@ -1,6 +1,8 @@
 # models/schema.py
+from datetime import datetime
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import (
-    Boolean, PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
+    JSON, Boolean, PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -47,7 +49,7 @@ class Receipt(Base):
         Float, nullable=False, default=0.0)   # absolute
     tax_inclusive: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False)
-    
+
     # NEW: snapshot of pricing inputs locked at creation-time
     pricing_tier:  Mapped[str] = mapped_column(
         String, nullable=False)   # 'mu' | 'gov' | 'private'
@@ -181,20 +183,56 @@ class PaymentEvent(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
-    actor: Mapped[str | None] = mapped_column(String)
-    ip: Mapped[str | None] = mapped_column(String)
-    ua: Mapped[str | None] = mapped_column(String)
-    method: Mapped[str | None] = mapped_column(String)
-    path: Mapped[str | None] = mapped_column(String)
-    action: Mapped[str] = mapped_column(String, nullable=False)
-    target: Mapped[str | None] = mapped_column(String)
+
+    # Actor & request context
+    actor: Mapped[str | None] = mapped_column(String(128))
+    # 'admin'|'user'|...
+    actor_role: Mapped[str | None] = mapped_column(String(32))
+    request_id: Mapped[str | None] = mapped_column(
+        String(64))     # e.g., per-request UUID
+    session_id: Mapped[str | None] = mapped_column(String(64))     # optional
+
+    ip: Mapped[str | None] = mapped_column(
+        String(64))             # anonymized if configured
+    ua_fingerprint: Mapped[str | None] = mapped_column(String(64))  # hashed UA
+
+    method: Mapped[str | None] = mapped_column(String(8))
+    path: Mapped[str | None] = mapped_column(String(512))
+
+    # Event semantics
+    action: Mapped[str] = mapped_column(
+        String(64), nullable=False)  # controlled vocabulary
+    target_type: Mapped[str | None] = mapped_column(String(32))
+    target_id: Mapped[str | None] = mapped_column(String(128))
+    outcome: Mapped[str | None] = mapped_column(
+        String(16))          # 'success'|'failure'
     status: Mapped[int | None] = mapped_column(Integer)
-    extra: Mapped[str | None] = mapped_column(Text)
-    prev_hash: Mapped[str | None] = mapped_column(String)
-    hash: Mapped[str | None] = mapped_column(String)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+
+    # Structured details (small, redacted)
+    extra: Mapped[dict | None] = mapped_column(JSON)
+
+    # Tamper-evident chain
+    prev_hash: Mapped[str | None] = mapped_column(String(128))
+    hash: Mapped[str | None] = mapped_column(String(128))
+    signature: Mapped[str | None] = mapped_column(
+        String(128))       # HMAC(hash, SECRET)
+    schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2)
+
+    __table_args__ = (
+        CheckConstraint(
+            "outcome in ('success','failure') or outcome is null", name="ck_audit_outcome"),
+        Index("idx_audit_ts", "ts"),
+        Index("idx_audit_actor", "actor"),
+        Index("idx_audit_action", "action"),
+        Index("idx_audit_target", "target_type", "target_id"),
+        Index("idx_audit_request", "request_id"),
+    )
 
 
 class AuthThrottle(Base):

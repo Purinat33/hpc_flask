@@ -1,3 +1,4 @@
+from datetime import date
 from weasyprint import HTML
 from flask import current_app, make_response
 # add at top if not imported
@@ -872,8 +873,12 @@ def admin_update():
     r = rates_store.load_rates()
     r[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(r)
-    audit("rates.update.form", target=f"type={tier}", status=200,
-          extra={"cpu": cpu, "gpu": gpu, "mem": mem})
+    audit(
+        "rate.update",
+        target_type="tier", target_id=tier,
+        outcome="success", status=200,
+        extra={"new": {"cpu": cpu, "gpu": gpu, "mem": mem}}
+    )
     return redirect(url_for("admin.admin_form", section="rates", type=tier))
 
 
@@ -886,10 +891,11 @@ def mark_paid(rid: int):
     if ok:
         RECEIPT_MARKED_PAID.labels(actor_type="admin").inc()
     audit(
-        "receipt.paid.admin",
-        target=f"receipt={rid}",
+        "invoice.mark_paid",
+        target_type="receipt", target_id=str(rid),
+        outcome="success" if ok else "failure",
         status=200 if ok else 404,
-        extra={"actor": current_user.username, "reason": "manual_mark_paid"}
+        extra={"reason": "manual_mark_paid"}
     )
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
@@ -902,10 +908,12 @@ def revert_paid(rid: int):
     reason = (request.form.get("reason") or "").strip() or None
     ok, msg = revert_receipt_to_pending(rid, current_user.username, reason)
     audit(
-        "receipt.revert.admin",
-        target=f"receipt={rid}",
+        "invoice.revert",
+        target_type="receipt", target_id=str(rid),
+        outcome="success" if ok else "failure",
         status=200 if ok else 400,
-        extra={"actor": current_user.username, "msg": msg, "reason": reason}
+        error_code=None if ok else (msg or "revert_failed"),
+        extra={"reason": reason}
     )
     if ok:
         flash("Reverted to pending.", "success")
@@ -928,6 +936,8 @@ def revert_paid(rid: int):
 def paid_csv():
     fname, csv_text = paid_receipts_csv()
     CSV_DOWNLOADS.labels(kind="admin_paid").inc()
+    audit("export.paid_csv", target_type="scope",
+          target_id="admin", outcome="success", status=200)
     return Response(
         csv_text,
         mimetype="text/csv",
@@ -950,6 +960,8 @@ def my_usage_csv_admin():
     out.seek(0)
     filename = f"usage_{current_user.username}_{start_d}_{end_d}.csv"
     CSV_DOWNLOADS.labels(kind="my_usage").inc()
+    audit("export.my_usage_csv", target_type="user",
+          target_id=current_user.username, outcome="success", status=200)
     return Response(
         out.read(),
         mimetype="text/csv",
@@ -992,7 +1004,13 @@ def create_self_receipt():
 @admin_required
 def audit_page():
     rows = list_audit(limit=100)
-    return render_template("admin/audit.html", rows=rows)
+    return render_template(
+        "admin/audit.html",
+        rows=rows,
+        section="audit",
+        bview=None,
+        before=date.today().isoformat(),
+    )
 
 
 @admin_bp.get("/admin/audit.csv")
@@ -1001,6 +1019,8 @@ def audit_page():
 def audit_csv():
     fname, csv_text = export_csv()
     CSV_DOWNLOADS.labels(kind="audit").inc()
+    audit("export.audit_csv", target_type="scope",
+          target_id="admin", outcome="success", status=200)
     return Response(csv_text, mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 
@@ -1180,8 +1200,13 @@ def save_tiers():
         username = username_raw.strip()
         desired = (v or "").strip().lower()
         if desired not in {"mu", "gov", "private"}:
-            audit("tiers.set.invalid", target=f"user={username}", status=400, extra={
-                  "desired": desired})
+            audit(
+                "tier.override.invalid",
+                target_type="user", target_id=username,
+                outcome="failure", status=400,
+                error_code="invalid_tier",
+                extra={"desired": desired}
+            )
             continue
 
         natural = classify_user_type(username)
@@ -1192,16 +1217,30 @@ def save_tiers():
             if prev_override is not None:
                 clear_override(username)
                 removed += 1
-                audit("tier.override.clear", target=f"user={username}", status=200,
-                      extra={"from": prev_effective, "to": natural, "natural": natural})
+                audit(
+                    "tier.override.clear",
+                    target_type="user", target_id=username,
+                    outcome="success", status=200,
+                    extra={"from": prev_effective,
+                           "to": natural, "natural": natural}
+                )
         else:
             upsert_override(username, desired)
             changed += 1
-            audit("tier.override.set", target=f"user={username}", status=200,
-                  extra={"from": prev_effective, "to": desired, "natural": natural})
+            audit(
+                "tier.override.set",
+                target_type="user", target_id=username,
+                outcome="success", status=200,
+                extra={"from": prev_effective,
+                       "to": desired, "natural": natural}
+            )
 
-    audit("tiers.save.summary",
-          target=f"changed={changed},removed={removed}", status=200)
+    audit(
+        "tier.override.summary",
+        target_type="summary", target_id="tiers",
+        outcome="success", status=200,
+        extra={"changed": int(changed), "removed": int(removed)}
+    )
     return redirect(url_for("admin.admin_form", section="tiers"))
 
 
@@ -1316,18 +1355,26 @@ def create_month_invoices():
                     columns=["JobKey"]).to_dict(orient="records")
             )
             RECEIPT_CREATED.labels(scope="admin_bulk").inc()
-            audit("receipt.create.month",
-                  target=f"receipt={rid}",
-                  status=200,
-                  extra={"user": user_name, "year": y, "month": m, "jobs": int(len(duser)), "total": float(total)})
+            audit(
+                "invoice.create_month",
+                target_type="receipt", target_id=str(rid),
+                outcome="success", status=200,
+                extra={"user": user_name, "year": y, "month": m,
+                       "jobs": int(len(duser)), "total": float(total)}
+            )
             created += 1
 
         msg = f"Created {created} invoice(s) for {y}-{m:02d}" + (
             f"; skipped {skipped} (already exist)" if skipped else "")
         flash(msg, "success")
     except Exception as e:
-        audit("receipt.create.month.error",
-              target=f"{y}-{m:02d}", status=500, extra={"error": str(e)})
+        audit(
+            "invoice.create_month",
+            target_type="month", target_id=f"{y}-{m:02d}",
+            outcome="failure", status=500,
+            error_code="create_month_error",
+            extra={"reason": str(e)[:256]}
+        )
         flash(f"Error creating invoices: {e}", "error")
 
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
@@ -1339,8 +1386,12 @@ def create_month_invoices():
 def admin_receipt_pdf(rid: int):
     rec, items = get_receipt_with_items(rid)
     if not rec:
-        audit("receipt.pdf.not_found", target=f"receipt={rid}", status=404,
-              extra={"actor": current_user.username})
+        audit(
+            "invoice.pdf",
+            target_type="receipt", target_id=str(rid),
+            outcome="failure", status=404,
+            error_code="not_found"
+        )
         return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
     html = render_template(
@@ -1381,26 +1432,20 @@ def bulk_revert_month_invoices():
 
         evt = "admin.bulk_revert_month.completed" if voided > 0 else "admin.bulk_revert_month.noop"
         audit(
-            evt,
-            target=f"month={y}-{m:02d}",
+            "invoice.bulk_revert_month",
+            target_type="month", target_id=f"{y}-{m:02d}",
+            outcome="success" if voided > 0 else "failure",
             status=200,
-            extra={
-                "actor": current_user.username,
-                "voided": int(voided),
-                "skipped": int(skipped),
-                "reason": reason,
-            },
+            extra={"voided": int(voided), "skipped": int(
+                skipped), "reason": reason}
         )
     except Exception as e:
         audit(
-            "admin.bulk_revert_month.error",
-            target=f"month={y}-{m:02d}",
-            status=500,
-            extra={
-                "actor": current_user.username,
-                "reason": reason,
-                "error": str(e),
-            },
+            "invoice.bulk_revert_month",
+            target_type="month", target_id=f"{y}-{m:02d}",
+            outcome="failure", status=500,
+            error_code="exception",
+            extra={"reason": reason}
         )
     return redirect(url_for("admin.admin_form", section="billing"))
 
