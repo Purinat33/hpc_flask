@@ -722,7 +722,8 @@ def build_etax_payload(receipt_id: int) -> dict:
         "seller": {
             "name": org.get("name"),
             "tax_id": org.get("tax_id"),              # RD needs this
-            "branch": org.get("branch_no"),           # optional; "0" for HQ
+            # optional; "0" for HQ
+            "branch": org.get("branch_no", '0'),
             "address": {
                 "line1": org.get("address_line1"),
                 "line2": org.get("address_line2"),

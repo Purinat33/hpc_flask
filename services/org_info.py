@@ -9,7 +9,7 @@ def ORG_INFO():
         "city": os.getenv("ORG_CITY", "Nakhon Pathom"),
         "postcode": os.getenv("ORG_POST", "73170"),
         "country": os.getenv("ORG_COUNTRY", "Thailand"),
-        "tax_id": os.getenv("ORG_TAX_ID", ""),
+        "tax_id": os.getenv("ORG_TAX_ID", "0994000158378"),
         "email": os.getenv("ORG_EMAIL", "opwww@mahidol.ac.th"),
         "phone": os.getenv("ORG_PHONE", "+66 (0) 2849-6000"),
         "bank_name": os.getenv("ORG_BANK_NAME", "Siam Commercial Bank"),
