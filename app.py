@@ -6,13 +6,12 @@ from time import time
 
 from flask import Flask, render_template, request, redirect, url_for, abort, current_app, make_response, g, send_from_directory
 from flask_babel import Babel, gettext as _, get_locale
-from flask_login import login_required, current_user
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from dotenv import load_dotenv
 
 from controllers.admin import admin_bp
 from controllers.api import api_bp
-from controllers.auth import auth_bp, login_manager, admin_required
+from controllers.auth import auth_bp, login_manager
 from controllers.user import user_bp
 # from controllers.payments import payments_bp
 # from controllers.payments import webhook as payments_webhook

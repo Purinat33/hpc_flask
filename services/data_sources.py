@@ -1,5 +1,4 @@
 # data_sources.py
-from shutil import which
 from functools import lru_cache
 from services.datetimex import ensure_utc_series, APP_TZ, local_day_end_utc
 import os
@@ -7,10 +6,9 @@ import subprocess
 import pandas as pd
 import requests
 from io import StringIO
-from datetime import date, datetime, timedelta
+from datetime import date
 from flask import current_app, has_app_context
 from services.billing import canonical_job_id
-import re
 # ---------- utilities ----------
 
 

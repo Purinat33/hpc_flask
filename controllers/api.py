@@ -57,6 +57,14 @@ def update_formula():
     except Exception:
         return jsonify({"error": "cpu, gpu, mem must be numeric"}), 400
 
+    # Disallow Negatives
+    if min(cpu, gpu, mem) < 0:
+        return jsonify({"error": "cpu, gpu, mem must be >= 0"}), 400
+
+    cpu = round(cpu, 4)
+    gpu = round(gpu, 4)
+    mem = round(mem, 4)
+
     rates = rates_store.load_rates()
     rates[tier] = {"cpu": cpu, "gpu": gpu, "mem": mem}
     save_rates(rates)

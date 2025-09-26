@@ -11,7 +11,7 @@ from datetime import timedelta
 from services.org_info import ORG_INFO, ORG_INFO_TH
 from services.pricing_sim import build_pricing_components, simulate_vs_current
 import io
-from datetime import date, datetime
+from datetime import date
 import pandas as pd
 from flask import Blueprint, render_template, request, redirect, url_for, Response
 from flask_login import fresh_login_required, login_required, current_user
@@ -24,7 +24,7 @@ from services.billing import compute_costs
 from models.billing_store import (
     billed_job_ids, canonical_job_id,
     admin_list_receipts, mark_receipt_paid, paid_receipts_csv,
-    list_billed_items_for_user, list_receipts, create_receipt_from_rows,
+    list_receipts, create_receipt_from_rows,
 )
 from models.audit_store import audit
 from models.audit_store import list_audit, export_csv
@@ -40,7 +40,6 @@ from services.billing import classify_user_type
 from models.base import session_scope
 from models.schema import User
 from services.data_sources import fetch_jobs_with_fallbacks
-import calendar
 from models.billing_store import bulk_void_pending_invoices_for_month
 from models.billing_store import _tax_cfg
 admin_bp = Blueprint("admin", __name__)
@@ -1336,10 +1335,13 @@ def create_month_invoices():
         for user_name, duser in df.groupby(df["User"].astype(str)):
             # Skip if this exact month already has a non-void receipt for this user
             try:
-                existing = [r for r in (list_receipts(user_name) or [])
-                            if str(r.get("start")).startswith(f"{y}-{m:02d}-")
-                            and str(r.get("end")).startswith(f"{y}-{m:02d}-")
-                            and r.get("status") in ("pending", "paid")]
+                existing = [
+                    r for r in (list_receipts(user_name) or [])
+                    if r.get("start") and r.get("end")
+                    and r["start"].year == y and r["start"].month == m
+                    and r["end"].year == y and r["end"].month == m
+                    and r.get("status") in ("pending", "paid")
+                ]
             except Exception:
                 existing = []
             if existing:

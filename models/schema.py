@@ -1,13 +1,14 @@
 # models/schema.py
-from datetime import datetime
+from decimal import Decimal
+from sqlalchemy import Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import (
-    JSON, Boolean, PrimaryKeyConstraint, String, Text, Integer, Float, Date, DateTime, ForeignKey, CheckConstraint,
+    JSON, Boolean, PrimaryKeyConstraint, String, Text, Integer, Float, DateTime, ForeignKey, CheckConstraint,
     UniqueConstraint, Index
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from models.base import Base
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional
 # --- USERS (users.sqlite3)
 
@@ -24,8 +25,8 @@ class User(Base):
         CheckConstraint("role in ('admin','user')", name="ck_users_role"),
     )
 
-# --- BILLING (billing.sqlite3)
 
+# --- BILLING (billing.sqlite3)
 
 class Receipt(Base):
     __tablename__ = "receipts"
@@ -34,37 +35,40 @@ class Receipt(Base):
     # who / period
     username: Mapped[str] = mapped_column(
         String, nullable=False)  # optional FK to users.username
-    start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    end:   Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    end:   Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
     currency:  Mapped[str] = mapped_column(
         String(3), nullable=False, default="THB")
 
-    # New tax-aware amounts
-    subtotal:   Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.0)  # ex-tax
+    # money fields → DECIMAL/NUMERIC
+    subtotal:   Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"))  # ex-tax
     tax_label:  Mapped[str | None] = mapped_column(
         String)                          # e.g. 'VAT'
-    tax_rate:   Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.0)   # percent
-    tax_amount: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.0)   # absolute
+    tax_rate:   Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("0"))   # percent
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"))   # absolute
     tax_inclusive: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False)
 
     # NEW: snapshot of pricing inputs locked at creation-time
     pricing_tier:  Mapped[str] = mapped_column(
         String, nullable=False)   # 'mu' | 'gov' | 'private'
-    rate_cpu:      Mapped[float] = mapped_column(
-        Float,  nullable=False)   # THB per CPU core-hour
-    rate_gpu:      Mapped[float] = mapped_column(
-        Float,  nullable=False)   # THB per GPU-hour
-    rate_mem:      Mapped[float] = mapped_column(
-        Float,  nullable=False)   # THB per GB-hour
+    rate_cpu:      Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),  nullable=False)   # THB per CPU core-hour
+    rate_gpu:      Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),  nullable=False)   # THB per GPU-hour
+    rate_mem:      Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),  nullable=False)   # THB per GB-hour
     rates_locked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
 
     # totals / lifecycle
-    total:   Mapped[float] = mapped_column(Float,  nullable=False, default=0.0)
+    total:   Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),  nullable=False, default=Decimal("0"))
     status:  Mapped[str] = mapped_column(
         String, nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
@@ -100,7 +104,7 @@ class ReceiptItem(Base):
     )
     job_key: Mapped[str] = mapped_column(String, nullable=False)
     job_id_display: Mapped[str] = mapped_column(String, nullable=False)
-    cost: Mapped[float] = mapped_column(Float, nullable=False)
+    cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     cpu_core_hours: Mapped[float] = mapped_column(Float, nullable=False)
     gpu_hours: Mapped[float] = mapped_column(Float, nullable=False)
     mem_gb_hours: Mapped[float] = mapped_column(Float, nullable=False)
@@ -119,9 +123,9 @@ class Rate(Base):
     __tablename__ = "rates"
     tier: Mapped[str] = mapped_column(
         String, primary_key=True)  # 'mu' | 'gov' | 'private'
-    cpu: Mapped[float] = mapped_column(Float, nullable=False)
-    gpu: Mapped[float] = mapped_column(Float, nullable=False)
-    mem: Mapped[float] = mapped_column(Float, nullable=False)
+    cpu: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    gpu: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    mem: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
 

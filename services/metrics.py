@@ -67,10 +67,6 @@ RECEIPT_VOIDED = Counter("billing_receipt_voided_total",
 CSV_DOWNLOADS = Counter("csv_download_total", "CSV download events", [
                         "kind"], registry=APP_REGISTRY)
 
-# --- Payments / Webhook ---
-WEBHOOK_EVENTS = Counter(
-    "payments_webhook_events_total", "Webhook events", ["provider", "event", "outcome"], registry=APP_REGISTRY
-)
 
 
 def init_app(app):
@@ -104,7 +100,6 @@ def init_app(app):
         for k in ("admin_paid", "my_usage", "user_usage", "audit"):
             CSV_DOWNLOADS.labels(kind=k).inc(0)
 
-        WEBHOOK_EVENTS.labels(
-            provider="dummy", event="payment_succeeded", outcome="ok").inc(0)
+        
     except Exception:
         pass

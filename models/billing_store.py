@@ -1,35 +1,37 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
 from services.org_info import ORG_INFO
-from typing import Tuple, Optional
+from typing import Tuple
 from models.schema import Receipt, Payment, PaymentEvent
 from decimal import Decimal
-from sqlalchemy import select
 import json
-from datetime import datetime, timezone
 from services.datetimex import now_utc, APP_TZ
 from sqlalchemy import select, delete
 from zoneinfo import ZoneInfo
 from typing import Iterable, Tuple, List
 from datetime import date, datetime, time, timezone
 import re
-from datetime import date, datetime, timezone
-from typing import Iterable, Tuple, List, Dict
 
-from sqlalchemy import select, func, update, delete
-from sqlalchemy.exc import IntegrityError
 from models.base import session_scope
 from models.schema import Receipt, ReceiptItem
 from models import rates_store
-from services.datetimex import now_utc, to_iso_z
-import re
+from services.datetimex import now_utc
 from calendar import monthrange
 import os
+from decimal import Decimal, ROUND_HALF_UP, getcontext
+getcontext().prec = 28  # safe default
+
+
+def D(x) -> Decimal:
+    if isinstance(x, Decimal):
+        return x
+    # never pass float directly; stringify first to avoid binary artifacts
+    return Decimal(str(x or 0))
 
 
 def _tax_cfg():
     enabled = os.getenv("BILLING_TAX_ENABLED", "0") == "1"
     label = os.getenv("BILLING_TAX_LABEL", "VAT")
-    rate_pct = float(os.getenv("BILLING_TAX_RATE", "7.0") or 0)
+    rate_pct = D(os.getenv("BILLING_TAX_RATE", "7.0") or 0)
     inclusive = os.getenv("BILLING_TAX_INCLUSIVE", "0") == "1"
     return enabled, label, rate_pct, inclusive
 
@@ -53,10 +55,6 @@ def canonical_job_id(s: str) -> str:
     return s
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
 def _now_utc() -> datetime:
     return now_utc()
 
@@ -72,6 +70,10 @@ def billed_job_ids() -> set[str]:
 
 
 def list_receipts(username: str | None = None) -> list[dict]:
+    def _money(x: Decimal | None) -> float:
+        # UI still expects numbers; convert safely
+        return float(D(x).quantize(Decimal("0.01")))
+
     with session_scope() as s:
         stmt = select(Receipt).order_by(Receipt.id.desc())
         if username:
@@ -84,7 +86,7 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "username": r.username,
                 "start": r.start,
                 "end": r.end,
-                "total": float(r.total),
+                "total": _money(r.total),
                 "status": r.status,
                 "created_at": r.created_at,
                 "paid_at": r.paid_at,
@@ -95,22 +97,26 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "approved_by": r.approved_by,
                 "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
-                "rate_cpu": float(r.rate_cpu or 0),
-                "rate_gpu": float(r.rate_gpu or 0),
-                "rate_mem": float(r.rate_mem or 0),
+                "rate_cpu": float(D(r.rate_cpu)),
+                "rate_gpu": float(D(r.rate_gpu)),
+                "rate_mem": float(D(r.rate_mem)),
                 "rates_locked_at": r.rates_locked_at,
-                "period_ym": _local_ym(r.start or 0),
+                "period_ym": _local_ym(r.start),
                 "currency": r.currency or 'THB',
-                "subtotal": float(r.subtotal or 0),
+                "subtotal": _money(r.subtotal),
                 "tax_label": r.tax_label,
-                "tax_rate": float(r.tax_rate or 0),
-                "tax_amount": float(r.tax_amount or 0),
+                "tax_rate": float(D(r.tax_rate)),
+                "tax_amount": _money(r.tax_amount),
             })
         return out
 
 
 # models/billing_store.py
 def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
+    def _money(x: Decimal | None) -> float:
+        # UI still expects numbers; convert safely
+        return float(D(x).quantize(Decimal("0.01")))
+
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
         if not r:
@@ -125,23 +131,23 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
                 "status": r.status, "created_at": r.created_at, "paid_at": r.paid_at,
                 "method": r.method, "tx_ref": r.tx_ref,
                 "invoice_no": r.invoice_no, "approved_by": r.approved_by, "approved_at": r.approved_at,
-                "pricing_tier": r.pricing_tier, "rate_cpu": float(r.rate_cpu or 0),
-                "rate_gpu": float(r.rate_gpu or 0), "rate_mem": float(r.rate_mem or 0),
+                "pricing_tier": r.pricing_tier, "rate_cpu": float(D(r.rate_cpu)),
+                "rate_gpu": float(D(r.rate_gpu)), "rate_mem": float(D(r.rate_mem)),
                 "rates_locked_at": r.rates_locked_at,
 
                 # NEW fields the template needs
                 "currency": r.currency or 'THB',
-                "subtotal": float(r.subtotal or 0),
+                "subtotal": _money(r.subtotal),
                 "tax_label": r.tax_label,
-                "tax_rate": float(r.tax_rate or 0),
-                "tax_amount": float(r.tax_amount or 0),
-                "total": float(r.total),        # keep total as gross
+                "tax_rate": float(D(r.tax_rate)),
+                "tax_amount": _money(r.tax_amount),
+                "total": _money(r.total),        # keep total as gross
                 "tax_inclusive": bool(r.tax_inclusive or 0),
             },
             [
                 {
                     "receipt_id": i.receipt_id, "job_key": i.job_key, "job_id_display": i.job_id_display,
-                    "cost": float(i.cost or 0), "cpu_core_hours": float(i.cpu_core_hours or 0),
+                    "cost": _money(i.cost), "cpu_core_hours": float(i.cpu_core_hours or 0),
                     "gpu_hours": float(i.gpu_hours or 0), "mem_gb_hours": float(i.mem_gb_hours or 0),
                 } for i in items
             ],
@@ -171,7 +177,7 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
     now = _now_utc()
     rows = list(rows)
     inserted: List[dict] = []
-    total = 0.0
+    total = D(0)
 
     tier = next((str((r.get("tier") or "")).lower()
                 for r in rows if r.get("tier")), "mu")
@@ -186,12 +192,12 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
             start=start_dt_utc, end=end_dt_utc,
             status="pending", created_at=now,
             pricing_tier=tier,
-            rate_cpu=float(snap["cpu"]), rate_gpu=float(snap["gpu"]), rate_mem=float(snap["mem"]),
+            rate_cpu=D(snap["cpu"]), rate_gpu=D(snap["gpu"]), rate_mem=D(snap["mem"]),
             rates_locked_at=now,
             currency="THB",                 # NEW default
-            subtotal=0.0,                   # will set below
-            tax_label=None, tax_rate=0.0, tax_amount=0.0,
-            total=0.0,                      # will set below
+            subtotal=D(0),                   # will set below
+            tax_label=None, tax_rate=D(0), tax_amount=D(0),
+            total=D(0),                      # will set below
         )
         s.add(r)
         s.flush()
@@ -201,40 +207,44 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
 
         for row in rows:
             job_key = canonical_job_id(str(row["JobID"]))
+            cost = D(row.get("Cost (฿)", 0))
             item = ReceiptItem(
                 receipt_id=r.id, job_key=job_key, job_id_display=str(
                     row["JobID"]),
-                cost=float(row.get("Cost (฿)", 0.0)),
+                cost=cost,
                 cpu_core_hours=float(row.get("CPU_Core_Hours", 0.0)),
                 gpu_hours=float(row.get("GPU_Hours", 0.0)),
                 mem_gb_hours=float(row.get("Mem_GB_Hours_Used", 0.0)),
             )
             s.add(item)
-            c = float(item.cost)
-            total += c
+            total += cost
             inserted.append({
                 "job_key": job_key, "job_id_display": item.job_id_display,
-                "cost": c, "cpu_core_hours": float(item.cpu_core_hours),
+                "cost": float(cost), "cpu_core_hours": float(item.cpu_core_hours),
                 "gpu_hours": float(item.gpu_hours), "mem_gb_hours": float(item.mem_gb_hours),
             })
 
         # === tax math ===
-        subtotal_raw = round(float(total), 2)
+        subtotal_raw = (total).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        tax_enabled, tax_label, tax_rate, tax_inclusive = _tax_cfg()
+        tax_enabled, tax_label, tax_rate_pct, tax_inclusive = _tax_cfg()
+        tax_rate = tax_rate_pct  # keep percent as Decimal too
         if tax_enabled and tax_rate > 0:
             if tax_inclusive:
-                tax_amount = round(
-                    subtotal_raw - (subtotal_raw / (1 + tax_rate/100)), 2)
-                subtotal = round(subtotal_raw - tax_amount, 2)
+                tax_amount = (subtotal_raw - (subtotal_raw / (D(1) + tax_rate/100)))\
+                    .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                subtotal = (subtotal_raw -
+                            tax_amount).quantize(Decimal("0.01"))
                 grand = subtotal_raw
             else:
-                tax_amount = round(subtotal_raw * (tax_rate/100), 2)
+                tax_amount = (subtotal_raw * (tax_rate/100)
+                              ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 subtotal = subtotal_raw
-                grand = round(subtotal + tax_amount, 2)
+                grand = (subtotal + tax_amount).quantize(Decimal("0.01"))
             r.tax_label = tax_label
-            r.tax_rate = float(tax_rate)
-            r.tax_amount = float(tax_amount)
+            r.tax_rate = tax_rate.quantize(Decimal("0.01"))
+            r.tax_amount = tax_amount
             r.tax_inclusive = bool(tax_inclusive)
         else:
             subtotal = subtotal_raw
@@ -242,24 +252,12 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
             r.tax_inclusive = False
 
         # persist amounts
-        r.subtotal = float(subtotal)
-        r.total = float(grand)   # **gross** total is the canonical amount
+        r.subtotal = subtotal
+        r.total = grand  # **gross** total is the canonical amount
         s.add(r)
 
     # return grand if you want; existing callers can keep using the 2nd tuple element
     return r.id, float(r.total), inserted
-
-
-def mark_paid(receipt_id: int, method: str = "admin", tx_ref: str | None = None):
-    with session_scope() as s:
-        r = s.get(Receipt, receipt_id)
-        if not r:
-            return
-        r.status = "paid"
-        r.paid_at = _now_utc()
-        r.method = method
-        r.tx_ref = tx_ref
-        s.add(r)
 
 
 def void_receipt(receipt_id: int):
@@ -275,6 +273,10 @@ def void_receipt(receipt_id: int):
 
 
 def list_billed_items_for_user(username: str, status: str | None = None) -> list[dict]:
+    def _money(x: Decimal | None) -> float:
+        # UI still expects numbers; convert safely
+        return float(D(x).quantize(Decimal("0.01")))
+
     with session_scope() as s:
         q = select(ReceiptItem, Receipt).join(Receipt, Receipt.id ==
                                               ReceiptItem.receipt_id).where(Receipt.username == username)
@@ -286,7 +288,7 @@ def list_billed_items_for_user(username: str, status: str | None = None) -> list
         for (i, r) in rows:
             out.append({
                 "job_id_display": i.job_id_display, "job_key": i.job_key,
-                "cost": float(i.cost), "cpu_core_hours": float(i.cpu_core_hours),
+                "cost": _money(i.cost), "cpu_core_hours": float(i.cpu_core_hours),
                 "gpu_hours": float(i.gpu_hours), "mem_gb_hours": float(i.mem_gb_hours),
                 "receipt_id": r.id, "status": r.status, "start": r.start, "end": r.end,
                 "created_at": r.created_at, "paid_at": r.paid_at
@@ -295,6 +297,10 @@ def list_billed_items_for_user(username: str, status: str | None = None) -> list
 
 
 def admin_list_receipts(status: str | None = None) -> list[dict]:
+    def _money(x: Decimal | None) -> float:
+        # UI still expects numbers; convert safely
+        return float(D(x).quantize(Decimal("0.01")))
+
     with session_scope() as s:
         q = select(Receipt)
         if status in ("pending", "paid", "void"):
@@ -318,16 +324,16 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
                 "approved_by": r.approved_by,
                 "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
-                "rate_cpu": float(r.rate_cpu or 0),
-                "rate_gpu": float(r.rate_gpu or 0),
-                "rate_mem": float(r.rate_mem or 0),
+                "rate_cpu": float(D(r.rate_cpu)),
+                "rate_gpu": float(D(r.rate_gpu)),
+                "rate_mem": float(D(r.rate_mem)),
                 "rates_locked_at": r.rates_locked_at,
                 "currency": r.currency or "THB",
-                "subtotal": float(r.subtotal or 0),
+                "subtotal": _money(r.subtotal),
                 "tax_label": r.tax_label,
-                "tax_rate": float(r.tax_rate or 0),
-                "tax_amount": float(r.tax_amount or 0),
-                "total": float(r.total or 0),        # gross
+                "tax_rate": float(D(r.tax_rate)),
+                "tax_amount": _money(r.tax_amount),
+                "total": _money(r.total),        # gross
                 "period_ym": _local_ym(r.start),
                 "tax_inclusive": bool(r.tax_inclusive),
             })
@@ -386,8 +392,9 @@ def mark_receipt_paid(receipt_id: int, actor: str) -> bool:
             return True
 
         # Create a success Payment for the full amount
-        total = Decimal(str(rcpt.total or 0))
-        amount_cents = int(round(total * 100))
+        total = D(rcpt.total or 0).quantize(Decimal("0.01"))
+        amount_cents = int(
+            (total * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
         pay = Payment(
             provider=PROVIDER,
