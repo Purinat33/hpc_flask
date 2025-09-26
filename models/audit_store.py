@@ -1,4 +1,5 @@
 # models/audit_store.py
+from contextlib import contextmanager
 from sqlalchemy import asc
 import os
 import json
@@ -7,10 +8,38 @@ import hashlib
 from typing import Any, Optional
 from datetime import datetime, timezone
 from flask import request, has_request_context, g, current_app
-from sqlalchemy import select
+from sqlalchemy import select, func
 from models.base import session_scope
 from models.schema import AuditLog
 from flask_login import current_user
+from sqlalchemy.orm import sessionmaker
+from models.base import get_engine_audit_writer
+
+_AuditFactory = None
+
+
+def _audit_session():
+    global _AuditFactory
+    if _AuditFactory is None:
+        _AuditFactory = sessionmaker(
+            bind=get_engine_audit_writer(),
+            autoflush=False, autocommit=False, future=True, expire_on_commit=False
+        )
+    return _AuditFactory()
+
+
+@contextmanager
+def audit_session_scope():
+    s = _audit_session()
+    try:
+        yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
+
 
 APP_SECRET = (os.getenv("AUDIT_HMAC_SECRET") or "secret-key").encode("utf-8")
 ANONYMIZE_IP = os.getenv("AUDIT_ANONYMIZE_IP", "1") == "1"
@@ -36,6 +65,16 @@ def _load_keyring() -> dict[str, bytes]:
     # Always include current key
     ring[SIGNING_KEY_ID] = APP_SECRET
     return ring
+
+
+def _db_now(s) -> datetime:
+    # returns tz-aware UTC timestamp from Postgres
+    return s.execute(select(func.now())).scalar_one()
+
+
+def _now_isoz_from_db(s) -> str:
+    dt = _db_now(s).astimezone(timezone.utc)
+    return dt.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _ts_to_payload_str(ts_val: Any) -> str:
@@ -219,65 +258,72 @@ def _clean_extra(extra: Optional[dict[str, Any]]) -> dict:
     return out
 
 
+def _latest_hash_with(s) -> str:
+    row = s.execute(
+        select(AuditLog).order_by(AuditLog.id.desc()).limit(1)
+    ).scalars().first()
+    return row.hash or "" if row else ""
+
+
 def audit(
     action: str,
     *,
     target_type: str | None = None,
     target_id: str | None = None,
-    outcome: str | None = None,            # 'success'|'failure'
+    outcome: str | None = None,
     status: int | None = None,
     error_code: str | None = None,
     extra: Optional[dict[str, Any]] = None,
     actor: Optional[str] = None
 ) -> None:
-    ts = _now_isoz()
+    # open one writer session for the whole operation
+    with audit_session_scope() as s:
+        ts = _now_isoz_from_db(s)  # <-- no extra () and s exists
 
-    ip = ua = method = path = req_id = sess_id = None
-    if has_request_context():
-        try:
-            fwd = request.headers.get("X-Forwarded-For", "")
-            ip = (fwd.split(",")[0].strip() or request.remote_addr)
-        except Exception:
-            ip = None
-        method = request.method
-        path = request.path
-        req_id = getattr(g, "request_id", None) or request.headers.get(
-            "X-Request-ID")
-        # Never store raw session cookies; keep a stable fingerprint only.
-        cookie_name = getattr(
-            current_app, "session_cookie_name", None) or "session"
-        sess_raw = request.cookies.get(cookie_name, None)
-        sess_id = _fingerprint(sess_raw, 64)
+        # (unchanged) request context / actor extraction
+        ip = ua = method = path = req_id = sess_id = None
+        if has_request_context():
+            try:
+                fwd = request.headers.get("X-Forwarded-For", "")
+                ip = (fwd.split(",")[0].strip() or request.remote_addr)
+            except Exception:
+                ip = None
+            method = request.method
+            path = request.path
+            req_id = getattr(g, "request_id", None) or request.headers.get(
+                "X-Request-ID")
+            cookie_name = getattr(
+                current_app, "session_cookie_name", None) or "session"
+            sess_raw = request.cookies.get(cookie_name, None)
+            sess_id = _fingerprint(sess_raw, 64)
+            ua_full = request.user_agent.string if request.user_agent else None
+            ua = ua_full if RAW_UA else _ua_fingerprint(ua_full)
+            ip = _anon_ip(ip)
 
-        ua_full = request.user_agent.string if request.user_agent else None
-        ua = ua_full if RAW_UA else _ua_fingerprint(ua_full)
-        ip = _anon_ip(ip)
+        if actor is None:
+            try:
+                actor = getattr(current_user, "username", None) or "anonymous"
+                actor_role = getattr(current_user, "role", None)
+            except Exception:
+                actor, actor_role = "anonymous", None
+        else:
+            actor_role = None
 
-    if actor is None:
-        try:
-            actor = getattr(current_user, "username", None) or "anonymous"
-            actor_role = getattr(current_user, "role", None)
-        except Exception:
-            actor, actor_role = "anonymous", None
-    else:
-        actor_role = None
+        payload = {
+            "ts": ts, "actor": actor, "actor_role": actor_role,
+            "request_id": req_id, "session_id": sess_id,
+            "ip": ip, "ua": ua, "method": method, "path": path,
+            "action": action, "target_type": target_type, "target_id": target_id,
+            "outcome": outcome, "status": status, "error_code": error_code,
+            "extra": _clean_extra(extra or {}),
+            "schema_version": SCHEMA_VERSION,
+            "key_id": SIGNING_KEY_ID,
+        }
 
-    payload = {
-        "ts": ts, "actor": actor, "actor_role": actor_role,
-        "request_id": req_id, "session_id": sess_id,
-        "ip": ip, "ua": ua, "method": method, "path": path,
-        "action": action, "target_type": target_type, "target_id": target_id,
-        "outcome": outcome, "status": status, "error_code": error_code,
-        "extra": _clean_extra(extra or {}),
-        "schema_version": SCHEMA_VERSION,
-        "key_id": SIGNING_KEY_ID,
-    }
+        prev = _latest_hash_with(s)  # reuse same session
+        h = _compute_hash(prev, payload)
+        sig = _sign(h)
 
-    prev = _latest_hash()
-    h = _compute_hash(prev, payload)
-    sig = _sign(h)
-
-    with session_scope() as s:
         s.add(AuditLog(
             ts=ts,
             actor=actor, actor_role=actor_role,

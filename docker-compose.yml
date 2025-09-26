@@ -78,6 +78,7 @@ services:
       POSTGRES_DB: hpc_app
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./pg-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hpc_user -d hpc_app"]
       interval: 5s
@@ -104,7 +105,9 @@ services:
       # - ./instance/test.csv:/app/instance/test.csv:ro
     # The app talks to Postgres over the Docker network (service name "pg")
     environment:
-      DATABASE_URL: postgresql+psycopg2://hpc_user:muict@pg:5432/hpc_app
+      DATABASE_URL: postgresql+psycopg2://app_rw:muict@pg:5432/hpc_app
+      AUDIT_DATABASE_URL: postgresql+psycopg2://audit_writer:auditw@pg:5432/hpc_app
+      AUDIT_READER_URL:   postgresql+psycopg2://audit_reader:auditro@pg:5432/hpc_app
       FLASK_SECRET_KEY: change-me
       APP_ENV: development
       # any others you use:
