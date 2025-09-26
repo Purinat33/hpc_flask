@@ -4,7 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from time import time
 
-from flask import Flask, render_template, request, redirect, url_for, abort, current_app, make_response, g
+from flask import Flask, render_template, request, redirect, url_for, abort, current_app, make_response, g, send_from_directory
 from flask_babel import Babel, gettext as _, get_locale
 from flask_login import login_required, current_user
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
@@ -288,6 +288,10 @@ def create_app(test_config: dict | None = None):
         except Exception as e:
             current_app.logger.exception("Readiness check failed")
             return jsonify(status="error", error=str(e)), 500
+
+    @app.route('/favicon.ico')
+    def favicon():
+        return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
     return app
 

@@ -223,6 +223,7 @@ class AuditLog(Base):
         String(128))       # HMAC(hash, SECRET)
     schema_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=2)
+    key_id = mapped_column(String(16), nullable=True)
 
     __table_args__ = (
         CheckConstraint(

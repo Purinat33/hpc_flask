@@ -11,10 +11,11 @@ from models.base import session_scope
 from models.schema import AuditLog
 from flask_login import current_user
 
-APP_SECRET = (os.getenv("AUDIT_HMAC_SECRET") or "dev-secret").encode("utf-8")
+APP_SECRET = (os.getenv("AUDIT_HMAC_SECRET") or "secret-key").encode("utf-8")
 ANONYMIZE_IP = os.getenv("AUDIT_ANONYMIZE_IP", "1") == "1"
 RAW_UA = os.getenv("AUDIT_STORE_RAW_UA", "0") == "1"
 SCHEMA_VERSION = 2
+SIGNING_KEY_ID = os.getenv("AUDIT_HMAC_KEY_ID", "k2")
 
 _ALLOWED_EXTRA_KEYS = {"reason", "note",
                        "diff", "count", "totals", "old", "new"}
@@ -132,6 +133,7 @@ def audit(
         "outcome": outcome, "status": status, "error_code": error_code,
         "extra": _clean_extra(extra or {}),
         "schema_version": SCHEMA_VERSION,
+        "key_id": SIGNING_KEY_ID,
     }
 
     prev = _latest_hash()
@@ -148,7 +150,8 @@ def audit(
             action=action, target_type=target_type, target_id=target_id,
             outcome=outcome, status=status, error_code=error_code,
             extra=payload["extra"],
-            prev_hash=prev, hash=h, signature=sig, schema_version=SCHEMA_VERSION
+            prev_hash=prev, hash=h, signature=sig, schema_version=SCHEMA_VERSION,
+            key_id=SIGNING_KEY_ID
         ))
 
 
@@ -173,6 +176,9 @@ def list_audit(limit: int = 500) -> list[dict]:
                     else None
                 ),
                 "status": r.status,
+                "outcome": getattr(r, "outcome", None),
+                "error_code": getattr(r, "error_code", None),
+                "actor_role": getattr(r, "actor_role", None),
             }
             for r in rows
         ]
@@ -208,6 +214,7 @@ def export_csv() -> tuple[str, str]:
             getattr(r, "prev_hash", None),
             getattr(r, "hash", None),
             getattr(r, "signature", None),
+            getattr(r, "key_id", None),
             r.extra,
         ) for r in rows]
 
@@ -217,7 +224,7 @@ def export_csv() -> tuple[str, str]:
         "id", "ts", "actor", "ip", "ua_fingerprint", "method", "path", "action",
         "target_type", "target_id", "status", "outcome", "error_code", "actor_role",
         "request_id", "session_id", "schema_version", "prev_hash", "hash", "signature",
-        "extra",
+        "key_id", "extra",
     ])
     w.writerows(data)
     out.seek(0)

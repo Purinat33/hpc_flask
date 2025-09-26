@@ -284,6 +284,9 @@ def my_usage_csv():
     out.seek(0)
     filename = f"usage_{current_user.username}_{start_d}_{end_d}.csv"
     CSV_DOWNLOADS.labels(kind="user_usage").inc()
+    audit("export.user_usage_csv",
+          target_type="user", target_id=current_user.username,
+          outcome="success", status=200)
     return Response(out.read(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -313,6 +316,8 @@ def receipt_pdf(rid: int):
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
+    audit("invoice.pdf", target_type="receipt", target_id=str(rid),
+          outcome="success", status=200)
     return resp
 
 
@@ -341,4 +346,6 @@ def receipt_pdf_th(rid: int):
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}_th.pdf'
+    audit("invoice.pdf_th", target_type="receipt", target_id=str(rid),
+          outcome="success", status=200)
     return resp

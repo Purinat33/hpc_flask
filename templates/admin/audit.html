@@ -42,6 +42,9 @@
                         <th>Path</th>
                         <th>IP</th>
                         <th>Status</th>
+                        <th>Outcome</th>
+                        <th>Error</th>
+                        <th>Role</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -55,6 +58,9 @@
                         <td>{{ r.path or '—' }}</td>
                         <td>{{ r.ip or '—' }}</td>
                         <td>{{ r.status or '—' }}</td>
+                        <td>{{ r.outcome or '—' }}</td>
+                        <td>{{ r.error_code or '—' }}</td>
+                        <td>{{ r.actor_role or '—' }}</td>
                     </tr>
                     {% endfor %}
                     {% if not rows or rows|length == 0 %}

@@ -1405,6 +1405,8 @@ def admin_receipt_pdf(rid: int):
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}.pdf'
+    audit("invoice.pdf", target_type="receipt", target_id=str(rid),
+          outcome="success", status=200)
     return resp
 
 
@@ -1516,4 +1518,6 @@ def admin_receipt_pdf_th(rid: int):
     resp = make_response(pdf)
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}_th.pdf'
+    audit("invoice.pdf_th", target_type="receipt", target_id=str(rid),
+          outcome="success", status=200)
     return resp
