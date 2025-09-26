@@ -28,6 +28,7 @@
 
         <a class="slink {{ 'on' if section=='dashboard' else '' }}"
             href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">{{ _("Dashboard") }}</a>
+        <a class="slink" href="{{ url_for('admin.ledger_page') }}">Accounting</a>
 
         <a class="slink {{ 'on' if section=='tiers' else '' }}"
             href="{{ url_for('admin.admin_form', section='tiers') }}">{{ _("User Tier Overrides") }}</a>

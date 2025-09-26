@@ -13,6 +13,7 @@
             href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
         <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='dashboard') }}">Dashboard</a>
+        <a class="slink" href="{{ url_for('admin.ledger_page') }}">Accounting</a>
         <a class="slink on" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
     </aside>
     <main>
