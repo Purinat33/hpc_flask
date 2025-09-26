@@ -95,17 +95,16 @@ def list_receipts(username: str | None = None) -> list[dict]:
                 "approved_by": r.approved_by,
                 "approved_at": r.approved_at,
                 "pricing_tier": r.pricing_tier,
-                "rate_cpu": float(r.rate_cpu),
-                "rate_gpu": float(r.rate_gpu),
-                "rate_mem": float(r.rate_mem),
+                "rate_cpu": float(r.rate_cpu or 0),
+                "rate_gpu": float(r.rate_gpu or 0),
+                "rate_mem": float(r.rate_mem or 0),
                 "rates_locked_at": r.rates_locked_at,
-                "period_ym": _local_ym(r.start),
-                "currency": r.currency,
-                "subtotal": float(r.subtotal),
+                "period_ym": _local_ym(r.start or 0),
+                "currency": r.currency or 'THB',
+                "subtotal": float(r.subtotal or 0),
                 "tax_label": r.tax_label,
-                "tax_rate": float(r.tax_rate),
-                "tax_amount": float(r.tax_amount),
-
+                "tax_rate": float(r.tax_rate or 0),
+                "tax_amount": float(r.tax_amount or 0),
             })
         return out
 
@@ -126,24 +125,24 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
                 "status": r.status, "created_at": r.created_at, "paid_at": r.paid_at,
                 "method": r.method, "tx_ref": r.tx_ref,
                 "invoice_no": r.invoice_no, "approved_by": r.approved_by, "approved_at": r.approved_at,
-                "pricing_tier": r.pricing_tier, "rate_cpu": float(r.rate_cpu),
-                "rate_gpu": float(r.rate_gpu), "rate_mem": float(r.rate_mem),
+                "pricing_tier": r.pricing_tier, "rate_cpu": float(r.rate_cpu or 0),
+                "rate_gpu": float(r.rate_gpu or 0), "rate_mem": float(r.rate_mem or 0),
                 "rates_locked_at": r.rates_locked_at,
 
                 # NEW fields the template needs
-                "currency": r.currency,
-                "subtotal": float(r.subtotal),
+                "currency": r.currency or 'THB',
+                "subtotal": float(r.subtotal or 0),
                 "tax_label": r.tax_label,
-                "tax_rate": float(r.tax_rate),
-                "tax_amount": float(r.tax_amount),
+                "tax_rate": float(r.tax_rate or 0),
+                "tax_amount": float(r.tax_amount or 0),
                 "total": float(r.total),        # keep total as gross
-                "tax_inclusive": bool(r.tax_inclusive),
+                "tax_inclusive": bool(r.tax_inclusive or 0),
             },
             [
                 {
                     "receipt_id": i.receipt_id, "job_key": i.job_key, "job_id_display": i.job_id_display,
-                    "cost": float(i.cost), "cpu_core_hours": float(i.cpu_core_hours),
-                    "gpu_hours": float(i.gpu_hours), "mem_gb_hours": float(i.mem_gb_hours),
+                    "cost": float(i.cost or 0), "cpu_core_hours": float(i.cpu_core_hours or 0),
+                    "gpu_hours": float(i.gpu_hours or 0), "mem_gb_hours": float(i.mem_gb_hours or 0),
                 } for i in items
             ],
         )
