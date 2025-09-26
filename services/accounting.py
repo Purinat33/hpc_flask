@@ -6,7 +6,7 @@ from datetime import datetime, date
 import pandas as pd
 
 from models.billing_store import admin_list_receipts, get_receipt_with_items
-
+from models.billing_store import _tax_cfg
 # ---- Chart of accounts (IDs are strings for portability) ----
 # Account types: ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
 
@@ -17,6 +17,7 @@ def chart_of_accounts() -> List[Dict]:
         {"id": "1100", "name": "Accounts Receivable",  "type": "ASSET"},
         {"id": "2000", "name": "Unearned Revenue",
             "type": "LIABILITY"},  # reserved
+        {"id": "2100", "name": "VAT Output Payable", "type": "LIABILITY"},
         {"id": "3000", "name": "Retained Earnings",    "type": "EQUITY"},
         {"id": "4000", "name": "Service Revenue",      "type": "INCOME"},
         {"id": "5000", "name": "Cost of Service",
@@ -56,14 +57,19 @@ def _entry_receipt_issue(r: dict) -> List[Dict]:
     total = float(r.get("total") or 0.0)
     if total <= 0:
         return []
-    d = (r.get("created_at") or r.get("start") or r.get("end"))
-    d_iso = _to_date_iso(d)
+    d_iso = _to_date_iso(r.get("created_at") or r.get("start") or r.get("end"))
     ref = f"R{r['id']}"
     memo = f"Receipt issued for {r.get('username', '?')}"
-    return [
+
+    net, vat = _split_vat(total)
+    lines = [
         _mk_line(d_iso, ref, memo, _acc("Accounts Receivable"), debit=total),
-        _mk_line(d_iso, ref, memo, _acc("Service Revenue"),     credit=total),
+        _mk_line(d_iso, ref, memo, _acc("Service Revenue"),     credit=net),
     ]
+    if vat > 0:
+        # VAT Output Payable
+        lines.append(_mk_line(d_iso, ref, memo, "2100", credit=vat))
+    return lines
 
 
 def _entry_receipt_paid(r: dict) -> List[Dict]:
@@ -95,6 +101,17 @@ def _to_date_iso(x) -> str:
         return pd.to_datetime(x, utc=True).date().isoformat()
     except Exception:
         return date.today().isoformat()
+
+
+def _split_vat(gross: float) -> tuple[float, float]:
+    enabled, _label, rate_pct, _inclusive = _tax_cfg()
+    r = float(rate_pct or 0.0) / 100.0
+    if not enabled or r <= 0 or gross <= 0:
+        return round(gross, 2), 0.0
+    # works for both 'Included' and 'Added' totals
+    net = round(gross / (1.0 + r), 2)
+    vat = round(gross - net, 2)
+    return net, vat
 
 
 def derive_journal(start: str, end: str) -> pd.DataFrame:

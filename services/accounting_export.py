@@ -4,13 +4,14 @@ from typing import Tuple, Iterable, List
 import csv
 import io
 from datetime import date
-from models.billing_store import admin_list_receipts, get_receipt_with_items
+from models.billing_store import admin_list_receipts, get_receipt_with_items, _tax_cfg
 
 # Simple chart-of-accounts (override later from DB/env if you want)
 COA = {
     "cash": {"id": 1000, "name": "Cash/Bank",            "type": "ASSET"},
     "ar":   {"id": 1100, "name": "Accounts Receivable",  "type": "ASSET"},
     "rev":  {"id": 4000, "name": "Service Revenue",      "type": "INCOME"},
+    "vat":  {"id": 2100, "name": "VAT Output Payable",   "type": "LIABILITY"},
 }
 
 
@@ -22,11 +23,25 @@ def _iso(d) -> str:
         return ""
 
 
+def _split_vat(gross: float) -> tuple[float, float]:
+    """
+    Return (net, vat) given a gross total and current VAT config.
+    Mirrors services/accounting._split_vat: treat `total` as gross
+    regardless of inclusive/added UI; gross / (1+r) = net; remainder = VAT.
+    """
+    enabled, _label, rate_pct, _inclusive = _tax_cfg()
+    r = float(rate_pct or 0.0) / 100.0
+    if not enabled or r <= 0 or gross <= 0:
+        return round(gross, 2), 0.0
+    net = round(gross / (1.0 + r), 2)
+    vat = round(gross - net, 2)
+    return net, vat
+
+
 def build_general_ledger_csv(start: str, end: str) -> Tuple[str, str]:
     """
     General Journal (double-entry) covering all receipts whose created_at/paid_at fall within [start,end] local dates.
-    One row per journal line.
-    Columns match your sample to keep it simple for Excel/imports.
+    One row per journal line. VAT-aware: Dr A/R (gross), Cr Revenue (net), Cr VAT Output (vat).
     """
     # collect both pending and paid; we’ll filter rows by date on the fly
     pending = admin_list_receipts(status="pending") or []
@@ -47,15 +62,19 @@ def build_general_ledger_csv(start: str, end: str) -> Tuple[str, str]:
         user = r["username"]
         total = float(r["total"] or 0.0)
 
-        # 1) At issuance (when the receipt was created): Dr AR / Cr Service Revenue
+        # 1) At issuance (when the receipt was created): Dr AR (gross); Cr Revenue (net); Cr VAT Output (vat)
         issue_d = _iso(r.get("created_at"))
         if in_window(issue_d) and total > 0:
+            net, vat = _split_vat(total)
             w.writerow([issue_d, ref, f"Receipt issued for {user}",
                         COA["ar"]["id"], COA["ar"]["name"], COA["ar"]["type"], f"{total:.2f}", "0.00"])
             w.writerow([issue_d, ref, f"Receipt issued for {user}",
-                        COA["rev"]["id"], COA["rev"]["name"], COA["rev"]["type"], "0.00", f"{total:.2f}"])
+                        COA["rev"]["id"], COA["rev"]["name"], COA["rev"]["type"], "0.00", f"{net:.2f}"])
+            if vat > 0:
+                w.writerow([issue_d, ref, f"Receipt issued for {user}",
+                            COA["vat"]["id"], COA["vat"]["name"], COA["vat"]["type"], "0.00", f"{vat:.2f}"])
 
-        # 2) When paid: Dr Cash / Cr AR
+        # 2) When paid: Dr Cash / Cr AR (gross)
         paid_d = _iso(r.get("paid_at"))
         if r["status"] == "paid" and in_window(paid_d) and total > 0:
             w.writerow([paid_d, ref, f"Receipt paid by {user}",
@@ -72,7 +91,7 @@ def build_xero_bank_csv(start: str, end: str) -> Tuple[str, str]:
     """
     Xero 'Bank Statement' CSV for *paid* receipts (cash inflows).
     Columns per Xero help: Date, Amount, Payee, Description, Reference (others optional/ignored).
-    Positive Amount = money received.
+    Positive Amount = money received (gross).
     """
     rows = admin_list_receipts(status="paid") or []
 
@@ -99,14 +118,18 @@ def build_xero_sales_csv(start: str, end: str) -> Tuple[str, str]:
     """
     Xero 'Sales Invoices' CSV (minimal fields).
     We emit one line per receipt (quantity=1) into AccountCode=4000 (Service Revenue).
-    Supports importing pending or paid (choose status via route).
+    VAT-aware: UnitAmount is **net** if VAT enabled; TaxType is set accordingly (else NONE).
     Columns subset commonly accepted by Xero:
       ContactName,InvoiceNumber,InvoiceDate,DueDate,Description,Quantity,UnitAmount,AccountCode,TaxType
-    NOTE: If you prefer to import only *pending* as AR, call the route that passes status=pending.
     """
     pending = admin_list_receipts(status="pending") or []
     paid = admin_list_receipts(status="paid") or []
     all_rs = pending + paid
+
+    # Choose a TaxType for your Xero org (make configurable if needed)
+    enabled, _label, rate_pct, _inclusive = _tax_cfg()
+    XERO_TAXTYPE = "OUTPUT" if (
+        enabled and float(rate_pct or 0) > 0) else "NONE"
 
     out = io.StringIO()
     w = csv.writer(out)
@@ -114,17 +137,17 @@ def build_xero_sales_csv(start: str, end: str) -> Tuple[str, str]:
                "Description", "Quantity", "UnitAmount", "AccountCode", "TaxType"])
 
     for r in all_rs:
-        # choose the 'invoice date' as created_at; due date = created_at + 30d (simple default)
+        # choose the 'invoice date' as created_at; due date left blank (Xero default terms apply)
         inv_dt = _iso(r.get("created_at"))
         if not (start <= inv_dt <= end):
             continue
         rid = r["id"]
         user = r["username"]
-        amt = float(r["total"] or 0.0)
-        # let Xero’s defaults apply, or derive if you want: (created_at + 30 days)
+        gross = float(r["total"] or 0.0)
+        net, _vat = _split_vat(gross)
         due = ""
         w.writerow([user, f"R{rid}", inv_dt, due, f"HPC usage for R{rid}",
-                   "1", f"{amt:.2f}", COA["rev"]["id"], "NONE"])
+                   "1", f"{net:.2f}", COA["rev"]["id"], XERO_TAXTYPE])
 
     out.seek(0)
     fname = f"xero_sales_{start}_to_{end}.csv"
