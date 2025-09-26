@@ -3,6 +3,7 @@
 {% block content %}
 <h2>{{ _("Admin Dashboard") }}</h2>
 <p class="muted">You can view the application's dashboard here.</p>
+
 <div class="layout">
     <aside class="sidebar">
         <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
@@ -11,20 +12,42 @@
         <a class="slink {{ 'on' if section=='billing' else '' }}"
             href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
         <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
-        <a class="slink on" href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">Dashboard</a>
+        <a class="slink on"
+            href="{{ url_for('admin.admin_form', section='dashboard', before=before, m1=m1, m2=m2) }}">Dashboard</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
     </aside>
+
     <main>
         <p class="muted">
-            {{ _("Completed before") }}:
-            <b>{{ end }}</b> •
+            {{ _("Completed before") }}: <b>{{ end }}</b> •
             {{ _("Data source") }}: <b>{{ data_source or "unknown" }}</b>
             {% if notes and notes|length %} • <span title="{{ notes|join(' | ') }}">notes</span>{% endif %}
-        <div class="toolbar no-print" style="display:flex;justify-content:flex-end;gap:.5rem;">
-            <button type="button" onclick="window.print()">Export as PDF</button>
-        </div>
+            <span class="toolbar no-print" style="float:right;">
+                <button type="button" onclick="window.print()">Export as PDF</button>
+            </span>
         </p>
-        
+
+        <!-- Month filters -->
+        <div class="card no-print" style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+            <div>
+                <label><b>Month A</b> (YYYY-MM)
+                    <input type="month" id="m1" value="{{ m1 or '' }}">
+                </label>
+            </div>
+            <div>
+                <label><b>Month B</b> (optional)
+                    <input type="month" id="m2" value="{{ m2 or '' }}">
+                </label>
+            </div>
+            <div>
+                <button id="applyMonths" type="button">Apply</button>
+                <button id="clearMonths" type="button" class="muted">Clear</button>
+            </div>
+            <small class="muted">When a month is selected, the charts below show that month; with two months, each chart
+                appears side-by-side for comparison.</small>
+        </div>
+
+        <!-- KPI tiles (unchanged semantics) -->
         <div class="grid" style="grid-template-columns: repeat(4, minmax(180px,1fr)); gap:1rem;">
             <div class="card">
                 <h3>Unbilled Cost</h3>
@@ -43,80 +66,154 @@
                 <div class="big">{{ kpis.jobs_last_30d or 0 }}</div>
             </div>
         </div>
-        
-        <div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
+
+        <!-- Charts: single column when only m1 (or none), two columns (A|B) when m2 present -->
+        {% set comparing = (series_b and (series_b.get('daily_labels')|length or series_b.get('tier_labels')|length or series_b.get('top_users_labels')|length)) %}
+
+        <!-- Daily cost + Tier pie -->
+        <div class="grid"
+            style="grid-template-columns: {% if comparing %}1fr 1fr{% else %}2fr 1fr{% endif %}; gap:1rem; margin-top:1rem;">
             <div class="card">
-                <h3>Daily Total Cost (90d)</h3>
-                <canvas id="dailyCost"></canvas>
+                <h3>Daily Total Cost {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="dailyCostA"></canvas>
             </div>
+            {% if comparing %}
             <div class="card">
-                <h3>Cost by Tier</h3>
-                <canvas id="tierPie"></canvas>
+                <h3>Daily Total Cost {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="dailyCostB"></canvas>
             </div>
-        </div>
-        
-        <div class="card" style="margin-top:1rem;">
-            <h3>Top 10 Users by Cost</h3>
-            <canvas id="topUsers"></canvas>
-        </div>
-        
-        <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+            {% else %}
             <div class="card">
-                <h3>Top Nodes by Jobs</h3>
-                <canvas id="nodesByJobs"></canvas>
-            </div>
-            <div class="card">
-                <h3>Top Nodes by CPU core-hrs</h3>
-                <canvas id="nodesByCPU"></canvas>
-            </div>
-            {% if series.node_gpu_labels|length %}
-            <div class="card">
-                <h3>Top Nodes by GPU-hrs</h3>
-                <canvas id="nodesByGPU"></canvas>
+                <h3>Cost by Tier {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="tierPieA"></canvas>
             </div>
             {% endif %}
         </div>
-        
-        <!-- <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
+
+        {% if comparing %}
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem;">
             <div class="card">
-                <h3>Energy by User (kJ)</h3>
-                <canvas id="energyUser"></canvas>
+                <h3>Cost by Tier {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="tierPieA"></canvas>
             </div>
             <div class="card">
-                <h3>Energy per CPU-hour by User</h3>
-                <canvas id="energyEffUser"></canvas>
-            </div>
-            <div class="card">
-                <h3>Energy by Node (kJ)</h3>
-                <canvas id="energyNode"></canvas>
-            </div>
-        </div> -->
-        
-        <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem; margin-top:1rem;">
-            <div class="card">
-                <h3>Success vs Fail — User</h3>
-                <canvas id="succUser"></canvas>
-            </div>
-            <!-- <div class="card">
-                <h3>Success vs Fail — Partition</h3>
-                <canvas id="succPart"></canvas>
-            </div>
-            <div class="card">
-                <h3>Success vs Fail — QoS</h3>
-                <canvas id="succQos"></canvas>
-            </div> -->
-        </div>
-        
-        <div class="grid" style="grid-template-columns: 2fr 1fr; gap:1rem; margin-top:1rem;">
-            <div class="card">
-                <h3>Top Failure Exit Codes</h3>
-                <canvas id="failExit"></canvas>
-            </div>
-            <div class="card">
-                <h3>Failure Reasons</h3>
-                <canvas id="failReasons"></canvas>
+                <h3>Cost by Tier {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="tierPieB"></canvas>
             </div>
         </div>
+        {% endif %}
+
+        <!-- Top users -->
+        <div class="grid"
+            style="grid-template-columns: {% if comparing %}1fr 1fr{% else %}1fr{% endif %}; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top 10 Users by Cost {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="topUsersA"></canvas>
+            </div>
+            {% if comparing %}
+            <div class="card">
+                <h3>Top 10 Users by Cost {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="topUsersB"></canvas>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Nodes: Jobs / CPU / GPU -->
+        <div class="grid"
+            style="grid-template-columns: {% if comparing %}1fr 1fr{% else %}repeat(3, 1fr){% endif %}; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Nodes by Jobs {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="nodesByJobsA"></canvas>
+            </div>
+            {% if not comparing %}
+            <div class="card">
+                <h3>Top Nodes by CPU core-hrs {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="nodesByCPUA"></canvas>
+            </div>
+            <div class="card">
+                <h3>Top Nodes by GPU-hrs {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="nodesByGPUA"></canvas>
+            </div>
+            {% else %}
+            <div class="card">
+                <h3>Top Nodes by Jobs {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="nodesByJobsB"></canvas>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if comparing %}
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Nodes by CPU core-hrs {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="nodesByCPUA"></canvas>
+            </div>
+            <div class="card">
+                <h3>Top Nodes by CPU core-hrs {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="nodesByCPUB"></canvas>
+            </div>
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Nodes by GPU-hrs {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="nodesByGPUA"></canvas>
+            </div>
+            <div class="card">
+                <h3>Top Nodes by GPU-hrs {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="nodesByGPUB"></canvas>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Success vs Fail — User -->
+        <div class="grid"
+            style="grid-template-columns: {% if comparing %}1fr 1fr{% else %}1fr{% endif %}; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Success vs Fail — User {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="succUserA"></canvas>
+            </div>
+            {% if comparing %}
+            <div class="card">
+                <h3>Success vs Fail — User {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="succUserB"></canvas>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Failures -->
+        <div class="grid"
+            style="grid-template-columns: {% if comparing %}1fr 1fr{% else %}2fr 1fr{% endif %}; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Top Failure Exit Codes {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="failExitA"></canvas>
+            </div>
+            {% if comparing %}
+            <div class="card">
+                <h3>Top Failure Exit Codes {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="failExitB"></canvas>
+            </div>
+            {% else %}
+            <div class="card">
+                <h3>Failure Reasons {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="failReasonsA"></canvas>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if comparing %}
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem;">
+            <div class="card">
+                <h3>Failure Reasons {% if m1 %}({{ m1 }}){% endif %}</h3>
+                <canvas id="failReasonsA"></canvas>
+            </div>
+            <div class="card">
+                <h3>Failure Reasons {% if m2 %}({{ m2 }}){% endif %}</h3>
+                <canvas id="failReasonsB"></canvas>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- What-if Pricing (read-only) — unchanged -->
         <div class="card" style="margin-top:1rem;">
             <h3>What-if Pricing (read-only)</h3>
             <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:.5rem;">
@@ -144,12 +241,56 @@
                 <span id="simSummary" class="muted" style="margin-left: .5rem;"></span>
             </div>
         </div>
-        
+
+        <!-- Forecast (unchanged) -->
+        <div class="card" style="margin-top:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;">
+                <h3 style="margin:0;">30/60/90-day Forecast</h3>
+                <div class="no-print">
+                    <label class="muted small" for="forecastMetric" style="margin-right:.5rem;">Metric</label>
+                    <select id="forecastMetric">
+                        <option value="cost" selected>Daily Total Cost (฿)</option>
+                        <option value="jobs">Jobs per day</option>
+                        <option value="cpu">CPU core-hrs / day</option>
+                        <option value="gpu">GPU-hrs / day</option>
+                        <option value="mem">Mem GB-hrs / day</option>
+                    </select>
+                </div>
+            </div>
+            <canvas id="forecastChart" style="margin-top:.5rem;"></canvas>
+            <p id="forecastNote" class="muted small" style="margin-top:.25rem;"></p>
+        </div>
+
+        <!-- Optional totals chips -->
+        <div class="muted" style="margin-top:.5rem;">
+            Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
+            Σ GPU hrs: {{ '%.2f'|format(tot_gpu) }} •
+            Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
         <script>
-            // Optionally pre-fill with your live rates via Jinja:
+            const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
+
+            // Apply/Clear month filters
+            const applyBtn = document.getElementById('applyMonths');
+            const clearBtn = document.getElementById('clearMonths');
+            const m1El = document.getElementById('m1');
+            const m2El = document.getElementById('m2');
+
+            function navWithMonths(m1, m2) {
+                const u = new URL(window.location.href);
+                u.searchParams.set('section', 'dashboard');
+                if (m1) u.searchParams.set('m1', m1); else u.searchParams.delete('m1');
+                if (m2) u.searchParams.set('m2', m2); else u.searchParams.delete('m2');
+                window.location.assign(u.toString());
+            }
+            applyBtn.addEventListener('click', () => navWithMonths(m1El.value, m2El.value));
+            clearBtn.addEventListener('click', () => navWithMonths('', ''));
+
+            // Rates prefill (unchanged What-if)
             const liveRates = {{ all_rates | tojson | safe }};
             const endDate = {{ (end or before) | tojson | safe }};
-
             function fillInputs() {
                 for (const tier of ["mu", "gov", "private"]) {
                     for (const k of ["cpu", "gpu", "mem"]) {
@@ -180,367 +321,162 @@
                 const delta = (data.delta || 0).toFixed(2);
                 document.getElementById("simSummary").textContent =
                     `Current: ฿${cur} → Candidate: ฿${cand} (Δ ฿${delta})`;
-
-                // You can also hook into your existing charts here (e.g., update tier pie with data.candidate_by_tier)
-                // Example:
-                //   const labels = data.candidate_by_tier.map(x => x.tier);
-                //   const values = data.candidate_by_tier.map(x => x.thb);
-                //   updatePieChart('tierPie', labels, values);  // your own function
             }
-
             document.getElementById("simRun").addEventListener("click", runSim);
-        </script>
-        
-        <div class="card" style="margin-top:1rem;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;">
-                <h3 style="margin:0;">30/60/90-day Forecast</h3>
-                <div class="no-print">
-                    <label class="muted small" for="forecastMetric" style="margin-right:.5rem;">Metric</label>
-                    <select id="forecastMetric">
-                        <option value="cost" selected>Daily Total Cost (฿)</option>
-                        <option value="jobs">Jobs per day</option>
-                        <option value="cpu">CPU core-hrs / day</option>
-                        <option value="gpu">GPU-hrs / day</option>
-                        <option value="mem">Mem GB-hrs / day</option>
-                    </select>
-                </div>
-            </div>
-            <canvas id="forecastChart" style="margin-top:.5rem;"></canvas>
-            <p id="forecastNote" class="muted small" style="margin-top:.25rem;"></p>
-        </div>
 
-        
-        <!-- Optional totals chips -->
-        <div class="muted" style="margin-top:.5rem;">
-            Σ CPU core-hrs: {{ '%.2f'|format(tot_cpu) }} •
-            Σ GPU hrs: {{ '%.2f'|format(tot_gpu) }} •
-            Σ Mem GB-hrs: {{ '%.2f'|format(tot_mem) }}
-        </div>
-        
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-        <script>
-            // Define BEFORE constructing charts
-            const PRINT_MODE = window.matchMedia && window.matchMedia('print').matches;
+            // Data (A primary, B compare)
+            const A = {{ series | tojson | safe }};
+            const B = {{ series_b | tojson | safe }};
 
-            // Jinja-safe pulls (always JSON, never undefined)
-            const dailyLabels = {{ series.get('daily_labels', []) | tojson | safe }};
-            const dailyData = {{ series.get('daily_cost', []) | tojson | safe }};
-            const tierLabels = {{ series.get('tier_labels', []) | tojson | safe }};
-            const tierValues = {{ series.get('tier_values', []) | tojson | safe }};
-            const userLabels = {{ series.get('top_users_labels', []) | tojson | safe }};
-            const userValues = {{ series.get('top_users_values', []) | tojson | safe }};
-
-            const nodeJobsLabels = {{ series.get('node_jobs_labels', []) | tojson | safe }};
-            const nodeJobsValues = {{ series.get('node_jobs_values', []) | tojson | safe }};
-            const nodeCPULabels = {{ series.get('node_cpu_labels', []) | tojson | safe }};
-            const nodeCPUValues = {{ series.get('node_cpu_values', []) | tojson | safe }};
-            const nodeGPULabels = {{ series.get('node_gpu_labels', []) | tojson | safe }};
-            const nodeGPUValues = {{ series.get('node_gpu_values', []) | tojson | safe }};
-
-            const energyUserLabels = {{ series.get('energy_user_labels', []) | tojson | safe }};
-            const energyUserValues = {{ series.get('energy_user_values', []) | tojson | safe }};
-            const energyEffUserLabels = {{ series.get('energy_eff_user_labels', []) | tojson | safe }};
-            const energyEffUserValues = {{ series.get('energy_eff_user_values', []) | tojson | safe }};
-            const energyNodeLabels = {{ series.get('energy_node_labels', []) | tojson | safe }};
-            const energyNodeValues = {{ series.get('energy_node_values', []) | tojson | safe }};
-
-            const succUserLabels = {{ series.get('succ_user_labels', []) | tojson | safe }};
-            const succUserSuccess = {{ series.get('succ_user_success', []) | tojson | safe }};
-            const succUserFail = {{ series.get('succ_user_fail', []) | tojson | safe }};
-            const succPartLabels = {{ series.get('succ_part_labels', []) | tojson | safe }};
-            const succPartSuccess = {{ series.get('succ_part_success', []) | tojson | safe }};
-            const succPartFail = {{ series.get('succ_part_fail', []) | tojson | safe }};
-            const succQosLabels = {{ series.get('succ_qos_labels', []) | tojson | safe }};
-            const succQosSuccess = {{ series.get('succ_qos_success', []) | tojson | safe }};
-            const succQosFail = {{ series.get('succ_qos_fail', []) | tojson | safe }};
-            const failExitLabels = {{ series.get('fail_exit_labels', []) | tojson | safe }};
-            const failExitValues = {{ series.get('fail_exit_values', []) | tojson | safe }};
-            const failStateLabels = {{ series.get('fail_state_labels', []) | tojson | safe }};
-            const failStateValues = {{ series.get('fail_state_values', []) | tojson | safe }};
-
-            // Keep track of charts and make each build safe (one error won't kill others)
             window.dashboardCharts = window.dashboardCharts || [];
-            function safeChart(buildFn, name) {
-                try {
-                    const ch = buildFn();
-                    if (ch) window.dashboardCharts.push(ch);
-                } catch (e) {
-                    console.warn("Chart failed:", name, e);
-                }
-            }
+            function safeChart(buildFn) { try { const ch = buildFn(); if (ch) window.dashboardCharts.push(ch); } catch { } }
 
-            function stackedBar(el, labels, succ, fail, name) {
-                if (!labels.length) return;
+            function line(el, labels, data, label) {
+                if (!labels?.length || !data?.length) return;
+                safeChart(() => new Chart(document.getElementById(el), {
+                    type: 'line',
+                    data: { labels, datasets: [{ label, data, tension: .25, fill: false }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } } }
+                }));
+            }
+            function pie(el, labels, values) {
+                if (!labels?.length || !values?.length) return;
+                safeChart(() => new Chart(document.getElementById(el), {
+                    type: 'pie',
+                    data: { labels, datasets: [{ data: values }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
+                }));
+            }
+            function barY(el, labels, values, label) {
+                if (!labels?.length || !values?.length) return;
                 safeChart(() => new Chart(document.getElementById(el), {
                     type: 'bar',
-                    data: {
-                        labels,
-                        datasets: [
-                            { label: 'Success', data: succ, stack: 's' },
-                            { label: 'Fail', data: fail, stack: 's' },
-                        ]
-                    },
-                    options: {
-                        animation: !PRINT_MODE,
-                        plugins: { legend: { position: 'bottom' } },
-                        indexAxis: 'y',
-                        scales: { x: { beginAtZero: true } }
+                    data: { labels, datasets: [{ label, data: values }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }));
+            }
+            function stacked(el, labels, succ, fail) {
+                if (!labels?.length) return;
+                safeChart(() => new Chart(document.getElementById(el), {
+                    type: 'bar',
+                    data: { labels, datasets: [{ label: 'Success', data: succ, stack: 's' }, { label: 'Fail', data: fail, stack: 's' }] },
+                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+                }));
+            }
+
+            // Build A
+            line('dailyCostA', A.daily_labels, A.daily_cost, 'Cost (฿)');
+            pie('tierPieA', A.tier_labels, A.tier_values);
+            barY('topUsersA', A.top_users_labels, A.top_users_values, 'Cost (฿)');
+            barY('nodesByJobsA', A.node_jobs_labels, A.node_jobs_values, 'Jobs');
+            barY('nodesByCPUA', A.node_cpu_labels, A.node_cpu_values, 'CPU core-hrs');
+            barY('nodesByGPUA', A.node_gpu_labels, A.node_gpu_values, 'GPU-hrs');
+            stacked('succUserA', A.succ_user_labels, A.succ_user_success, A.succ_user_fail);
+            barY('failExitA', A.fail_exit_labels, A.fail_exit_values, 'Count');
+            barY('failReasonsA', A.fail_state_labels, A.fail_state_values, 'Count');
+
+            // Build B (if any)
+            line('dailyCostB', B.daily_labels, B.daily_cost, 'Cost (฿)');
+            pie('tierPieB', B.tier_labels, B.tier_values);
+            barY('topUsersB', B.top_users_labels, B.top_users_values, 'Cost (฿)');
+            barY('nodesByJobsB', B.node_jobs_labels, B.node_jobs_values, 'Jobs');
+            barY('nodesByCPUB', B.node_cpu_labels, B.node_cpu_values, 'CPU core-hrs');
+            barY('nodesByGPUB', B.node_gpu_labels, B.node_gpu_values, 'GPU-hrs');
+            stacked('succUserB', B.succ_user_labels, B.succ_user_success, B.succ_user_fail);
+            barY('failExitB', B.fail_exit_labels, B.fail_exit_values, 'Count');
+            barY('failReasonsB', B.fail_state_labels, B.fail_state_values, 'Count');
+        
+             // ---- FORECAST (30/60/90) ----
+                let forecastChart = null;
+
+                async function loadForecast(metric) {
+                    try {
+                        const url = `/admin/forecast.json?metric=${encodeURIComponent(metric)}&before=${encodeURIComponent(endDate)}`;
+                        const res = await fetch(url);
+                        const data = await res.json();
+
+                        if (!res.ok) {
+                            document.getElementById("forecastNote").textContent =
+                                `Forecast error: ${data.error || "unknown"}`;
+                            return;
+                        }
+
+                        const histL = data.history?.labels || [];
+                        const histV = data.history?.values || [];
+
+                        const f30 = data.forecasts?.["30"] || { labels: [], values: [], lower: [], upper: [] };
+                        const f60 = data.forecasts?.["60"] || { labels: [], values: [], lower: [], upper: [] };
+                        const f90 = data.forecasts?.["90"] || { labels: [], values: [], lower: [], upper: [] };
+
+                        // Build a unified x-axis (history + longest horizon)
+                        const labels = [...histL, ...f90.labels];
+
+                        // Place history values at the start of the unified axis
+                        const histY = Array(labels.length).fill(null);
+                        for (let i = 0; i < histV.length; i++) histY[i] = histV[i];
+
+                        // Place future values aligned to the tail of history
+                        function alignFuture(f) {
+                            const arr = Array(labels.length).fill(null);
+                            for (let i = 0; i < f.labels.length; i++) {
+                                arr[histL.length + i] = f.values[i];
+                            }
+                            return arr;
+                        }
+                        function alignBand(f, key) {
+                            const arr = Array(labels.length).fill(null);
+                            for (let i = 0; i < f.labels.length; i++) {
+                                arr[histL.length + i] = f[key][i];
+                            }
+                            return arr;
+                        }
+
+                        const y30 = alignFuture(f30);
+                        const y60 = alignFuture(f60);
+                        const y90 = alignFuture(f90);
+                        const l90 = alignBand(f90, "lower");
+                        const u90 = alignBand(f90, "upper");
+
+                        const datasets = [
+                            // history line
+                            { label: "History", data: histY, tension: 0.25, fill: false },
+                            // forecast lines
+                            { label: "Forecast 30d", data: y30, borderDash: [6, 4], tension: 0.25, fill: false },
+                            { label: "Forecast 60d", data: y60, borderDash: [2, 3], tension: 0.25, fill: false },
+                            { label: "Forecast 90d", data: y90, tension: 0.25, borderWidth: 2, fill: false },
+                            // 90d prediction interval band (area between l90 and u90)
+                            { label: "PI lower", data: l90, pointRadius: 0, borderWidth: 0, fill: "+1" },
+                            { label: "PI upper", data: u90, pointRadius: 0, borderWidth: 0, fill: false },
+                        ];
+
+                        if (forecastChart) forecastChart.destroy();
+                        forecastChart = new Chart(document.getElementById("forecastChart"), {
+                            type: "line",
+                            data: { labels, datasets },
+                            options: {
+                                animation: !PRINT_MODE,
+                                plugins: { legend: { position: "bottom" } },
+                                scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true } },
+                                interaction: { mode: "index", intersect: false },
+                            }
+                        });
+
+                        document.getElementById("forecastNote").textContent =
+                            (data.metric === "cost")
+                                ? "Method: weekly seasonal-naïve (95% PI), auto-upgrades to Holt–Winters if available."
+                                : "Method: weekly seasonal-naïve (95% PI); Holt–Winters if statsmodels installed.";
+                    } catch (e) {
+                        document.getElementById("forecastNote").textContent = `Forecast error: ${e.message}`;
                     }
-                }), name);
-            }
-
-            // --- Daily total cost (line) ---
-            if (dailyLabels.length && dailyData.length) {
-                safeChart(() => new Chart(document.getElementById('dailyCost'), {
-                    type: 'line',
-                    data: { labels: dailyLabels, datasets: [{ label: 'Cost (฿)', data: dailyData, tension: .25, fill: false }] },
-                    options: {
-                        animation: !PRINT_MODE,
-                        plugins: { legend: { display: false } },
-                        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } }
-                    }
-                }), 'dailyCost');
-            }
-
-            // --- Cost by Tier (pie) ---   <-- this was missing
-            if (tierLabels.length && tierValues.length) {
-                safeChart(() => new Chart(document.getElementById('tierPie'), {
-                    type: 'pie',
-                    data: { labels: tierLabels, datasets: [{ data: tierValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
-                }), 'tierPie');
-            }
-
-            // --- Top Users by Cost (bar) ---   <-- this was missing
-            if (userLabels.length && userValues.length) {
-                safeChart(() => new Chart(document.getElementById('topUsers'), {
-                    type: 'bar',
-                    data: { labels: userLabels, datasets: [{ label: 'Cost (฿)', data: userValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'topUsers');
-            }
-
-            // --- Node charts ---   <-- these were missing
-            if (nodeJobsLabels.length) {
-                safeChart(() => new Chart(document.getElementById('nodesByJobs'), {
-                    type: 'bar',
-                    data: { labels: nodeJobsLabels, datasets: [{ label: 'Jobs', data: nodeJobsValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true, precision: 0 } } }
-                }), 'nodesByJobs');
-            }
-            if (nodeCPULabels.length) {
-                safeChart(() => new Chart(document.getElementById('nodesByCPU'), {
-                    type: 'bar',
-                    data: { labels: nodeCPULabels, datasets: [{ label: 'CPU core-hrs', data: nodeCPUValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'nodesByCPU');
-            }
-            if (nodeGPULabels.length) {
-                safeChart(() => new Chart(document.getElementById('nodesByGPU'), {
-                    type: 'bar',
-                    data: { labels: nodeGPULabels, datasets: [{ label: 'GPU-hrs', data: nodeGPUValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'nodesByGPU');
-            }
-
-            // --- Energy charts (will be empty if energy is disabled) ---
-            if (energyUserLabels.length) {
-                safeChart(() => new Chart(document.getElementById('energyUser'), {
-                    type: 'bar',
-                    data: { labels: energyUserLabels, datasets: [{ label: 'kJ', data: energyUserValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'energyUser');
-            }
-            if (energyEffUserLabels.length) {
-                safeChart(() => new Chart(document.getElementById('energyEffUser'), {
-                    type: 'bar',
-                    data: { labels: energyEffUserLabels, datasets: [{ label: 'kJ / CPU-hr', data: energyEffUserValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'energyEffUser');
-            }
-            if (energyNodeLabels.length) {
-                safeChart(() => new Chart(document.getElementById('energyNode'), {
-                    type: 'bar',
-                    data: { labels: energyNodeLabels, datasets: [{ label: 'kJ', data: energyNodeValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'energyNode');
-            }
-
-            // --- Throughput / reliability ---
-            stackedBar('succUser', succUserLabels, succUserSuccess, succUserFail, 'succUser');
-            stackedBar('succPart', succPartLabels, succPartSuccess, succPartFail, 'succPart');
-            stackedBar('succQos', succQosLabels, succQosSuccess, succQosFail, 'succQos');
-
-            if (failExitLabels.length) {
-                safeChart(() => new Chart(document.getElementById('failExit'), {
-                    type: 'bar',
-                    data: { labels: failExitLabels, datasets: [{ label: 'Count', data: failExitValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { display: false } }, indexAxis: 'y', scales: { x: { beginAtZero: true } } }
-                }), 'failExit');
-            }
-
-            if (failStateLabels.length) {
-                safeChart(() => new Chart(document.getElementById('failReasons'), {
-                    type: 'doughnut',
-                    data: { labels: failStateLabels, datasets: [{ data: failStateValues }] },
-                    options: { animation: !PRINT_MODE, plugins: { legend: { position: 'bottom' } } }
-                }), 'failReasons');
-            }
-
-            // Re-render before print
-            window.addEventListener('beforeprint', () => {
-                if (window.dashboardCharts && Array.isArray(window.dashboardCharts)) {
-                    for (const ch of window.dashboardCharts) { try { ch.update('none'); } catch (e) { } }
                 }
-            });
+
+                // Wire UI
+                document.getElementById("forecastMetric")
+                    .addEventListener("change", (e) => loadForecast(e.target.value));
+
+                // Initial render
+                window.addEventListener("load", () => loadForecast("cost"));
         </script>
-        
-        
-        <style>
-            @media print {
-                @page {
-                    size: A4 portrait;
-                    margin: 10mm;
-                }
-        
-                /* Hide chrome/nav/buttons when printing */
-                .no-print,
-                nav,
-                .sidebar,
-                .tabs,
-                .slink,
-                .btn,
-                .toolbar {
-                    display: none !important;
-                }
-        
-                /* Make the main column full-width */
-                .layout {
-                    display: block !important;
-                }
-        
-                /* Let tables fully expand when printing */
-                .table-wrap {
-                    max-height: none !important;
-                    overflow: visible !important;
-                    border: 0;
-                }
-        
-                /* Avoid breaking cards mid-page */
-                .card {
-                    break-inside: avoid;
-                    page-break-inside: avoid;
-                }
-        
-                /* Don’t append URLs after links */
-                a[href]:after {
-                    content: "";
-                }
-            }
-        </style>
-        <script>
-            let forecastChart = null;
-
-            function _expandTo90(historyLabels, f30, f60, f90) {
-                // Union labels = history + 90-day future
-                const allLabels = historyLabels.concat(f90.labels);
-                function placeFuture(arr, horizon, values) {
-                    const out = new Array(allLabels.length).fill(null);
-                    for (let i = 0; i < values.length; i++) {
-                        const idx = historyLabels.length + i;
-                        if (idx < historyLabels.length + horizon) out[idx] = values[i];
-                    }
-                    return out;
-                }
-                return {
-                    labels: allLabels,
-                    future: {
-                        v30: placeFuture(allLabels, 30, f30.values),
-                        v60: placeFuture(allLabels, 60, f60.values),
-                        v90: placeFuture(allLabels, 90, f90.values),
-                        l90: placeFuture(allLabels, 90, f90.lower),
-                        u90: placeFuture(allLabels, 90, f90.upper),
-                    }
-                };
-            }
-
-            async function loadForecast(metric) {
-                const res = await fetch(`/admin/forecast.json?metric=${encodeURIComponent(metric)}&before=${encodeURIComponent(endDate)}`);
-                const data = await res.json();
-
-                if (!res.ok) {
-                    document.getElementById("forecastNote").textContent = `Forecast error: ${data.error || "unknown"}`;
-                    return;
-                }
-
-                const histL = data.history.labels || [];
-                const histV = data.history.values || [];
-                const f30 = data.forecasts?.["30"] || { labels: [], values: [], lower: [], upper: [] };
-                const f60 = data.forecasts?.["60"] || { labels: [], values: [], lower: [], upper: [] };
-                const f90 = data.forecasts?.["90"] || { labels: [], values: [], lower: [], upper: [] };
-
-                if (!histL.length || !f90.labels.length) {
-                    document.getElementById("forecastNote").textContent = "Not enough history to forecast.";
-                    // clear chart if exists
-                    if (forecastChart) { forecastChart.destroy(); forecastChart = null; }
-                    return;
-                }
-
-                const merged = _expandTo90(histL, f30, f60, f90);
-                const labels = merged.labels;
-
-                // Build datasets:
-                const histY = new Array(labels.length).fill(null);
-                for (let i = 0; i < histV.length; i++) { histY[i] = histV[i]; }
-
-                const ds = [
-                    { label: 'History', data: histY, tension: .25, fill: false },                                   // history line
-                    { label: 'Forecast 30d', data: merged.future.v30, borderDash: [6, 4], fill: false },             // 30d dashed
-                    { label: 'Forecast 60d', data: merged.future.v60, borderDash: [2, 3], fill: false },             // 60d dot-dash
-                    { label: 'Forecast 90d', data: merged.future.v90, borderWidth: 2, fill: false },                // 90d bold
-                    // confidence band for 90d (two datasets, area between them)
-                    { label: 'PI lower', data: merged.future.l90, fill: '+1', pointRadius: 0, borderWidth: 0 },     // lower
-                    { label: 'PI upper', data: merged.future.u90, fill: false, pointRadius: 0, borderWidth: 0 },    // upper
-                ];
-
-                if (forecastChart) forecastChart.destroy();
-                forecastChart = new Chart(document.getElementById('forecastChart'), {
-                    type: 'line',
-                    data: { labels, datasets: ds },
-                    options: {
-                        animation: !PRINT_MODE,
-                        plugins: { legend: { position: 'bottom' } },
-                        scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true } },
-                        interaction: { mode: 'index', intersect: false },
-                    }
-                });
-
-                document.getElementById("forecastNote").textContent =
-                    (data.metric === 'cost') ? 'Method: weekly seasonal-naïve (95% PI), auto-upgrades to Holt–Winters if available.' :
-                        'Method: weekly seasonal-naïve (95% PI); Holt–Winters if statsmodels installed.';
-            }
-
-            document.getElementById('forecastMetric').addEventListener('change', (e) => loadForecast(e.target.value));
-            window.addEventListener('load', () => loadForecast('cost'));
-        </script>
-
-
     </main>
 </div>
-<style>
-    .layout {
-        display: grid;
-        grid-template-columns: 220px minmax(0, 1fr);
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .sidebar {
-        position: sticky;
-        top: 0;
-        align-self: start;
-    }
-</style>
-
 {% endblock %}

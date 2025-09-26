@@ -170,7 +170,7 @@ def admin_form():
     before = request.args.get("before") or date.today().isoformat()
     start_d, end_d = EPOCH_START, before
 
-    # query parts for *usage trend* subview (moved here)
+    # usage trend inputs
     selected_user = (request.args.get("u") or "").strip()
     try:
         year = int(request.args.get("year") or date.today().year)
@@ -182,6 +182,10 @@ def admin_form():
     except Exception:
         month = None
     current_year = date.today().year
+
+    # NEW: dashboard month filters (YYYY-MM)
+    m1 = (request.args.get("m1") or "").strip()  # e.g. "2025-02"
+    m2 = (request.args.get("m2") or "").strip()  # optional compare month
 
     # optional local filter for usage tables
     q_user = (request.args.get("q") or "").strip()
@@ -213,29 +217,34 @@ def admin_form():
 
     # Dashboard-only context
     kpis: dict = {}
+    # Single-month or default aggregate series
     series = {
-        "daily_cost": [],
-        "daily_labels": [],
-        "tier_labels": [],
-        "tier_values": [],
-        "top_users_labels": [],
-        "top_users_values": [],
+        "daily_cost": [], "daily_labels": [],
+        "tier_labels": [], "tier_values": [],
+        "top_users_labels": [], "top_users_values": [],
         "node_jobs_labels": [], "node_jobs_values": [],
         "node_cpu_labels": [],  "node_cpu_values": [],
         "node_gpu_labels": [],  "node_gpu_values": [],
-        # energy
         "energy_user_labels": [], "energy_user_values": [],
         "energy_node_labels": [], "energy_node_values": [],
         "energy_eff_user_labels": [], "energy_eff_user_values": [],
-        # throughput / reliability
         "succ_user_labels": [], "succ_user_success": [], "succ_user_fail": [],
-        "succ_part_labels": [], "succ_part_success": [], "succ_part_fail": [],
-        "succ_qos_labels":  [], "succ_qos_success":  [], "succ_qos_fail":  [],
         "fail_exit_labels": [], "fail_exit_values": [],
         "fail_state_labels": [], "fail_state_values": [],
     }
+    # Optional: comparison month series (second panel)
+    series_b = {k: ([] if "labels" in k or "values" in k or isinstance(
+        v, list) else []) for k, v in series.items()}
 
-    # helpers
+    # small helpers
+    def _to_utc_day_end(ts_date: str) -> pd.Timestamp:
+        return pd.Timestamp(ts_date, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+    def _ensure_col(df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce").fillna(default)
+        return pd.Series([default] * len(df), index=df.index)
+
     def _safe_float(x, default=0.0):
         try:
             if x is None:
@@ -245,10 +254,103 @@ def admin_form():
         except Exception:
             return default
 
-    def _ensure_col_local(df, name, default_val=""):
-        if name in df.columns:
-            return df[name]
-        return pd.Series([default_val] * len(df), index=df.index)
+    def _month_bounds(ym: str) -> tuple[str, str]:
+        """Return ISO start/end for the month (local calendar)."""
+        y, m = [int(p) for p in ym.split("-", 1)]
+        last = monthrange(y, m)[1]
+        return date(y, m, 1).isoformat(), date(y, m, last).isoformat()
+
+    def _filter_month(df: pd.DataFrame, ym: str) -> pd.DataFrame:
+        if df.empty or "End" not in df.columns or not ym:
+            return df.iloc[0:0]
+        y, m = [int(p) for p in ym.split("-", 1)]
+        return df[(df["End"].dt.year == y) & (df["End"].dt.month == m)].copy()
+
+    def _build_all_series(df: pd.DataFrame) -> dict:
+        """Build the same ‘series’ dict as above for a given filtered dataframe."""
+        out = {k: ([] if isinstance(v, list) else [])
+               for k, v in series.items()}
+
+        if df.empty:
+            return out
+
+        # Daily total cost
+        if "End" in df.columns and "Cost (฿)" in df.columns:
+            daily = df.groupby(df["End"].dt.date)[
+                "Cost (฿)"].sum().sort_index()
+            out["daily_labels"] = [d.isoformat() for d in daily.index]
+            out["daily_cost"] = [round(float(v), 2) for v in daily.values]
+
+        # Cost by tier
+        if "tier" in df.columns and "Cost (฿)" in df.columns:
+            tier_sum = df.groupby("tier", dropna=False)[
+                "Cost (฿)"].sum().sort_values(ascending=False)
+            out["tier_labels"] = [str(i).upper() for i in tier_sum.index]
+            out["tier_values"] = [round(float(v), 2) for v in tier_sum.values]
+
+        # Top 10 Users by Cost
+        if "User" in df.columns and "Cost (฿)" in df.columns:
+            top = df.groupby("User")["Cost (฿)"].sum(
+            ).sort_values(ascending=False).head(10)
+            out["top_users_labels"] = list(top.index)
+            out["top_users_values"] = [round(float(v), 2) for v in top.values]
+
+        # Nodes: jobs, cpu core-hrs, gpu-hrs
+        if "NodeList" in df.columns:
+            d = df.copy()
+            d["NodeList"] = d["NodeList"].astype(str).fillna("").str.strip()
+
+            jobs = d[d["NodeList"] != ""].groupby(
+                "NodeList")["JobID"].nunique().sort_values(ascending=False).head(10)
+            cpu = d.groupby("NodeList")["CPU_Core_Hours"].sum(
+            ).sort_values(ascending=False).head(10)
+            gpu = d.groupby("NodeList")["GPU_Hours"].sum(
+            ).sort_values(ascending=False).head(10)
+
+            out["node_jobs_labels"], out["node_jobs_values"] = list(
+                jobs.index), [int(v) for v in jobs.values]
+            out["node_cpu_labels"],  out["node_cpu_values"] = list(
+                cpu.index),  [round(float(v), 2) for v in cpu.values]
+            out["node_gpu_labels"],  out["node_gpu_values"] = list(
+                gpu.index),  [round(float(v), 2) for v in gpu.values]
+
+        # Success vs Fail — User
+        if "User" in df.columns and "State" in df.columns:
+            d = df.copy()
+            d["User"] = d["User"].astype(str).fillna("").str.strip()
+            d["ok"] = d["State"].astype(
+                str).str.upper().str.startswith("COMPLETED")
+            g_ok = d.groupby("User")["ok"].sum()
+            g_n = d.groupby("User")["ok"].count()
+            g_fail = (g_n - g_ok)
+            top = (g_ok + g_fail).sort_values(ascending=False).head(10).index
+            out["succ_user_labels"] = list(top)
+            out["succ_user_success"] = [int(g_ok.get(u, 0)) for u in top]
+            out["succ_user_fail"] = [int(g_fail.get(u, 0)) for u in top]
+
+        # Failure exit codes + reasons
+        if "State" in df.columns:
+            d = df.copy()
+            d["State"] = d["State"].astype(
+                str).fillna("").str.strip().str.upper()
+            if "ExitCode" in d.columns:
+                ex = d["ExitCode"].astype(str).str.split(
+                    ":", n=1, expand=True)[0]
+                d["_exit"] = ex.where(ex.str.match(r"^\d+$"), other="0")
+            else:
+                d["_exit"] = "0"
+            fail_mask = ~d["State"].str.startswith("COMPLETED")
+            df_fail = d[fail_mask]
+            exit_top = df_fail.groupby("_exit")["_exit"].count(
+            ).sort_values(ascending=False).head(8)
+            reason_top = df_fail.groupby("State")["State"].count(
+            ).sort_values(ascending=False).head(8)
+            out["fail_exit_labels"],  out["fail_exit_values"] = list(
+                exit_top.index),  [int(v) for v in exit_top.values]
+            out["fail_state_labels"], out["fail_state_values"] = list(
+                reason_top.index), [int(v) for v in reason_top.values]
+
+        return out
 
     # ---- DASHBOARD ----
     if section == "dashboard":
@@ -259,32 +361,52 @@ def admin_form():
                 notes.append(f"dashboard.{name}: {e!s}")
                 return default
 
+        # Base KPIs scope stays as-is (last 90d window to compute daily series; KPIs remain all-time/30d as before)
         end_d = before
-        start_d = (date.fromisoformat(before) - timedelta(days=90)).isoformat()
+        start_90 = (date.fromisoformat(before) -
+                    timedelta(days=90)).isoformat()
+
+        # If the admin picked month(s), fetch a larger YTD (or spanning) window so we can slice months precisely.
+        # Otherwise keep your original 90d window behavior.
+        def _fetch_window_for_months():
+            if not m1 and not m2:
+                return start_90, end_d  # default
+            # Build the minimal window that covers both months (YTD is fine, but we'll be tight here)
+            months = [ym for ym in [m1, m2] if ym]
+            years = sorted({int(ym.split("-", 1)[0]) for ym in months})
+            y_start = min(years)
+            y_end = max(years)
+            # inclusive to the end of last selected month
+            last_m = int((sorted(months)[-1]).split("-", 1)[1])
+            last_day = monthrange(y_end, last_m)[1]
+            return date(y_start, 1, 1).isoformat(), date(y_end, last_m, last_day).isoformat()
+
+        fetch_start, fetch_end = _fetch_window_for_months()
 
         df, data_source, ds_notes = cap(
             "fetch",
-            lambda: fetch_jobs_with_fallbacks(start_d, end_d),
+            lambda: fetch_jobs_with_fallbacks(fetch_start, fetch_end),
             (pd.DataFrame(), None, []),
         )
         notes.extend(ds_notes or [])
         df = cap("compute_costs", lambda: compute_costs(df), pd.DataFrame())
 
-        def _cutoff_df():
-            if "End" in df.columns:
+        def _cutoff_df(d_in: pd.DataFrame, end_iso: str):
+            if "End" in d_in.columns:
                 end_series = pd.to_datetime(
-                    df["End"], errors="coerce", utc=True)
-                cutoff_utc = _to_utc_day_end(end_d)
-                out = df[end_series.notna() & (
+                    d_in["End"], errors="coerce", utc=True)
+                cutoff_utc = _to_utc_day_end(end_iso)
+                out = d_in[end_series.notna() & (
                     end_series <= cutoff_utc)].copy()
                 out["End"] = end_series
                 return out
-            out = df.copy()
+            out = d_in.copy()
             out["End"] = pd.NaT
             return out
 
-        df = cap("cutoff", _cutoff_df, df)
+        df = cap("cutoff", lambda: _cutoff_df(df, fetch_end), df)
 
+        # KPIs (unchanged semantics)
         def _unbilled():
             d = df.copy()
             d["JobKey"] = d["JobID"].astype(str).map(canonical_job_id)
@@ -292,10 +414,9 @@ def admin_form():
             return d[~d["JobKey"].isin(already)]
 
         df_unbilled = cap("unbilled", _unbilled, pd.DataFrame())
-
         kpis["unbilled_cost"] = cap(
             "kpi.unbilled_cost",
-            lambda: float(_ensure_col_local(df_unbilled, "Cost (฿)",
+            lambda: float(_ensure_col(df_unbilled, "Cost (฿)",
                           0).sum()) if not df_unbilled.empty else 0.0,
             0.0,
         )
@@ -312,177 +433,64 @@ def admin_form():
             status="paid") or [], [])
         kpis["paid_last_30d"] = cap(
             "kpi.paid_last_30d",
-            lambda: (
-                sum(
-                    _safe_float(r.get("total"))
-                    for r in paid
-                    if pd.notna(pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True))
-                    and pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True) >= (pd.Timestamp(end_d, tz="UTC") - pd.Timedelta(days=30))
-                )
+            lambda: sum(
+                _safe_float(r.get("total"))
+                for r in paid
+                if pd.notna(pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True))
+                and pd.to_datetime(r.get("paid_at"), errors="coerce", utc=True)
+                >= (pd.Timestamp(fetch_end, tz="UTC") - pd.Timedelta(days=30))
             ),
             0.0,
         )
 
         kpis["jobs_last_30d"] = cap(
             "kpi.jobs_last_30d",
-            lambda: int(
-                (df["End"] >= (pd.Timestamp(end_d, tz="UTC") - pd.Timedelta(days=30))).sum())
+            lambda: int((df["End"] >= (pd.Timestamp(
+                fetch_end, tz="UTC") - pd.Timedelta(days=30))).sum())
             if "End" in df.columns else 0,
             0,
         )
 
-        def _series_daily():
-            if df.empty or "End" not in df.columns or "Cost (฿)" not in df.columns:
-                return ([], [])
-            daily = df.groupby(df["End"].dt.date)[
-                "Cost (฿)"].sum().sort_index()
-            return [d.isoformat() for d in daily.index], [round(float(v), 2) for v in daily.values]
+        # === Single-month vs. month-compare data preparation ===
+        if m1:
+            df_a = _filter_month(df, m1)
+            series.update(_build_all_series(df_a))
+        else:
+            # No month specified → keep prior behavior but still use last 90 days for the timeseries line
+            df_90 = df[(df["End"].dt.date >= pd.to_datetime(
+                start_90).date())] if "End" in df.columns and not df.empty else df
+            series.update(_build_all_series(df_90))
 
-        series["daily_labels"], series["daily_cost"] = cap(
-            "series.daily", _series_daily, ([], []))
+        if m2:
+            df_b = _filter_month(df, m2)
+            series_b.update(_build_all_series(df_b))
 
-        def _series_tier():
-            if df.empty or "tier" not in df.columns or "Cost (฿)" not in df.columns:
-                return ([], [])
-            tier_sum = df.groupby("tier", dropna=False)[
-                "Cost (฿)"].sum().sort_values(ascending=False)
-            return [str(i).upper() for i in tier_sum.index], [round(float(v), 2) for v in tier_sum.values]
-
-        series["tier_labels"], series["tier_values"] = cap(
-            "series.tier", _series_tier, ([], []))
-
-        def _series_top_users():
-            if df.empty or "User" not in df.columns or "Cost (฿)" not in df.columns:
-                return ([], [])
-            top = df.groupby("User")["Cost (฿)"].sum(
-            ).sort_values(ascending=False).head(10)
-            return list(top.index), [round(float(v), 2) for v in top.values]
-
-        def _series_nodes():
-            # Group by NodeList string; good enough for “top nodes” even if hostlists appear.
-            if df.empty or "NodeList" not in df.columns:
-                return ([], [], [], [], [], [])
-            d = df.copy()
-            d["NodeList"] = d["NodeList"].astype(str).fillna("").str.strip()
-            # Jobs per node-like label
-            jobs = (
-                d[d["NodeList"] != ""]
-                .groupby("NodeList")["JobID"].nunique()
-                .sort_values(ascending=False)
-                .head(10)
-            )
-            # CPU core-hrs per node label
-            cpu = (
-                d.groupby("NodeList")["CPU_Core_Hours"]
-                .sum()
-                .sort_values(ascending=False)
-                .head(10)
-            )
-            # GPU-hrs per node label (only if any GPU hours exist)
-            gpu = (
-                d.groupby("NodeList")["GPU_Hours"]
-                .sum()
-                .sort_values(ascending=False)
-                .head(10)
-            )
-            nj_lbl, nj_val = list(jobs.index), [int(v) for v in jobs.values]
-            nc_lbl, nc_val = list(cpu.index), [round(
-                float(v), 2) for v in cpu.values]
-            ng_lbl, ng_val = list(gpu.index), [round(
-                float(v), 2) for v in gpu.values]
-            return nj_lbl, nj_val, nc_lbl, nc_val, ng_lbl, ng_val
-
-        (
-            series["node_jobs_labels"], series["node_jobs_values"],
-            series["node_cpu_labels"],  series["node_cpu_values"],
-            series["node_gpu_labels"],  series["node_gpu_values"],
-        ) = cap("series.nodes", _series_nodes, ([], [], [], [], [], []))
-
-        def _series_success_user():
-            if df.empty or "User" not in df.columns or "State" not in df.columns:
-                return ([], [], [])
-            d = df.copy()
-            d["User"] = d["User"].astype(str).fillna("").str.strip()
-            d["ok"] = d["State"].astype(
-                str).str.upper().str.startswith("COMPLETED")
-            # completed counts
-            g_ok = d.groupby("User")["ok"].sum()
-            # total counts
-            g_n = d.groupby("User")["ok"].count()
-            g_fail = (g_n - g_ok)
-            top = (g_ok + g_fail).sort_values(ascending=False).head(10).index
-            lbl = list(top)
-            succ = [int(g_ok.get(u, 0)) for u in top]
-            fail = [int(g_fail.get(u, 0)) for u in top]
-            return lbl, succ, fail
-
-        (
-            series["succ_user_labels"],
-            series["succ_user_success"],
-            series["succ_user_fail"],
-        ) = cap("series.succ_user", _series_success_user, ([], [], []))
-
-        def _series_failures():
-            if df.empty or "State" not in df.columns:
-                return ([], [], [], [])
-            d = df.copy()
-            d["State"] = d["State"].astype(
-                str).fillna("").str.strip().str.upper()
-            # Exit codes like "1:0" → take the left part
-            if "ExitCode" in d.columns:
-                ex = d["ExitCode"].astype(str).str.split(
-                    ":", n=1, expand=True)[0]
-                d["_exit"] = ex.where(ex.str.match(r"^\d+$"), other="0")
-            else:
-                d["_exit"] = "0"
-
-            fail_mask = ~d["State"].str.startswith("COMPLETED")
-            df_fail = d[fail_mask]
-
-            exit_top = (
-                df_fail.groupby("_exit")["_exit"].count()
-                .sort_values(ascending=False).head(8)
-            )
-            # Reason buckets from State (FAILED, CANCELLED, TIMEOUT, NODE_FAIL, OOM, etc.)
-            reason_top = (
-                df_fail.groupby("State")["State"].count()
-                .sort_values(ascending=False).head(8)
-            )
-            return (
-                list(exit_top.index), [int(v) for v in exit_top.values],
-                list(reason_top.index), [int(v) for v in reason_top.values],
-            )
-
-        (
-            series["fail_exit_labels"],  series["fail_exit_values"],
-            series["fail_state_labels"], series["fail_state_values"],
-        ) = cap("series.failures", _series_failures, ([], [], [], []))
-
-        series["top_users_labels"], series["top_users_values"] = cap(
-            "series.top_users", _series_top_users, ([], []))
-
-        tot_cpu = cap("totals.cpu", lambda: float(
-            _ensure_col(df, "CPU_Core_Hours", 0).sum()), 0.0)
+        # Totals chips (computed from whichever view is in primary panel)
+        base_df_for_totals = df_a if m1 else (df[(df["End"].dt.date >= pd.to_datetime(
+            start_90).date())] if "End" in df.columns else df)
+        tot_cpu = cap("totals.cpu", lambda: float(_ensure_col(
+            base_df_for_totals, "CPU_Core_Hours", 0).sum()), 0.0)
         tot_gpu = cap("totals.gpu", lambda: float(
-            _ensure_col(df, "GPU_Hours", 0).sum()), 0.0)
+            _ensure_col(base_df_for_totals, "GPU_Hours", 0).sum()), 0.0)
         tot_mem = cap(
             "totals.mem",
             lambda: float(
-                _ensure_col(df, "Mem_GB_Hours", 0).sum()
-                if "Mem_GB_Hours" in df.columns else _ensure_col(df, "Mem_GB_Hours_Used", 0).sum()
+                _ensure_col(base_df_for_totals, "Mem_GB_Hours", 0).sum()
+                if "Mem_GB_Hours" in base_df_for_totals.columns else _ensure_col(base_df_for_totals, "Mem_GB_Hours_Used", 0).sum()
             ),
             0.0,
         )
         tot_elapsed = cap("totals.elapsed", lambda: float(
-            _ensure_col(df, "Elapsed_Hours", 0).sum()), 0.0)
+            _ensure_col(base_df_for_totals, "Elapsed_Hours", 0).sum()), 0.0)
 
         return render_template(
             "admin/dashboard.html",
             current_user=current_user,
-            before=before, start=start_d, end=end_d,
-            kpis=kpis, series=series, data_source=data_source, notes=notes,
+            before=before, start=start_d, end=fetch_end,
+            kpis=kpis, series=series, series_b=series_b, data_source=data_source, notes=notes,
             tot_cpu=tot_cpu, tot_gpu=tot_gpu, tot_mem=tot_mem, tot_elapsed=tot_elapsed,
             url_for=url_for, all_rates=rates,
+            m1=m1, m2=m2,
         )
 
     # ---- USAGE / MYUSAGE / BILLING / TIERS ----
