@@ -274,7 +274,12 @@
             <td>{{ r['start']|dt_local }} → {{ r['end']|dt_local }}</td>
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
             <td>{{ r['created_at']|dt_local }}</td>
-            <td><a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}"><button>Download PDF</button></a></td>
+            <td>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                    <a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}"><button>Download PDF</button></a>
+                    <a class="btn" href="{{ url_for('user.receipt_pdf_th', rid=r['id']) }}"><button>ใบแจ้งหนี้</button></a>
+                </div>
+            </td>
         </tr>
         {% endfor %}
     </tbody>
@@ -304,7 +309,10 @@
             <td>฿{{ '%.2f'|format(r['total']) }}</td>
             <td>{{ r['paid_at']|dt_local or '—' }}</td>
             <td>
-                <a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}"><button>PDF</button></a>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                    <a class="btn" href="{{ url_for('user.receipt_pdf', rid=r['id']) }}"><button>Download PDF</button></a>
+                    <a class="btn" href="{{ url_for('user.receipt_pdf_th', rid=r['id']) }}"><button>ใบแจ้งหนี้</button></a>
+                </div>
             </td>
         </tr>
         {% endfor %}

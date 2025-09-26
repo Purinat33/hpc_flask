@@ -1,24 +1,47 @@
 {# templates/invoices/invoice.html #}
 <!doctype html>
-<html lang="en">
+<html lang="th">
 
 <head>
     <meta charset="utf-8">
-    <title>Invoice {{ r.invoice_no }}</title>
+    <title>ใบแจ้งหนี้ {{ r.invoice_no }}</title>
     <style>
+
+        @font-face{
+  font-family:"TH Sarabun New";
+  src:url("fonts/THSarabunNew.ttf") format("truetype");
+  font-weight:400; font-style:normal;
+}
+@font-face{
+  font-family:"TH Sarabun New";
+  src:url("fonts/THSarabunNew Italic.ttf") format("truetype");
+  font-weight:400; font-style:italic;
+}
+@font-face{
+  font-family:"TH Sarabun New";
+  src:url("fonts/THSarabunNew Bold.ttf") format("truetype");
+  font-weight:700; font-style:normal;
+}
+@font-face{
+  font-family:"TH Sarabun New";
+  src:url("fonts/THSarabunNew BoldItalic.ttf") format("truetype");
+  font-weight:700; font-style:italic;
+}
+
         @page {
             size: A4;
             margin: 22mm 16mm;
         }
 
         body {
-            font: 12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
-            color: #111;
+            font-family: "TH Sarabun New", "Sarabun", "Noto Sans Thai", "Noto Sans", sans-serif;
+            font-size: 14pt; /* Sarabun is designed for ~16pt gov docs; tweak as you like */
         }
 
         h1,
         h2,
         h3 {
+            font-weight: 700;
             margin: 0;
         }
 
@@ -157,7 +180,7 @@
     </div>
 
     {% if r.status == 'paid' %}
-    <div class="paid-watermark">PAID</div>
+    <div class="paid-watermark">จ่ายแล้ว</div>
     {% endif %}
 
     <!-- Header -->
@@ -168,18 +191,18 @@
             <div class="muted">{{ org.address_line1 }}{% if org.address_line2 %}, {{ org.address_line2 }}{% endif %}
             </div>
             <div class="muted">{{ org.city }} {{ org.postcode }}, {{ org.country }}</div>
-            {% if org.tax_id %}<div class="muted">Tax ID: {{ org.tax_id }}</div>{% endif %}
+            {% if org.tax_id %}<div class="muted">เลขประจำตัวผู้เสียภาษี: {{ org.tax_id }}</div>{% endif %}
             {% if org.email %}<div class="muted">{{ org.email }}</div>{% endif %}
             {% if org.phone %}<div class="muted">{{ org.phone }}</div>{% endif %}
         </div>
         <div class="col right">
-            <h1>INVOICE</h1>
+            <h1>ใบแจ้งหนี้</h1>
             <div class="mt-1">
-                <div><b>No.</b> {{ r.invoice_no }}</div>
-                <div><b>Date</b> {{ r.created_at|dt_local(fmt="%Y-%m-%d") }}</div>
-                <div><b>Status</b>
-                    {% if r.status == 'paid' %}<span class="stamp">PAID</span>
-                    {% else %}PENDING{% endif %}
+                <div><b>เลขที่ใบเสร็จ</b> {{ r.invoice_no }}</div>
+                <div><b>วันที่</b> {{ r.created_at|dt_local(fmt="%Y-%m-%d") }}</div>
+                <div><b>สถานะ</b>
+                    {% if r.status == 'paid' %}<span class="stamp">จ่ายแล้ว</span>
+                    {% else %}รอดำเนินการ{% endif %}
                 </div>
             </div>
         </div>
@@ -188,15 +211,15 @@
     <!-- Bill To + Period -->
     <div class="row mt-2">
         <div class="col box">
-            <div class="muted">Bill To</div>
+            <div class="muted">ส่งให้</div>
             <div><b>{{ r.username }}</b></div>
             {# if you ever store user's org/address, render here #}
         </div>
         <div class="col box right" style="margin-left:12px;">
-            <div class="muted">Billing Period</div>
+            <div class="muted">ระยะการชำระเงิน</div>
             <div><b>{{ r.start|dt_local(fmt="%Y-%m-%d") }}</b> to <b>{{ r.end|dt_local(fmt="%Y-%m-%d") }}</b></div>
-            <div class="muted">Timezone: {{ DISPLAY_TZ }}</div>
-            <div class="muted">Tier: {{ (r.pricing_tier or 'mu')|upper }}</div>
+            <div class="muted">การนับเวลาตามเขต: {{ DISPLAY_TZ }}</div>
+            <div class="muted">ประเภทผู้ใช้: {{ (r.pricing_tier or 'mu')|upper }}</div>
         </div>
     </div>
 
@@ -205,16 +228,16 @@
         <table>
             <thead>
                 <tr>
-                    <th class="w-60">Description</th>
-                    <th class="w-20 right">Qty / Hours</th>
-                    <th class="w-20 right">Amount (฿)</th>
+                    <th class="w-60">สินค้า</th>
+                    <th class="w-20 right">ประมาณ / ชั่วโมง</th>
+                    <th class="w-20 right">จำนวน (บาท)</th>
                 </tr>
             </thead>
             <tbody>
                 {# A simple, concise summary #}
                 <tr>
                     <td>
-                        CPU core-hours @ ฿{{ '%.2f'|format(r.rate_cpu) }} / core-hour
+                        จำนวน CPU @ {{ '%.2f'|format(r.rate_cpu) }} บาทต่อชั่วโมง
                     </td>
                     <td class="right">
                         {{ '%.2f'|format(rows|sum(attribute='cpu_core_hours')) }}
@@ -225,7 +248,7 @@
                 </tr>
                 <tr>
                     <td>
-                        GPU hours @ ฿{{ '%.2f'|format(r.rate_gpu) }} / GPU-hour
+                        จำนวน GPU @ {{ '%.2f'|format(r.rate_gpu) }} บาทต่อชั่วโมง
                     </td>
                     <td class="right">
                         {{ '%.2f'|format(rows|sum(attribute='gpu_hours')) }}
@@ -236,7 +259,7 @@
                 </tr>
                 <tr>
                     <td>
-                        Memory GB-hours (used) @ ฿{{ '%.2f'|format(r.rate_mem) }} / GB-hour
+                        จำนวนหน่วยความจำที่ใช้ @ {{ '%.2f'|format(r.rate_mem) }} บาทต่อชั่วโมง
                     </td>
                     <td class="right">
                         {{ '%.2f'|format(rows|sum(attribute='mem_gb_hours')) }}
@@ -248,8 +271,8 @@
                             {% if r.tax_amount and r.tax_amount > 0 %}
                             <tr class="vat-row">
                                 <td></td>
-                                <td class="right">{{ r.tax_label or 'VAT' }} {{ '%.2f'|format(r.tax_rate) }}%</td>
-                                <td class="right">฿{{ '%.2f'|format(r.tax_amount) }}</td>
+                                <td class="right">{{ r.tax_label or 'ภาษีมูลค่าเพิ่ม' }} {{ '%.2f'|format(r.tax_rate) }}%</td>
+                                <td class="right">{{ '%.2f'|format(r.tax_amount) }} บาท</td>
                             </tr>
                             {% endif %}
 
@@ -271,13 +294,13 @@
             <tfoot>
                 <tr class="totals">
                     <td></td>
-                    <td class="right"><b>Subtotal</b></td>
-                    <td class="right">฿{{ '%.2f'|format(r.subtotal) }}</td>
+                    <td class="right"><b>ราคาไม่รวมภาษี</b></td>
+                    <td class="right">{{ '%.2f'|format(r.subtotal) }} บาท</td>
                 </tr>
                 <tr class="totals grand">
                     <td></td>
-                    <td class="right">Total</td>
-                    <td class="right">฿{{ '%.2f'|format(r.total) }}</td>
+                    <td class="right">ราคารวม</td>
+                    <td class="right">{{ '%.2f'|format(r.total) }} บาท</td>
                 </tr>
             </tfoot>
         </table>
@@ -285,18 +308,18 @@
 
     <!-- Notes / Payment Instructions -->
     <div class="mt-3">
-        <div class="muted">Payment</div>
+        <div class="muted">การชำระเงิน</div>
         {% if r.status == 'paid' %}
-        <div>Paid at {{ r.paid_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}. Ref {{ r.tx_ref or '-' }}.</div>
+        <div>จ่ายเมื่อ {{ r.paid_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}. เลขอ้างอิง {{ r.tx_ref or '-' }}.</div>
             {% if r.approved_by %}
             <div class="mt-1 box">
-                <div><b>Approved by:</b> {{ r.approved_by }}</div>
-                <div><b>Approval date:</b> {{ r.approved_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}</div>
+                <div><b>อนุมัติโดย:</b> {{ r.approved_by }}</div>
+                <div><b>อนุมัติเมื่อ:</b> {{ r.approved_at|dt_local(fmt="%Y-%m-%d %H:%M:%S") }}</div>
             </div>
             {% endif %}
         {% else %}
-        <div>Please settle within 30 days.</div>
-        <div>Bank: {{ org.bank_name }} &middot; Account: {{ org.bank_acct }} &middot; Name: {{ org.bank_holder }}</div>
+        <div>กรุณาชำระเงินภายใน 30 วัน</div>
+        <div>ธนาคาร: {{ org.bank_name }} &middot; เลขที่บัญชี: {{ org.bank_acct }} &middot; ชื่อบัญชี: {{ org.bank_holder }}</div>
         {# you can embed a QR image if you have one:
        <img src="{{ url_for('static', filename='img/qr-bank.png') }}" style="height:110px">
     #}

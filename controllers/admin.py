@@ -8,7 +8,7 @@ from services.forecast import build_daily_series, multi_horizon_forecast
 from services.accounting import derive_journal, trial_balance, income_statement, balance_sheet
 from flask import jsonify
 from datetime import timedelta
-from services.org_info import ORG_INFO
+from services.org_info import ORG_INFO, ORG_INFO_TH
 from services.pricing_sim import build_pricing_components, simulate_vs_current
 import io
 from datetime import date, datetime
@@ -1455,4 +1455,20 @@ def admin_receipt_etax_zip(rid: int):
     resp = make_response(mem.read())
     resp.headers["Content-Type"] = "application/zip"
     resp.headers["Content-Disposition"] = f'attachment; filename=etax_export_{rid}.zip'
+    return resp
+
+
+@admin_bp.get("/admin/receipts/<int:rid>.th.pdf")
+@login_required
+@admin_required
+def admin_receipt_pdf_th(rid: int):
+    rec, items = get_receipt_with_items(rid)
+    if not rec:
+        return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
+    html = render_template("invoices/invoice_th.html",
+                           r=rec, rows=items, org=ORG_INFO_TH(), DISPLAY_TZ=APP_TZ)
+    pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
+    resp = make_response(pdf)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f'attachment; filename=invoice_{rec["id"]}_th.pdf'
     return resp

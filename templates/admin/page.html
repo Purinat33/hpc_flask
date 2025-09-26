@@ -866,7 +866,12 @@
                             <td class="nowrap">฿{{ '%.2f'|format(r['total']) }}</td>
                             <td class="nowrap">{{ r['paid_at']|dt_local or '—' }}</td>
                             <td class="nowrap">{{ r['status'] }}</td>
-                            <td class="nowrap"><a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}"><button>PDF</button></a></td>
+                            <td class="nowrap" style="display:flex;flex-direction:column;gap:4px">
+                                <div>
+                                    <a class="btn" href="{{ url_for('admin.admin_receipt_pdf', rid=r['id']) }}"><button>PDF</button></a>
+                                    <a class="btn" href="{{ url_for('admin.admin_receipt_pdf_th', rid=r['id']) }}"><button>ใบแจ้งหนี้</button></a>
+                                </div>
+                            </td>
                             <td class="nowrap">
                                 <form method="post" action="{{ url_for('admin.revert_paid', rid=r['id']) }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -196,6 +196,9 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
         )
         s.add(r)
         s.flush()
+        if not r.invoice_no:
+            r.invoice_no = _gen_invoice_no(r)  # MUAI-INV-YYYYMM-XXXXXX
+        s.add(r)
 
         for row in rows:
             job_key = canonical_job_id(str(row["JobID"]))
@@ -696,11 +699,13 @@ def build_etax_payload(receipt_id: int) -> dict:
     gpu_amt = round(gpu_qty * rec["rate_gpu"], 2)
     mem_amt = round(mem_qty * rec["rate_mem"], 2)
 
+    doc_no = rec.get("invoice_no")
+
     payload = {
         "version": "etax-export-1",
         "document": {
             "kind": "TAX_INVOICE",               # consumer can map to RD doc type
-            "number": rec.get("invoice_no") or f"MUAI-INV-{rec['id']:06d}",
+            "number": doc_no,
             "issue_date": (rec["created_at"].isoformat() if rec.get("created_at") else None),
             "currency": rec.get("currency", "THB"),
             "tax": {
