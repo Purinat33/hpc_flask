@@ -126,6 +126,17 @@ services:
       BILLING_TAX_LABEL: "VAT"      # label on the invoice
       BILLING_TAX_RATE: "7.0"       # percent
       BILLING_TAX_INCLUSIVE: "0"    # "1" if your rates already include tax
+      # Audit signing
+      # active signer (what new rows use)
+      AUDIT_HMAC_KEY_ID: "k2"
+      AUDIT_HMAC_SECRET: "new-super-secret"
+
+      # keyring for verification (must include ALL historical keys)
+      # format: kid=secret,kid2=secret2
+      AUDIT_HMAC_KEYRING: "k1=muict,k2=ictmu,k3=muaicenter"
+      # optional behavior flags (keep your current defaults)
+      AUDIT_ANONYMIZE_IP: "1"
+      AUDIT_STORE_RAW_UA: "0"
     depends_on:
       pg:
         condition: service_healthy

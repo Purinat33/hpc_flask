@@ -1533,6 +1533,18 @@ def audit_verify_json():
         limit = request.args.get("limit", type=int)
         result = verify_chain(limit=limit)
         status = 200 if result.get("ok") else 409
+        audit(
+            "audit.verify_chain",
+            target_type="scope", target_id="admin",
+            outcome="success" if result.get("ok") else "failure",
+            status=200,
+            extra={
+                "checked": int(result.get("checked", 0)),
+                "last_ok_id": result.get("last_ok_id"),
+                "first_bad_id": result.get("first_bad_id"),
+                "reason": result.get("reason"),
+            }
+        )
         return jsonify(result), status
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
