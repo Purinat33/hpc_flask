@@ -3,7 +3,6 @@ from weasyprint import HTML
 from flask import current_app, make_response
 # add at top if not imported
 from models.billing_store import get_receipt_with_items, list_receipts, revert_receipt_to_pending
-from flask import flash  # add at top if not imported
 from calendar import monthrange
 from services.forecast import build_daily_series, multi_horizon_forecast
 from services.accounting import derive_journal, trial_balance, income_statement, balance_sheet
@@ -916,17 +915,16 @@ def revert_paid(rid: int):
         extra={"reason": reason}
     )
     if ok:
-        flash("Reverted to pending.", "success")
+        pass
     else:
         if msg == "has_external_succeeded_payment":
-            flash(
-                "Cannot revert: receipt has a succeeded external payment (refund first).", "error")
+            pass
         elif msg == "already_pending":
-            flash("No change: already pending.", "info")
+            pass
         elif msg == "already_void":
-            flash("Cannot revert a void receipt.", "error")
+            pass
         else:
-            flash("Revert failed.", "error")
+            pass
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
 
@@ -1302,7 +1300,6 @@ def create_month_invoices():
         if not (2000 <= y <= 2100 and 1 <= m <= 12):
             raise ValueError("Invalid year/month")
     except Exception:
-        flash("Invalid year/month", "error")
         return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
     start_d = date(y, m, 1).isoformat()
@@ -1331,7 +1328,6 @@ def create_month_invoices():
             df = df[~df["JobKey"].isin(already)]
 
         if df.empty:
-            flash(f"No unbilled jobs found for {y}-{m:02d}.", "info")
             return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
         # Group by user and create one receipt per user
@@ -1363,10 +1359,6 @@ def create_month_invoices():
                        "jobs": int(len(duser)), "total": float(total)}
             )
             created += 1
-
-        msg = f"Created {created} invoice(s) for {y}-{m:02d}" + (
-            f"; skipped {skipped} (already exist)" if skipped else "")
-        flash(msg, "success")
     except Exception as e:
         audit(
             "invoice.create_month",
@@ -1375,7 +1367,6 @@ def create_month_invoices():
             error_code="create_month_error",
             extra={"reason": str(e)[:256]}
         )
-        flash(f"Error creating invoices: {e}", "error")
 
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
@@ -1421,7 +1412,6 @@ def bulk_revert_month_invoices():
         if not (2000 <= y <= 2100 and 1 <= m <= 12):
             raise ValueError("Invalid year/month")
     except Exception:
-        flash("Invalid year/month", "error")
         return redirect(url_for("admin.admin_form", section="billing"))
 
     reason = (request.form.get("reason")
