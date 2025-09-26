@@ -8,6 +8,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models.base import Base
 from datetime import datetime, date
+from typing import Optional
 # --- USERS (users.sqlite3)
 
 
@@ -223,7 +224,7 @@ class AuditLog(Base):
         String(128))       # HMAC(hash, SECRET)
     schema_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=2)
-    key_id = mapped_column(String(16), nullable=True)
+    key_id: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
     __table_args__ = (
         CheckConstraint(

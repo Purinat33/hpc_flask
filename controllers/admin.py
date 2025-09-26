@@ -1521,3 +1521,18 @@ def admin_receipt_pdf_th(rid: int):
     audit("invoice.pdf_th", target_type="receipt", target_id=str(rid),
           outcome="success", status=200)
     return resp
+
+
+@admin_bp.get("/admin/audit.verify.json")
+@login_required
+@admin_required
+def audit_verify_json():
+    from models.audit_store import verify_chain
+    try:
+        # optional ?limit= param for quick checks
+        limit = request.args.get("limit", type=int)
+        result = verify_chain(limit=limit)
+        status = 200 if result.get("ok") else 409
+        return jsonify(result), status
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

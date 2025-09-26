@@ -29,7 +29,10 @@
         <div class="card">
             <div style="margin-bottom:.5rem">
                 <a href="{{ url_for('admin.audit_csv') }}"><button type="button">Download CSV (all)</button></a>
+                <button type="button" id="btnVerify">Verify log integrity</button>
             </div>
+            <div id="verifyStatus" class="muted" style="margin:-.25rem 0 .75rem 0; min-height:1.25rem;" aria-live="polite"
+                aria-atomic="true"></div>
 <div class="table-wrap">
             <table>
                 <thead>
@@ -74,4 +77,55 @@
         </div>
     </main>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('btnVerify');
+        const status = document.getElementById('verifyStatus');
+
+        function setStatus(html, tone) {
+            // tone: 'ok' | 'bad' | 'warn' | 'info'
+            const colors = {
+                ok: 'color:#0a7a0a',     // green
+                bad: 'color:#b00020',     // red
+                warn: 'color:#9a6b00',     // amber
+                info: 'color:inherit'
+            };
+            status.style.cssText = "margin:-.25rem 0 .75rem 0; min-height:1.25rem;" + (colors[tone] ? ';' + colors[tone] : '');
+            status.innerHTML = html;
+        }
+
+        btn?.addEventListener('click', async () => {
+            btn.disabled = true;
+            const original = btn.textContent;
+            btn.textContent = 'Verifying…';
+            setStatus('Running integrity check…', 'info');
+
+            try {
+                const res = await fetch('{{ url_for("admin.audit_verify_json") }}', { credentials: 'same-origin' });
+                const data = await res.json();
+
+                if (res.ok && data.ok) {
+                    setStatus(
+                        `✔️ <strong>Log Chain OK</strong> — checked <code>${data.checked}</code> entr${data.checked === 1 ? 'y' : 'ies'}, last OK id <code>${data.last_ok_id ?? '—'}</code>.`,
+                        'ok'
+                    );
+                } else {
+                    const reason = data?.reason || 'unknown';
+                    setStatus(
+                        `❌ <strong>Log chain compromised</strong> — reason <code>${reason}</code>. `
+                        + `Last OK id <code>${data?.last_ok_id ?? '—'}</code>, first bad id <code>${data?.first_bad_id ?? '—'}</code>.`,
+                        'bad'
+                    );
+                }
+            } catch (e) {
+                setStatus(`⚠️ Verification error: <code>${(e && e.message) ? e.message : e}</code>.`, 'warn');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = original;
+            }
+        });
+    });
+</script>
+
 {% endblock %}

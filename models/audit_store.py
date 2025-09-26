@@ -1,4 +1,5 @@
 # models/audit_store.py
+from sqlalchemy import asc
 import os
 import json
 import hmac
@@ -15,10 +16,146 @@ APP_SECRET = (os.getenv("AUDIT_HMAC_SECRET") or "secret-key").encode("utf-8")
 ANONYMIZE_IP = os.getenv("AUDIT_ANONYMIZE_IP", "1") == "1"
 RAW_UA = os.getenv("AUDIT_STORE_RAW_UA", "0") == "1"
 SCHEMA_VERSION = 2
-SIGNING_KEY_ID = os.getenv("AUDIT_HMAC_KEY_ID", "k2")
+SIGNING_KEY_ID = os.getenv("AUDIT_HMAC_KEY_ID", "k1")
 
 _ALLOWED_EXTRA_KEYS = {"reason", "note",
                        "diff", "count", "totals", "old", "new"}
+
+
+def _load_keyring() -> dict[str, bytes]:
+    ring: dict[str, bytes] = {}
+    # Optional ring for rotated keys
+    cfg = os.getenv("AUDIT_HMAC_KEYRING", "")
+    if cfg:
+        for part in cfg.split(","):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            kid, sec = part.split("=", 1)
+            ring[kid.strip()] = sec.strip().encode("utf-8")
+    # Always include current key
+    ring[SIGNING_KEY_ID] = APP_SECRET
+    return ring
+
+
+def _ts_to_payload_str(ts_val: Any) -> str:
+    """Recreate the exact 'ts' string format used when hashing."""
+    if isinstance(ts_val, datetime):
+        ts_val = ts_val.astimezone(timezone.utc)
+        return ts_val.isoformat(timespec="seconds").replace("+00:00", "Z")
+    # fallback: already a string
+    s = str(ts_val)
+    # normalize common DB formats like 'YYYY-MM-DD HH:MM:SS'
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except Exception:
+        return s
+
+
+def _rebuild_payload_from_row(r: AuditLog) -> dict:
+    # NOTE: We only store UA fingerprint (RAW_UA==0), so use that.
+    # If you ever enable RAW_UA=1 in production, store it to a column and use it here.
+    return {
+        "ts": _ts_to_payload_str(r.ts),
+        "actor": r.actor,
+        "actor_role": getattr(r, "actor_role", None),
+        "request_id": getattr(r, "request_id", None),
+        "session_id": getattr(r, "session_id", None),
+        "ip": r.ip,
+        "ua": getattr(r, "ua_fingerprint", None),
+        "method": r.method,
+        "path": r.path,
+        "action": r.action,
+        "target_type": getattr(r, "target_type", None),
+        "target_id": getattr(r, "target_id", None),
+        "outcome": getattr(r, "outcome", None),
+        "status": r.status,
+        "error_code": getattr(r, "error_code", None),
+        "extra": r.extra or {},
+        "schema_version": getattr(r, "schema_version", None) or SCHEMA_VERSION,
+        "key_id": getattr(r, "key_id", None),
+    }
+
+
+def verify_chain(limit: Optional[int] = None) -> dict:
+    """
+    Return:
+      {
+        "ok": bool,
+        "checked": int,
+        "last_ok_id": int | None,
+        "first_bad_id": int | None,
+        "reason": str | None
+      }
+    """
+    ring = _load_keyring()
+    prev = ""
+    checked = 0
+    last_ok = None
+
+    with session_scope() as s:
+        q = s.execute(select(AuditLog).order_by(asc(AuditLog.id)))
+        rows = q.scalars().all()
+        if limit:
+            rows = rows[: int(limit)]
+
+        for r in rows:
+            payload = _rebuild_payload_from_row(r)
+            exp_hash = _compute_hash(prev, payload)
+
+            if r.prev_hash != prev:
+                return {
+                    "ok": False,
+                    "checked": checked,
+                    "last_ok_id": last_ok,
+                    "first_bad_id": r.id,
+                    "reason": "prev_hash_mismatch",
+                }
+
+            if r.hash != exp_hash:
+                return {
+                    "ok": False,
+                    "checked": checked,
+                    "last_ok_id": last_ok,
+                    "first_bad_id": r.id,
+                    "reason": "hash_mismatch",
+                }
+
+            kid = payload.get("key_id") or SIGNING_KEY_ID
+            key = ring.get(kid)
+            if not key:
+                return {
+                    "ok": False,
+                    "checked": checked,
+                    "last_ok_id": last_ok,
+                    "first_bad_id": r.id,
+                    "reason": f"missing_key:{kid}",
+                }
+
+            exp_sig = hmac.new(key, exp_hash.encode(
+                "utf-8"), hashlib.sha256).hexdigest()
+            if r.signature != exp_sig:
+                return {
+                    "ok": False,
+                    "checked": checked,
+                    "last_ok_id": last_ok,
+                    "first_bad_id": r.id,
+                    "reason": "signature_mismatch",
+                }
+
+            # advance
+            checked += 1
+            last_ok = r.id
+            prev = r.hash or ""
+
+    return {
+        "ok": True,
+        "checked": checked,
+        "last_ok_id": last_ok,
+        "first_bad_id": None,
+        "reason": None,
+    }
 
 
 def _now_isoz() -> str:
