@@ -1295,3 +1295,56 @@ def bulk_revert_month_invoices():
             },
         )
     return redirect(url_for("admin.admin_form", section="billing"))
+
+
+@admin_bp.get("/admin/receipts/<int:rid>.etax.json")
+@login_required
+@admin_required
+def admin_receipt_etax_json(rid: int):
+    from models.billing_store import build_etax_payload
+    payload = build_etax_payload(rid)
+    if not payload:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(payload), 200
+
+
+@admin_bp.get("/admin/receipts/<int:rid>.etax.zip")
+@login_required
+@admin_required
+def admin_receipt_etax_zip(rid: int):
+    from io import BytesIO
+    from zipfile import ZipFile, ZIP_DEFLATED
+    from weasyprint import HTML
+    from models.billing_store import get_receipt_with_items, build_etax_payload
+    from services.org_info import ORG_INFO
+    from flask import current_app, make_response
+
+    rec, items = get_receipt_with_items(rid)
+    if not rec:
+        return jsonify({"error": "not_found"}), 404
+
+    # 1) JSON payload
+    payload = build_etax_payload(rid)
+
+    # 2) PDF (current layout)
+    html = render_template("invoices/invoice.html",
+                           r=rec, rows=items, org=ORG_INFO(), DISPLAY_TZ=APP_TZ)
+    pdf_bytes = HTML(
+        string=html, base_url=current_app.static_folder).write_pdf()
+
+    # 3) ZIP it
+    mem = BytesIO()
+    with ZipFile(mem, "w", ZIP_DEFLATED) as z:
+        inv_no = payload["document"]["number"]
+        z.writestr(f"{inv_no}.json", json.dumps(
+            payload, ensure_ascii=False, indent=2))
+        z.writestr(f"{inv_no}.pdf", pdf_bytes)
+        # optional: include a README with what’s inside
+        z.writestr(
+            "README.txt", "Unsigned export. The other team will transform/sign/submit.")
+    mem.seek(0)
+
+    resp = make_response(mem.read())
+    resp.headers["Content-Type"] = "application/zip"
+    resp.headers["Content-Disposition"] = f'attachment; filename=etax_export_{rid}.zip'
+    return resp

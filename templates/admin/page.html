@@ -847,6 +847,7 @@
                             <th class="nowrap">Status</th>
                             <th class="nowrap">Invoice</th>
                             <th class="nowrap">Action</th>
+                            <th class="nowrap">Files</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -875,6 +876,14 @@
                                         Revert to pending
                                     </button>
                                 </form>
+                            </td>
+                            <td class="nowrap">
+                                <a href="{{ url_for('admin.admin_receipt_etax_zip', rid=r.id) }}">
+                                    <button type="button" title="Download e-Tax bundle (ZIP)">e-Tax ZIP</button>
+                                </a>
+                                <a href="{{ url_for('admin.admin_receipt_etax_json', rid=r.id) }}" target="_blank" rel="noopener">
+                                    <button type="button" title="View JSON payload">JSON</button>
+                                </a>
                             </td>
                         </tr>
                         {% endfor %}

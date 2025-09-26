@@ -1,4 +1,5 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
+from services.org_info import ORG_INFO
 from typing import Tuple, Optional
 from models.schema import Receipt, Payment, PaymentEvent
 from decimal import Decimal
@@ -136,6 +137,7 @@ def get_receipt_with_items(receipt_id: int) -> tuple[dict, list[dict]]:
                 "tax_rate": float(r.tax_rate),
                 "tax_amount": float(r.tax_amount),
                 "total": float(r.total),        # keep total as gross
+                "tax_inclusive": bool(r.tax_inclusive),
             },
             [
                 {
@@ -231,9 +233,11 @@ def create_receipt_from_rows(username: str, start: str, end: str, rows: Iterable
             r.tax_label = tax_label
             r.tax_rate = float(tax_rate)
             r.tax_amount = float(tax_amount)
+            r.tax_inclusive = bool(tax_inclusive)
         else:
             subtotal = subtotal_raw
             grand = subtotal
+            r.tax_inclusive = False
 
         # persist amounts
         r.subtotal = float(subtotal)
@@ -323,6 +327,7 @@ def admin_list_receipts(status: str | None = None) -> list[dict]:
                 "tax_amount": float(r.tax_amount or 0),
                 "total": float(r.total or 0),        # gross
                 "period_ym": _local_ym(r.start),
+                "tax_inclusive": bool(r.tax_inclusive),
             })
         return out
 
@@ -673,3 +678,81 @@ def bulk_void_pending_invoices_for_month(year: int, month: int, actor: str, reas
         ))
 
     return voided, skipped
+
+
+def build_etax_payload(receipt_id: int) -> dict:
+    """Return a stable, compliance-ready JSON snapshot for this receipt."""
+    rec, items = get_receipt_with_items(receipt_id)
+    if not rec:
+        return {}
+
+    org = ORG_INFO() or {}
+    # aggregate lines exactly like the PDF
+    cpu_qty = sum(i["cpu_core_hours"] for i in items)
+    gpu_qty = sum(i["gpu_hours"] for i in items)
+    mem_qty = sum(i["mem_gb_hours"] for i in items)
+
+    cpu_amt = round(cpu_qty * rec["rate_cpu"], 2)
+    gpu_amt = round(gpu_qty * rec["rate_gpu"], 2)
+    mem_amt = round(mem_qty * rec["rate_mem"], 2)
+
+    payload = {
+        "version": "etax-export-1",
+        "document": {
+            "kind": "TAX_INVOICE",               # consumer can map to RD doc type
+            "number": rec.get("invoice_no") or f"MUAI-INV-{rec['id']:06d}",
+            "issue_date": (rec["created_at"].isoformat() if rec.get("created_at") else None),
+            "currency": rec.get("currency", "THB"),
+            "tax": {
+                "label": rec.get("tax_label") or "VAT",
+                "rate_pct": rec.get("tax_rate", 0.0),
+                "amount": rec.get("tax_amount", 0.0),
+                "inclusive": bool(rec.get("tax_inclusive")),
+            },
+            "amounts": {
+                "subtotal": rec.get("subtotal", 0.0),
+                "total": rec.get("total", 0.0),
+            },
+            "period": {
+                "start": rec["start"].isoformat(),
+                "end": rec["end"].isoformat(),
+            },
+            "status": rec.get("status"),
+        },
+        "seller": {
+            "name": org.get("name"),
+            "tax_id": org.get("tax_id"),              # RD needs this
+            "branch": org.get("branch_no"),           # optional; "0" for HQ
+            "address": {
+                "line1": org.get("address_line1"),
+                "line2": org.get("address_line2"),
+                "city": org.get("city"),
+                "postcode": org.get("postcode"),
+                "country": org.get("country"),
+            },
+            "email": org.get("email"),
+            "phone": org.get("phone"),
+        },
+        "buyer": {
+            # we only store username today
+            "code": rec.get("username"),
+            # leave tax_id/email/company to be enriched by compliance ops, if needed
+        },
+        "lines": [
+            {"sku": "CPU", "description": "CPU core-hours",
+             "quantity": round(cpu_qty, 2), "unit": "core-hour",
+             "unit_price": rec["rate_cpu"], "amount": round(cpu_amt, 2)},
+            {"sku": "GPU", "description": "GPU hours",
+             "quantity": round(gpu_qty, 2), "unit": "hour",
+             "unit_price": rec["rate_gpu"], "amount": round(gpu_amt, 2)},
+            {"sku": "MEM", "description": "Memory GB-hours (used)",
+             "quantity": round(mem_qty, 2), "unit": "GB-hour",
+             "unit_price": rec["rate_mem"], "amount": round(mem_amt, 2)},
+        ],
+        "meta": {
+            "receipt_id": rec["id"],
+            "pricing_tier": rec.get("pricing_tier"),
+            "rates_locked_at": rec.get("rates_locked_at").isoformat() if rec.get("rates_locked_at") else None,
+        }
+    }
+    return payload
