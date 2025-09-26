@@ -358,6 +358,106 @@ def admin_form():
             ).sort_values(ascending=False).head(10)
             return list(top.index), [round(float(v), 2) for v in top.values]
 
+        def _series_nodes():
+            # Group by NodeList string; good enough for “top nodes” even if hostlists appear.
+            if df.empty or "NodeList" not in df.columns:
+                return ([], [], [], [], [], [])
+            d = df.copy()
+            d["NodeList"] = d["NodeList"].astype(str).fillna("").str.strip()
+            # Jobs per node-like label
+            jobs = (
+                d[d["NodeList"] != ""]
+                .groupby("NodeList")["JobID"].nunique()
+                .sort_values(ascending=False)
+                .head(10)
+            )
+            # CPU core-hrs per node label
+            cpu = (
+                d.groupby("NodeList")["CPU_Core_Hours"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(10)
+            )
+            # GPU-hrs per node label (only if any GPU hours exist)
+            gpu = (
+                d.groupby("NodeList")["GPU_Hours"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(10)
+            )
+            nj_lbl, nj_val = list(jobs.index), [int(v) for v in jobs.values]
+            nc_lbl, nc_val = list(cpu.index), [round(
+                float(v), 2) for v in cpu.values]
+            ng_lbl, ng_val = list(gpu.index), [round(
+                float(v), 2) for v in gpu.values]
+            return nj_lbl, nj_val, nc_lbl, nc_val, ng_lbl, ng_val
+
+        (
+            series["node_jobs_labels"], series["node_jobs_values"],
+            series["node_cpu_labels"],  series["node_cpu_values"],
+            series["node_gpu_labels"],  series["node_gpu_values"],
+        ) = cap("series.nodes", _series_nodes, ([], [], [], [], [], []))
+
+        def _series_success_user():
+            if df.empty or "User" not in df.columns or "State" not in df.columns:
+                return ([], [], [])
+            d = df.copy()
+            d["User"] = d["User"].astype(str).fillna("").str.strip()
+            d["ok"] = d["State"].astype(
+                str).str.upper().str.startswith("COMPLETED")
+            # completed counts
+            g_ok = d.groupby("User")["ok"].sum()
+            # total counts
+            g_n = d.groupby("User")["ok"].count()
+            g_fail = (g_n - g_ok)
+            top = (g_ok + g_fail).sort_values(ascending=False).head(10).index
+            lbl = list(top)
+            succ = [int(g_ok.get(u, 0)) for u in top]
+            fail = [int(g_fail.get(u, 0)) for u in top]
+            return lbl, succ, fail
+
+        (
+            series["succ_user_labels"],
+            series["succ_user_success"],
+            series["succ_user_fail"],
+        ) = cap("series.succ_user", _series_success_user, ([], [], []))
+
+        def _series_failures():
+            if df.empty or "State" not in df.columns:
+                return ([], [], [], [])
+            d = df.copy()
+            d["State"] = d["State"].astype(
+                str).fillna("").str.strip().str.upper()
+            # Exit codes like "1:0" → take the left part
+            if "ExitCode" in d.columns:
+                ex = d["ExitCode"].astype(str).str.split(
+                    ":", n=1, expand=True)[0]
+                d["_exit"] = ex.where(ex.str.match(r"^\d+$"), other="0")
+            else:
+                d["_exit"] = "0"
+
+            fail_mask = ~d["State"].str.startswith("COMPLETED")
+            df_fail = d[fail_mask]
+
+            exit_top = (
+                df_fail.groupby("_exit")["_exit"].count()
+                .sort_values(ascending=False).head(8)
+            )
+            # Reason buckets from State (FAILED, CANCELLED, TIMEOUT, NODE_FAIL, OOM, etc.)
+            reason_top = (
+                df_fail.groupby("State")["State"].count()
+                .sort_values(ascending=False).head(8)
+            )
+            return (
+                list(exit_top.index), [int(v) for v in exit_top.values],
+                list(reason_top.index), [int(v) for v in reason_top.values],
+            )
+
+        (
+            series["fail_exit_labels"],  series["fail_exit_values"],
+            series["fail_state_labels"], series["fail_state_values"],
+        ) = cap("series.failures", _series_failures, ([], [], [], []))
+
         series["top_users_labels"], series["top_users_values"] = cap(
             "series.top_users", _series_top_users, ([], []))
 
