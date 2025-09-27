@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from models.gl import AccountingPeriod
 from services.gl_posting import close_period, reopen_period, post_service_accruals_for_period, bootstrap_periods
-from datetime import date
+from datetime import date, datetime, timezone
 from weasyprint import HTML
 from flask import current_app, make_response
 # add at top if not imported
@@ -144,6 +144,53 @@ def _collect_all_users_for_datalist(before_iso: str) -> list[str]:
         pass
 
     return sorted(names, key=lambda s: s.lower())
+
+
+# controllers/admin.py  (ADD)
+def _load_posted_journal(start_iso: str, end_iso: str) -> pd.DataFrame:
+    """Read posted GL (gl_entries joined to gl_batches) for the window."""
+    from sqlalchemy import select
+    from models.gl import JournalBatch, GLEntry
+
+    def _to_utc_start(diso: str) -> datetime:
+        # naive date -> UTC 00:00:00
+        return datetime.fromisoformat(diso).replace(tzinfo=timezone.utc)
+
+    def _to_utc_end_inclusive(diso: str) -> datetime:
+        # naive date -> UTC 23:59:59
+        return datetime.fromisoformat(diso).replace(tzinfo=timezone.utc) + timedelta(hours=23, minutes=59, seconds=59)
+
+    start_utc = _to_utc_start(start_iso)
+    end_utc = _to_utc_end_inclusive(end_iso)
+
+    with session_scope() as s:
+        rows = s.execute(
+            select(
+                GLEntry.date,
+                GLEntry.ref,
+                GLEntry.memo,
+                GLEntry.account_id,
+                GLEntry.account_name,
+                GLEntry.account_type,
+                GLEntry.debit,
+                GLEntry.credit,
+            )
+            .join(JournalBatch, GLEntry.batch_id == JournalBatch.id)
+            .where(GLEntry.date >= start_utc, GLEntry.date <= end_utc)
+            .order_by(GLEntry.date, GLEntry.ref, GLEntry.account_id)
+        ).all()
+
+    df = pd.DataFrame(rows, columns=[
+        "date", "ref", "memo", "account_id", "account_name",
+        "account_type", "debit", "credit"
+    ])
+    if df.empty:
+        return df
+    # Pretty dates + numeric safety
+    df["date"] = pd.to_datetime(df["date"], utc=True).dt.date.astype(str)
+    df["debit"] = pd.to_numeric(df["debit"], errors="coerce").fillna(0.0)
+    df["credit"] = pd.to_numeric(df["credit"], errors="coerce").fillna(0.0)
+    return df
 
 
 @admin_bp.get("/admin")
@@ -1107,7 +1154,12 @@ def ledger_page():
     end_q = (request.args.get("end") or end_d).strip()
 
     # ---- existing derived accounting artifacts (unchanged) ----
-    j = derive_journal(start_q, end_q)
+    mode = (request.args.get("mode") or "posted").strip().lower()
+    if mode == "derived":
+        j = derive_journal(start_q, end_q)  # preview, ignores locks
+    else:
+        # authoritative, respects locks
+        j = _load_posted_journal(start_q, end_q)
     tb = trial_balance(j)
     pnl = income_statement(j)
     bs = balance_sheet(j)
@@ -1267,14 +1319,21 @@ def ledger_csv():
 @login_required
 @admin_required
 def export_ledger_csv():
-    from services.accounting_export import build_general_ledger_csv
     start = (request.args.get("start") or "1970-01-01").strip()
     end = (request.args.get("end") or date.today().isoformat()).strip()
-    fname, csv_text = build_general_ledger_csv(start, end)
+    # Posted GL (respects locks)
+    df = _load_posted_journal(start, end)
+    out = io.StringIO()
+    (df if not df.empty else pd.DataFrame(
+        columns=["date", "ref", "memo", "account_id",
+                 "account_name", "account_type", "debit", "credit"]
+    )).to_csv(out, index=False)
+    out.seek(0)
     return Response(
-        csv_text,
+        out.read(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={fname}"},
+        headers={
+            "Content-Disposition": f'attachment; filename=posted_general_ledger_{start}_to_{end}.csv'},
     )
 
 
@@ -1454,14 +1513,24 @@ def create_month_invoices():
         if df.empty:
             return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
-        created = skipped = 0
-        for user_name, duser in df.groupby(df["User"].astype(str)):
+        created = skipped = failed = 0
+        # 🚧 group safely; skip blank/NaN usernames
+        for raw_user, duser in df.groupby(df["User"].astype(str)):
+            user_name = (raw_user or "").strip()
+            if not user_name or user_name.lower() in {"nan", "none"}:
+                audit("invoice.create_month.skip_user",
+                      target_type="user", target_id=(user_name or "blank"),
+                      outcome="failure", status=400,
+                      extra={"reason": "empty_or_nan_username", "year": y, "month": m})
+                skipped += 1
+                continue
+
             try:
                 existing = [
                     r for r in (list_receipts(user_name) or [])
                     if r.get("start") and r.get("end")
-                    and r["start"].year == y and r["start"].month == m
-                    and r["end"].year == y and r["end"].month == m
+                    and getattr(r["start"], "year", None) == y and getattr(r["start"], "month", None) == m
+                    and getattr(r["end"], "year", None) == y and getattr(r["end"], "month", None) == m
                     and r.get("status") in ("pending", "paid")
                 ]
             except Exception:
@@ -1470,23 +1539,46 @@ def create_month_invoices():
                 skipped += 1
                 continue
 
-            rid, total, _items = create_receipt_from_rows(
-                user_name, start_d, end_d, duser.drop(
-                    columns=["JobKey"]).to_dict(orient="records")
-            )
-            RECEIPT_CREATED.labels(scope="admin_bulk").inc()
-            # NEW: post to GL (idempotent)
+            # 🔐 per-user try/except so one failure doesn't nuke the batch
             try:
-                post_receipt_issued(rid, current_user.username)
-            except Exception:
-                pass
+                rid, total, _items = create_receipt_from_rows(
+                    user_name, start_d, end_d,
+                    duser.drop(columns=["JobKey"], errors="ignore").to_dict(
+                        orient="records")
+                )
+                RECEIPT_CREATED.labels(scope="admin_bulk").inc()
 
-            audit("invoice.create_month", target_type="receipt", target_id=str(rid),
-                  outcome="success", status=200,
-                  extra={"user": user_name, "year": y, "month": m, "jobs": int(len(duser)), "total": float(total)})
-            created += 1
+                ok = False
+                try:
+                    ok = post_receipt_issued(rid, current_user.username)
+                except Exception:
+                    pass
+                audit("gl.post_issue",
+                      target_type="receipt", target_id=str(rid),
+                      outcome="success" if ok else "blocked",
+                      status=200 if ok else 409,
+                      extra={"reason": "period_closed" if not ok else "ok",
+                             "year": y, "month": m})
+                created += 1
+
+            except Exception as e:
+                failed += 1
+                audit("invoice.create_month.user_failed",
+                      target_type="user", target_id=user_name,
+                      outcome="failure", status=500,
+                      extra={"year": y, "month": m, "reason": str(e)[:256]})
+                continue
+
+        # final summary (treat partial as 207)
+        audit("invoice.create_month.summary",
+              target_type="month", target_id=f"{y}-{m:02d}",
+              outcome="success" if failed == 0 else "partial",
+              status=200 if failed == 0 else 207,
+              extra={"created": int(created), "skipped": int(skipped), "failed": int(failed)})
+
     except Exception as e:
-        audit("invoice.create_month", target_type="month", target_id=f"{y}-{m:02d}",
+        audit("invoice.create_month",
+              target_type="month", target_id=f"{y}-{m:02d}",
               outcome="failure", status=500, error_code="create_month_error",
               extra={"reason": str(e)[:256]})
 

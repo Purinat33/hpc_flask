@@ -2,7 +2,7 @@
 {% block title %}Accounting & Reversal Signals{% endblock %}
 {% block content %}
 <h2>Accounting</h2>
-<p class="muted">Accounting management</p>
+<p class="muted">Mode: ({{ 'preview/derived' if request.args.get('mode') == 'derived' else 'posted' }})</p>
 <div class="layout">
     <!-- Sidebar -->
     <aside class="sidebar">
