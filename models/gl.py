@@ -1,0 +1,100 @@
+# models/gl.py
+from __future__ import annotations
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    String, Integer, Numeric, DateTime, Text, ForeignKey,
+    UniqueConstraint, CheckConstraint, Index
+)
+from datetime import datetime, date, timezone
+from models.base import Base
+
+
+class AccountingPeriod(Base):
+    __tablename__ = "accounting_periods"
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)    # 2000..2100
+    month: Mapped[int] = mapped_column(Integer, nullable=False)   # 1..12
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open")  # open|closed
+    opened_at: Mapped[datetime] = mapped_column(DateTime(
+        timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    opened_by: Mapped[str | None] = mapped_column(String(64))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_period_ym"),
+        CheckConstraint("status in ('open','closed')",
+                        name="ck_period_status"),
+        CheckConstraint("year >= 2000 and year <= 2100",
+                        name="ck_period_year"),
+        CheckConstraint("month >= 1 and month <= 12", name="ck_period_month"),
+        Index("idx_period_status", "status"),
+    )
+
+
+class JournalBatch(Base):
+    __tablename__ = "gl_batches"
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    # bookkeeping
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False)     # 'billing'
+    source_ref: Mapped[str] = mapped_column(
+        String(64), nullable=False)  # e.g. 'R123'
+    # 'issue'|'payment'|'reversal'|'closing'
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    posted_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    # period link (denormalized for simple queries)
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source", "source_ref", "kind",
+                         name="uq_batch_source_ref_kind"),
+        Index("idx_batch_period", "period_year", "period_month"),
+        CheckConstraint(
+            "kind in ('issue','payment','reversal','closing')", name="ck_batch_kind"),
+    )
+
+
+class GLEntry(Base):
+    __tablename__ = "gl_entries"
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(Integer, ForeignKey(
+        "gl_batches.id", ondelete="CASCADE"), nullable=False)
+
+    # line
+    # stored as tz dt; use .date() in reports
+    date: Mapped[date] = mapped_column(DateTime(timezone=True), nullable=False)
+    ref: Mapped[str | None] = mapped_column(String(64))
+    memo: Mapped[str | None] = mapped_column(Text)
+
+    # '1000', '4000', ...
+    account_id: Mapped[str] = mapped_column(String(8), nullable=False)
+    account_name: Mapped[str] = mapped_column(
+        String(64), nullable=False)  # denorm
+    # ASSET|LIABILITY|EQUITY|INCOME|EXPENSE
+    account_type: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    debit: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0)
+    credit: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0)
+
+    # optional links
+    receipt_id: Mapped[int | None] = mapped_column(Integer)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(
+        timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("debit >= 0 and credit >= 0", name="ck_gl_nonneg"),
+        Index("idx_gl_date", "date"),
+        Index("idx_gl_acct", "account_id"),
+        Index("idx_gl_receipt", "receipt_id"),
+    )

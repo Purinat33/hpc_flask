@@ -42,6 +42,11 @@ from models.schema import User
 from services.data_sources import fetch_jobs_with_fallbacks
 from models.billing_store import bulk_void_pending_invoices_for_month
 from models.billing_store import _tax_cfg
+from services.gl_posting import (
+    post_receipt_issued, post_receipt_paid, reverse_receipt_postings,
+    close_period, reopen_period, is_period_closed
+)
+
 admin_bp = Blueprint("admin", __name__)
 
 
@@ -888,13 +893,13 @@ def mark_paid(rid: int):
     ok = mark_receipt_paid(rid, current_user.username)
     if ok:
         RECEIPT_MARKED_PAID.labels(actor_type="admin").inc()
-    audit(
-        "invoice.mark_paid",
-        target_type="receipt", target_id=str(rid),
-        outcome="success" if ok else "failure",
-        status=200 if ok else 404,
-        extra={"reason": "manual_mark_paid"}
-    )
+        try:
+            post_receipt_paid(rid, current_user.username)
+        except Exception:
+            pass
+    audit("invoice.mark_paid", target_type="receipt", target_id=str(rid),
+          outcome="success" if ok else "failure", status=200 if ok else 404,
+          extra={"reason": "manual_mark_paid"})
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
 
@@ -905,25 +910,16 @@ def mark_paid(rid: int):
 def revert_paid(rid: int):
     reason = (request.form.get("reason") or "").strip() or None
     ok, msg = revert_receipt_to_pending(rid, current_user.username, reason)
-    audit(
-        "invoice.revert",
-        target_type="receipt", target_id=str(rid),
-        outcome="success" if ok else "failure",
-        status=200 if ok else 400,
-        error_code=None if ok else (msg or "revert_failed"),
-        extra={"reason": reason}
-    )
     if ok:
-        pass
-    else:
-        if msg == "has_external_succeeded_payment":
+        try:
+            reverse_receipt_postings(
+                rid, current_user.username, kinds=("payment",))
+        except Exception:
             pass
-        elif msg == "already_pending":
-            pass
-        elif msg == "already_void":
-            pass
-        else:
-            pass
+    audit("invoice.revert", target_type="receipt", target_id=str(rid),
+          outcome="success" if ok else "failure", status=200 if ok else 400,
+          error_code=None if ok else (msg or "revert_failed"),
+          extra={"reason": reason})
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
 
@@ -990,9 +986,15 @@ def create_self_receipt():
         return redirect(url_for("admin.admin_form", section="myusage", before=before, view="detail"))
 
     rid, total, _ = create_receipt_from_rows(
-        current_user.username, start_d, end_d, df.to_dict(orient="records")
-    )
+        current_user.username, start_d, end_d, df.to_dict(orient="records"))
     RECEIPT_CREATED.labels(scope="admin").inc()
+
+    # NEW: post issuance to GL (idempotent)
+    try:
+        post_receipt_issued(rid, current_user.username)
+    except Exception:
+        pass
+
     return redirect(url_for("admin.admin_form", section="myusage", before=before, view="detail"))
 
 
@@ -1398,10 +1400,6 @@ def forecast_json():
 @fresh_login_required
 @admin_required
 def create_month_invoices():
-    """
-    Create monthly invoices (receipts) for ALL users who have unbilled jobs
-    in the selected year-month. Each user gets one receipt covering that calendar month.
-    """
     try:
         y = int((request.form.get("year") or "").strip())
         m = int((request.form.get("month") or "").strip())
@@ -1414,12 +1412,10 @@ def create_month_invoices():
     last_day = monthrange(y, m)[1]
     end_d = date(y, m, last_day).isoformat()
 
-    # Fetch all users' jobs within month, compute costs
     try:
         df_raw, _, _ = fetch_jobs_with_fallbacks(start_d, end_d)
         df = compute_costs(df_raw)
 
-        # UTC-aware month bounds
         if "End" in df.columns:
             end_series = pd.to_datetime(df["End"], errors="coerce", utc=True)
             lo = pd.Timestamp(start_d, tz="UTC")
@@ -1429,7 +1425,6 @@ def create_month_invoices():
                     (end_series <= hi)].copy()
             df["End"] = end_series
 
-        # Deduplicate against already-billed parents
         if not df.empty:
             df["JobKey"] = df["JobID"].astype(str).map(canonical_job_id)
             already = set(billed_job_ids())
@@ -1438,11 +1433,8 @@ def create_month_invoices():
         if df.empty:
             return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
-        # Group by user and create one receipt per user
-        created = 0
-        skipped = 0
+        created = skipped = 0
         for user_name, duser in df.groupby(df["User"].astype(str)):
-            # Skip if this exact month already has a non-void receipt for this user
             try:
                 existing = [
                     r for r in (list_receipts(user_name) or [])
@@ -1462,22 +1454,20 @@ def create_month_invoices():
                     columns=["JobKey"]).to_dict(orient="records")
             )
             RECEIPT_CREATED.labels(scope="admin_bulk").inc()
-            audit(
-                "invoice.create_month",
-                target_type="receipt", target_id=str(rid),
-                outcome="success", status=200,
-                extra={"user": user_name, "year": y, "month": m,
-                       "jobs": int(len(duser)), "total": float(total)}
-            )
+            # NEW: post to GL (idempotent)
+            try:
+                post_receipt_issued(rid, current_user.username)
+            except Exception:
+                pass
+
+            audit("invoice.create_month", target_type="receipt", target_id=str(rid),
+                  outcome="success", status=200,
+                  extra={"user": user_name, "year": y, "month": m, "jobs": int(len(duser)), "total": float(total)})
             created += 1
     except Exception as e:
-        audit(
-            "invoice.create_month",
-            target_type="month", target_id=f"{y}-{m:02d}",
-            outcome="failure", status=500,
-            error_code="create_month_error",
-            extra={"reason": str(e)[:256]}
-        )
+        audit("invoice.create_month", target_type="month", target_id=f"{y}-{m:02d}",
+              outcome="failure", status=500, error_code="create_month_error",
+              extra={"reason": str(e)[:256]})
 
     return redirect(url_for("admin.admin_form", section="billing", bview="invoices"))
 
@@ -1529,27 +1519,21 @@ def bulk_revert_month_invoices():
               or "").strip() or "bulk revert pending"
 
     try:
-        voided, skipped = bulk_void_pending_invoices_for_month(
-            y, m, current_user.username, reason
-        )
+        voided, skipped, ids = bulk_void_pending_invoices_for_month(
+            y, m, current_user.username, reason)
+        for rid in ids:
+            try:
+                reverse_receipt_postings(
+                    rid, current_user.username, kinds=("issue",))
+            except Exception:
+                pass
 
-        evt = "admin.bulk_revert_month.completed" if voided > 0 else "admin.bulk_revert_month.noop"
-        audit(
-            "invoice.bulk_revert_month",
-            target_type="month", target_id=f"{y}-{m:02d}",
-            outcome="success" if voided > 0 else "failure",
-            status=200,
-            extra={"voided": int(voided), "skipped": int(
-                skipped), "reason": reason}
-        )
+        audit("invoice.bulk_revert_month", target_type="month", target_id=f"{y}-{m:02d}",
+              outcome="success" if voided > 0 else "failure", status=200,
+              extra={"voided": int(voided), "skipped": int(skipped), "reason": reason})
     except Exception as e:
-        audit(
-            "invoice.bulk_revert_month",
-            target_type="month", target_id=f"{y}-{m:02d}",
-            outcome="failure", status=500,
-            error_code="exception",
-            extra={"reason": reason}
-        )
+        audit("invoice.bulk_revert_month", target_type="month", target_id=f"{y}-{m:02d}",
+              outcome="failure", status=500, error_code="exception", extra={"reason": reason})
     return redirect(url_for("admin.admin_form", section="billing"))
 
 
@@ -1649,3 +1633,21 @@ def audit_verify_json():
         return jsonify(result), status
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@admin_bp.post("/admin/periods/<int:year>-<int:month>/close")
+@login_required
+@fresh_login_required
+@admin_required
+def close_period_endpoint(year: int, month: int):
+    ok = close_period(year, month, current_user.username)
+    return redirect(url_for("admin.ledger_page"))
+
+
+@admin_bp.post("/admin/periods/<int:year>-<int:month>/reopen")
+@login_required
+@fresh_login_required
+@admin_required
+def reopen_period_endpoint(year: int, month: int):
+    ok = reopen_period(year, month, current_user.username)
+    return redirect(url_for("admin.ledger_page"))
