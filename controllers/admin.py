@@ -1558,7 +1558,12 @@ def create_month_invoices():
                     ok = post_receipt_issued(rid, current_user.username)
                     audit("invoice.create_month.summary", target_type="month", target_id=f"{y}-{m:02d}",
                           status=200 if failed == 0 else 207, outcome="success" if failed == 0 else "partial",
-                          extra={"created": created, "skipped": skipped, "failed": failed})
+                          extra={"count": {  # <-- 'count' is allowed by _ALLOWED_EXTRA_KEYS
+                              "created": int(created),
+                              "skipped": int(skipped),
+                              "failed": int(failed),
+                              "rid": rid,
+                          }})
                 except Exception:
                     pass
                 audit("gl.post_issue",
