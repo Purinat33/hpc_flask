@@ -1,8 +1,5 @@
 # models/billing_store.py (Postgres / SQLAlchemy)
 from services.org_info import ORG_INFO
-from typing import Tuple
-from models.schema import Receipt, Payment, PaymentEvent
-from decimal import Decimal
 import json
 from services.datetimex import now_utc, APP_TZ
 from sqlalchemy import select, delete
@@ -12,9 +9,8 @@ from datetime import date, datetime, time, timezone
 import re
 
 from models.base import session_scope
-from models.schema import Receipt, ReceiptItem
+from models.schema import Receipt, ReceiptItem, Payment, PaymentEvent
 from models import rates_store
-from services.datetimex import now_utc
 from calendar import monthrange
 import os
 from decimal import Decimal, ROUND_HALF_UP, getcontext

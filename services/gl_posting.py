@@ -2,23 +2,13 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable, Tuple
-from decimal import Decimal, ROUND_HALF_UP
-from sqlalchemy import select, and_
 from models.audit_store import audit
 from models.base import session_scope
 from models.schema import Receipt
 from models.gl import AccountingPeriod, JournalBatch, GLEntry
-from services.accounting import chart_of_accounts, _acc, _ACC
-from models.billing_store import _tax_cfg
-
-
-# services/gl_posting.py  (ADD)
-
-from sqlalchemy import select, func
-from models.schema import Receipt
-from decimal import Decimal
 from services.accounting import _acc, _ACC
 from models.billing_store import _tax_cfg
+from sqlalchemy import select, func
 
 
 def _split_net_vat(gross: float) -> tuple[float, float]:

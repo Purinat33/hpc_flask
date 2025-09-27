@@ -1,10 +1,9 @@
 # services/accounting_export.py
 from __future__ import annotations
-from typing import Tuple, Iterable, List
+from typing import Tuple
 import csv
 import io
-from datetime import date
-from models.billing_store import admin_list_receipts, get_receipt_with_items, _tax_cfg
+from models.billing_store import admin_list_receipts, _tax_cfg
 
 # Simple chart-of-accounts (override later from DB/env if you want)
 COA = {

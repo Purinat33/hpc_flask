@@ -1,11 +1,10 @@
 # services/accounting.py
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Iterable, List, Dict, Tuple
+from typing import List, Dict
 from datetime import datetime, date
 import pandas as pd
 
-from models.billing_store import admin_list_receipts, get_receipt_with_items
+from models.billing_store import admin_list_receipts
 from models.billing_store import _tax_cfg
 # ---- Chart of accounts (IDs are strings for portability) ----
 # Account types: ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
