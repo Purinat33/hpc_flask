@@ -45,6 +45,7 @@
         <a class="slink" href="{{ url_for('admin.admin_form', section='dashboard') }}">Dashboard</a>
         <a class="slink on" href="{{ url_for('admin.ledger_page') }}">Accounting</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='tiers') }}">User Tier Overrides</a>
+        <a class="slink" href="{{ url_for('admin.list_export_runs') }}">Exports</a>
     </aside>
 
     <!-- Main -->
@@ -66,7 +67,7 @@
             <a class="muted" href="{{ url_for('admin.ledger_page', start=last_month_start, end=last_month_end) }}"><button>Last
             month</button></a>
             <a class="muted" href="{{ url_for('admin.ledger_page', start=ytd_start, end=this_month_end) }}"><button>YTD</button></a>
-            <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download CSV</button></a>
+            <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download Preview CSV</button></a>
         <!-- templates/admin/ledger.html  (ADD near your date pickers) -->
         <form method="post" action="{{ url_for('admin.ui_close_period', year=period_year, month=period_month) }}"
             style="display:inline">
@@ -83,6 +84,29 @@
             {% endif %}
             <span class="muted">Status: {{ period_status }}</span>
         </form>
+        <!-- templates/admin/ledger.html – inside the toolbar block near your date filters -->
+        <form method="post" action="{{ url_for('admin.export_gl_formal_zip') }}"
+            style="display:flex; gap:.5rem; align-items:center;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <!-- we export exactly the visible window -->
+            <input type="hidden" name="start" value="{{ start }}">
+            <input type="hidden" name="end" value="{{ end }}">
+        
+            {% set can_export = (export_stats.batches or 0) > 0 %}
+            <button type="submit" {% if not can_export %}disabled title="Nothing new to export in this window" {% endif %}>
+                ⬇️ Formal GL Export (ZIP)
+            </button>
+        
+            <span class="muted">
+                {{ export_stats.batches }} batch{{ '' if (export_stats.batches==1) else 'es' }},
+                {{ export_stats.lines }} line{{ '' if (export_stats.lines==1) else 's' }} to export
+            </span>
+        
+            <a href="{{ url_for('admin.list_export_runs') }}">
+                <button type="button">Past Export Runs</button>
+            </a>
+        </form>
+
 
         </div>
 
@@ -100,6 +124,14 @@
             <div class="chip {{ 'ok' if (kpis.count_eligible or 0) > 0 else '' }}">
                 <div class="klabel">Eligible to Revert</div>
                 <div class="kval">{{ kpis.count_eligible }}</div>
+            </div>
+            <div class="chip {{ 'ok' if (export_stats.batches or 0)>0 else '' }}">
+                <div class="klabel">Unexported Batches (window)</div>
+                <div class="kval">{{ export_stats.batches }}</div>
+            </div>
+            <div class="chip {{ 'ok' if (export_stats.lines or 0)>0 else '' }}">
+                <div class="klabel">Unexported Lines (window)</div>
+                <div class="kval">{{ export_stats.lines }}</div>
             </div>
         </div>
 

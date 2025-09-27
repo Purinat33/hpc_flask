@@ -1,0 +1,64 @@
+{% extends "base.html" %} {% block title %}Export Runs{% endblock %} {% block
+content %}
+<h2>Export Runs</h2>
+<p class="muted">Last 100 runs. Click to redownload the exact artifact.</p>
+
+<div
+  class="table-wrap"
+  style="border: 1px solid #eee; border-radius: 8px; overflow: auto"
+>
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Kind</th>
+        <th>Status</th>
+        <th>Actor</th>
+        <th>Window</th>
+        <th>Started</th>
+        <th>Finished</th>
+        <th>SHA256</th>
+        <th>Size</th>
+        <th>Key</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.kind }}</td>
+        <td>{{ r.status }}</td>
+        <td>{{ r.actor }}</td>
+        <td>
+          {% set c = r.criteria or {} %} {{ (c.start or c['start']) if c else ''
+          }} → {{ (c.end or c['end']) if c else '' }}
+        </td>
+        <td>{{ r.started_at }}</td>
+        <td>{{ r.finished_at }}</td>
+        <td title="{{ r.file_sha256 }}">
+          {{ (r.file_sha256 or '')[:10] ~ '…' }}
+        </td>
+        <td>{{ (r.file_size or 0) }} B</td>
+        <td>{{ r.key_id or '—' }}</td>
+        <td>
+          {% if r.status == 'success' %}
+          <a href="{{ url_for('admin.redownload_export_run', run_id=r.id) }}"
+            ><button>Download</button></a
+          >
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p style="margin-top: 0.75rem">
+  <a href="{{ url_for('admin.ledger_page') }}"
+    ><button>← Back to Accounting</button></a
+  >
+</p>
+{% endblock %}

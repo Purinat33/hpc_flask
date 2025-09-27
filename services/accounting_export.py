@@ -4,6 +4,18 @@ from typing import Tuple
 import csv
 import io
 from models.billing_store import admin_list_receipts, _tax_cfg
+from sqlalchemy import select, update
+from datetime import datetime, timezone
+from hashlib import sha256
+import hmac
+import io
+import csv
+import json
+from models.base import session_scope
+from models.gl import JournalBatch, GLEntry, ExportRun, ExportRunBatch
+from models.audit_store import APP_SECRET as EXPORT_SECRET, SIGNING_KEY_ID
+from models.audit_store import audit
+
 
 # Simple chart-of-accounts (override later from DB/env if you want)
 COA = {
@@ -13,6 +25,125 @@ COA = {
     "rev":      {"id": 4000, "name": "Service Revenue",                   "type": "INCOME"},
     "vat":      {"id": 2100, "name": "VAT Output Payable",                "type": "LIABILITY"},
 }
+
+
+def _utc(d):  # 'YYYY-MM-DD' -> aware range
+    from datetime import datetime, timedelta, timezone
+    s = datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
+    e = s.replace(day=s.day) + timedelta(hours=23, minutes=59, seconds=59)
+    return s, e
+
+
+def run_formal_gl_export(start: str, end: str, actor: str, kind: str = "posted_gl_csv") -> tuple[str, bytes] | tuple[None, None]:
+    s_utc, e_utc = _utc(start)[0], _utc(end)[1]
+    with session_scope() as s:
+        # 1) create run (running)
+        run = ExportRun(
+            kind=kind, status="running", actor=actor,
+            criteria={"start": start, "end": end},
+            started_at=datetime.now(timezone.utc),
+        )
+        s.add(run)
+        s.flush()  # run.id
+
+        # 2) lock & pick eligible batches
+        batch_ids = s.execute(
+            select(JournalBatch.id)
+            .where(
+                JournalBatch.exported_at.is_(None),
+                JournalBatch.kind.in_(["accrual", "issue", "payment"]),
+                GLEntry.batch_id == JournalBatch.id,   # ensures there are lines
+                GLEntry.date >= s_utc, GLEntry.date <= e_utc,
+            )
+            .with_for_update(skip_locked=True)
+        ).scalars().all()
+
+        if not batch_ids:
+            run.status = "noop"
+            run.finished_at = datetime.now(timezone.utc)
+            s.flush()
+            audit("export.formal.finish", target_type="window", target_id=f"{start}:{end}",
+                  outcome="success", status=200, extra={"noop": True, "run_id": run.id})
+            return None, None
+
+        # 3) fetch lines (deterministic order)
+        rows = s.execute(
+            select(
+                GLEntry.date, GLEntry.ref, GLEntry.memo,
+                GLEntry.account_id, GLEntry.account_name, GLEntry.account_type,
+                GLEntry.debit, GLEntry.credit, GLEntry.batch_id, GLEntry.seq_in_batch,
+                GLEntry.external_txn_id
+            ).where(GLEntry.batch_id.in_(batch_ids))
+             .order_by(GLEntry.batch_id, GLEntry.seq_in_batch, GLEntry.id)
+        ).all()
+
+        # 4) build CSV bytes
+        out = io.StringIO()
+        w = csv.writer(out)
+        w.writerow(["date", "ref", "memo", "account_id", "account_name", "account_type",
+                   "debit", "credit", "batch_id", "line_seq", "external_txn_id"])
+        for r in rows:
+            w.writerow([
+                r.date.date().isoformat(), r.ref, r.memo, r.account_id, r.account_name, r.account_type,
+                float(r.debit or 0), float(
+                    r.credit or 0), r.batch_id, int(r.seq_in_batch or 0),
+                r.external_txn_id or f"B{r.batch_id:08d}-L{int(r.seq_in_batch or 0):05d}",
+            ])
+        csv_bytes = out.getvalue().encode("utf-8")
+
+        # 5) manifest + hashes + signature
+        fhash = sha256(csv_bytes).hexdigest()
+        manifest = {
+            "run_id": run.id,
+            "kind": kind,
+            "criteria": run.criteria,
+            "batch_count": len(set(batch_ids)),
+            "line_count": len(rows),
+            "file_sha256": fhash,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "key_id": SIGNING_KEY_ID,
+        }
+        mjson = json.dumps(manifest, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
+        mhash = sha256(mjson).hexdigest()
+        sig = hmac.new(EXPORT_SECRET, fhash.encode(
+            "utf-8"), digestmod="sha256").hexdigest()
+
+        # 6) mark batches as exported & link them to the run
+        now = datetime.now(timezone.utc)
+        for i, bid in enumerate(sorted(set(batch_ids)), start=1):
+            s.add(ExportRunBatch(run_id=run.id, batch_id=bid, seq=i))
+            s.execute(
+                update(JournalBatch)
+                .where(JournalBatch.id == bid)
+                .values(exported_at=now, export_run_id=run.id, export_seq=i)
+            )
+
+        # 7) finalize run
+        run.file_sha256 = fhash
+        run.file_size = len(csv_bytes)
+        run.manifest_sha256 = mhash
+        run.signature = sig
+        run.key_id = SIGNING_KEY_ID
+        run.status = "success"
+        run.finished_at = now
+        s.flush()
+
+        audit("export.formal.finish", target_type="window", target_id=f"{start}:{end}",
+              outcome="success", status=200, extra={"run_id": run.id, "batches": len(batch_ids), "lines": len(rows)})
+
+        # 8) return a ZIP containing CSV + MANIFEST + SIGNATURE
+        import zipfile
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(f"gl_export_run_{run.id}.csv", csv_bytes)
+            z.writestr(f"manifest_run_{run.id}.json", mjson)
+            z.writestr(
+                f"signature_run_{run.id}.txt", f"key_id={SIGNING_KEY_ID}\nsha256={fhash}\nsignature={sig}\n")
+        mem.seek(0)
+
+        fname = f"gl_export_run_{run.id}_{start}_to_{end}.zip"
+        return fname, mem.read()
 
 
 def _iso(d) -> str:

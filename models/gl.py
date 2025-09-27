@@ -2,11 +2,47 @@
 from __future__ import annotations
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import (
-    String, Integer, Numeric, DateTime, Text, ForeignKey,
+    JSON, String, Integer, Numeric, DateTime, Text, ForeignKey,
     UniqueConstraint, CheckConstraint, Index
 )
 from datetime import datetime, date, timezone
 from models.base import Base
+
+
+class ExportRun(Base):
+    __tablename__ = "gl_export_runs"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # 'xero_sales'|'xero_bank'|'posted_gl_csv'
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    # 'running'|'success'|'noop'|'failed'
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    # {'start':'YYYY-MM-DD','end':'YYYY-MM-DD'}
+    criteria: Mapped[dict] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
+    # re-export reason, failure reason, etc.
+    reason: Mapped[str | None] = mapped_column(String(256))
+
+    # evidence
+    file_sha256: Mapped[str | None] = mapped_column(String(64))
+    file_size:   Mapped[int | None] = mapped_column(Integer)
+    manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    signature: Mapped[str | None] = mapped_column(
+        String(64))            # HMAC(file_sha256)
+    key_id: Mapped[str | None] = mapped_column(String(16))
+
+
+class ExportRunBatch(Base):
+    __tablename__ = "gl_export_run_batches"
+    run_id: Mapped[int] = mapped_column(ForeignKey(
+        "gl_export_runs.id", ondelete="CASCADE"), primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey(
+        "gl_batches.id", ondelete="RESTRICT"), primary_key=True)
+    seq: Mapped[int] = mapped_column(
+        Integer, nullable=False)            # display order
 
 
 class AccountingPeriod(Base):
@@ -52,6 +88,12 @@ class JournalBatch(Base):
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    exported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True))
+    export_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("gl_export_runs.id"))
+    export_seq: Mapped[int | None] = mapped_column(Integer)
+
     __table_args__ = (
         UniqueConstraint("source", "source_ref", "kind",
                          name="uq_batch_source_ref_kind"),
@@ -91,6 +133,11 @@ class GLEntry(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(
         timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    seq_in_batch: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0)
+    external_txn_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True)  # e.g. f"B{batch_id:08d}-L{seq_in_batch:05d}"
 
     __table_args__ = (
         CheckConstraint("debit >= 0 and credit >= 0", name="ck_gl_nonneg"),

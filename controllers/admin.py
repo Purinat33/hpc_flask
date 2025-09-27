@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from models.gl import AccountingPeriod
+from services.accounting_export import run_formal_gl_export
 from services.gl_posting import close_period, reopen_period, post_service_accruals_for_period, bootstrap_periods
 from datetime import date, datetime, timezone
 from weasyprint import HTML
@@ -1181,6 +1182,37 @@ def ledger_page():
     start_utc = _to_utc_start(start_q)
     end_utc = _to_utc_end_inclusive(end_q)
 
+    from sqlalchemy import func
+    from models.gl import JournalBatch, GLEntry, ExportRun
+
+    export_stats = {"batches": 0, "lines": 0, "last_run": None}
+    with session_scope() as s:
+        # count unexported, posted batches that have lines in the window
+        q_common = (
+            select(GLEntry.batch_id)
+            .join(JournalBatch, GLEntry.batch_id == JournalBatch.id)
+            .where(
+                JournalBatch.exported_at.is_(None),
+                JournalBatch.kind.in_(["accrual", "issue", "payment"]),
+                GLEntry.date >= start_utc,
+                GLEntry.date <= end_utc,
+            )
+        )
+        export_stats["batches"] = int(
+            s.scalar(select(func.count(func.distinct(q_common.c.batch_id)))) or 0
+        )
+        export_stats["lines"] = int(
+            s.scalar(
+                select(func.count(GLEntry.id)).where(
+                    GLEntry.batch_id.in_(q_common)
+                )
+            ) or 0
+        )
+
+        export_stats["last_run"] = s.execute(
+            select(ExportRun).order_by(ExportRun.id.desc()).limit(1)
+        ).scalar_one_or_none()
+
     paid_receipts_window: list[dict] = []
     kpi_total_paid = 0.0
     kpi_count_paid = 0
@@ -1296,6 +1328,7 @@ def ledger_page():
         last_month_start=last_month_start, last_month_end=last_month_end,
         ytd_start=ytd_start,
         period_year=y, period_month=m, period_status=(status or "open"),
+        export_stats=export_stats,
     )
 
 
@@ -1882,3 +1915,108 @@ def ui_bootstrap_periods():
     actor = getattr(request, "user", None) and request.user.username or "admin"
     n = bootstrap_periods(actor)
     return redirect(request.referrer or url_for("admin.ledger_page"))
+
+
+@admin_bp.post("/admin/export/gl/formal.zip")
+@login_required
+@fresh_login_required
+@admin_required
+def export_gl_formal_zip():
+    start = (request.form.get("start") or "1970-01-01").strip()
+    end = (request.form.get("end") or date.today().isoformat()).strip()
+    fname, blob = run_formal_gl_export(
+        start, end, current_user.username, kind="posted_gl_csv")
+    if not blob:
+        flash("Nothing to export for the selected window.", "info")
+        return redirect(url_for("admin.ledger_page", start=start, end=end))
+    audit("export.formal.download", target_type="window", target_id=f"{start}:{end}",
+          outcome="success", status=200, extra={"filename": fname})
+    return Response(blob, mimetype="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@admin_bp.get("/admin/export/runs")
+@login_required
+@admin_required
+def list_export_runs():
+    from sqlalchemy import select, desc
+    from models.gl import ExportRun, ExportRunBatch, JournalBatch
+    with session_scope() as s:
+        runs = s.execute(select(ExportRun).order_by(
+            desc(ExportRun.id)).limit(100)).scalars().all()
+        rows = []
+        for r in runs:
+            rows.append({
+                "id": r.id, "kind": r.kind, "status": r.status, "actor": r.actor,
+                "criteria": r.criteria, "started_at": r.started_at, "finished_at": r.finished_at,
+                "file_sha256": r.file_sha256, "file_size": r.file_size, "key_id": r.key_id
+            })
+    return render_template("admin/export_runs.html", rows=rows, section="exports")
+
+
+@admin_bp.get("/admin/export/runs/<int:run_id>.zip")
+@login_required
+@admin_required
+def redownload_export_run(run_id: int):
+    """
+    Re-download the EXACT same file (no re-selection; no double-export).
+    """
+    from sqlalchemy import select
+    from models.gl import ExportRun, ExportRunBatch, GLEntry
+    import io
+    import zipfile
+    import json
+    with session_scope() as s:
+        run = s.execute(select(ExportRun).where(
+            ExportRun.id == run_id)).scalar_one_or_none()
+        if not run:
+            return jsonify({"error": "not_found"}), 404
+
+        # rebuild from *the exact batches linked to this run*
+        bids = [rb.batch_id for rb in s.execute(select(ExportRunBatch).where(
+            ExportRunBatch.run_id == run_id)).scalars().all()]
+        if not bids:
+            return jsonify({"error": "run_empty"}), 404
+
+        # deterministic order: (batch_id, seq_in_batch, id)
+        lines = s.execute(
+            select(
+                GLEntry.date, GLEntry.ref, GLEntry.memo,
+                GLEntry.account_id, GLEntry.account_name, GLEntry.account_type,
+                GLEntry.debit, GLEntry.credit, GLEntry.batch_id, GLEntry.seq_in_batch,
+                GLEntry.external_txn_id
+            ).where(GLEntry.batch_id.in_(bids))
+             .order_by(GLEntry.batch_id, GLEntry.seq_in_batch, GLEntry.id)
+        ).all()
+
+        import csv
+        o = io.StringIO()
+        w = csv.writer(o)
+        w.writerow(["date", "ref", "memo", "account_id", "account_name", "account_type",
+                   "debit", "credit", "batch_id", "line_seq", "external_txn_id"])
+        for r in lines:
+            w.writerow([
+                r.date.date().isoformat(), r.ref, r.memo, r.account_id, r.account_name, r.account_type,
+                float(r.debit or 0), float(
+                    r.credit or 0), r.batch_id, int(r.seq_in_batch or 0),
+                r.external_txn_id or f"B{r.batch_id:08d}-L{int(r.seq_in_batch or 0):05d}",
+            ])
+        csv_bytes = o.getvalue().encode("utf-8")
+
+        # include the original evidence stored on the run
+        manifest = {
+            "run_id": run.id, "kind": run.kind, "criteria": run.criteria,
+            "file_sha256": run.file_sha256, "manifest_sha256": run.manifest_sha256,
+            "signature": run.signature, "key_id": run.key_id, "redownloaded_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(f"gl_export_run_{run.id}.csv", csv_bytes)
+            z.writestr(f"manifest_run_{run.id}.json", json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+            z.writestr(
+                f"signature_run_{run.id}.txt", f"key_id={run.key_id}\nsha256={run.file_sha256}\nsignature={run.signature}\n")
+        mem.seek(0)
+        return Response(mem.read(), mimetype="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="gl_export_run_{run.id}_redownload.zip"'})
