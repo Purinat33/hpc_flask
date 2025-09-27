@@ -3,7 +3,7 @@ from models.gl import AccountingPeriod
 from services.gl_posting import close_period, reopen_period, post_service_accruals_for_period, bootstrap_periods
 from datetime import date, datetime, timezone
 from weasyprint import HTML
-from flask import current_app, make_response
+from flask import current_app, flash, make_response
 # add at top if not imported
 from models.billing_store import get_receipt_with_items, list_receipts, revert_receipt_to_pending
 from calendar import monthrange
@@ -47,7 +47,7 @@ from models.billing_store import bulk_void_pending_invoices_for_month
 from models.billing_store import _tax_cfg
 from services.gl_posting import (
     post_receipt_issued, post_receipt_paid, reverse_receipt_postings,
-    close_period, reopen_period, is_period_closed
+    close_period, reopen_period
 )
 
 admin_bp = Blueprint("admin", __name__)
@@ -1780,11 +1780,69 @@ def _period_status(y: int, m: int) -> str | None:
 @fresh_login_required
 @admin_required
 def ui_close_period(year, month):
+    from calendar import monthrange
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from models.schema import Receipt
+    from models.gl import JournalBatch, GLEntry
+
     actor = getattr(request, "user", None) and request.user.username or "admin"
-    # Optional: ensure accruals exist before closing
-    post_service_accruals_for_period(year, month, actor)
+
+    # 1) Run accruals for the period (idempotent)
+    try:
+        _created = post_service_accruals_for_period(year, month, actor)
+    except Exception as e:
+        audit("period.close", target_type="period", target_id=f"{year}-{month:02d}",
+              outcome="failure", status=500, error_code="accrual_run_error",
+              extra={"reason": str(e)[:256]})
+        flash(f"Close blocked: failed to run accruals — {e}", "error")
+        return redirect(request.referrer or url_for("admin.ledger_page"))
+
+    # 2) Verify coverage: every receipt with service END in (y,m) has an accrual batch
+    first = datetime(year, month, 1, tzinfo=timezone.utc)
+    last = datetime(year, month, monthrange(year, month)
+                    [1], 23, 59, 59, tzinfo=timezone.utc)
+
+    missing_ids = []
+    with session_scope() as s:
+        # all candidate receipts (service period ends in y-m)
+        candidate_ids = s.execute(
+            select(Receipt.id).where(Receipt.end >= first, Receipt.end <= last)
+        ).scalars().all()
+
+        if candidate_ids:
+            # receipts that actually have an accrual batch in that period
+            accrued_ids = s.execute(
+                select(GLEntry.receipt_id)
+                .join(JournalBatch, GLEntry.batch_id == JournalBatch.id)
+                .where(
+                    JournalBatch.kind == "accrual",
+                    JournalBatch.period_year == year,
+                    JournalBatch.period_month == month,
+                    GLEntry.receipt_id.isnot(None),
+                )
+            ).scalars().all()
+
+            missing_ids = sorted(set(candidate_ids) - set(accrued_ids))
+
+    if missing_ids:
+        audit("period.close_blocked", target_type="period", target_id=f"{year}-{month:02d}",
+              outcome="failure", status=409, error_code="missing_accruals",
+              extra={"missing_count": len(missing_ids), "sample": missing_ids[:20]})
+        flash(
+            f"Close blocked: {len(missing_ids)} receipt(s) in {year}-{month:02d} missing accrual postings.", "error")
+        # bounce back to ledger set to that month for quick inspection
+        return redirect(url_for("admin.ledger_page",
+                                start=f"{year:04d}-{month:02d}-01",
+                                end=f"{year:04d}-{month:02d}-{monthrange(year, month)[1]:02d}"))
+
+    # 3) All good → close the period
     ok = close_period(year, month, actor)
-    return redirect(request.referrer or url_for("admin.ledger_page"))
+    audit("period.close", target_type="period", target_id=f"{year}-{month:02d}",
+          outcome="success" if ok else "failure", status=200 if ok else 409)
+    return redirect(request.referrer or url_for("admin.ledger_page",
+                                                start=f"{year:04d}-{month:02d}-01",
+                                                end=f"{year:04d}-{month:02d}-{monthrange(year, month)[1]:02d}"))
 
 
 @admin_bp.post("/admin/periods/<int:year>/<int:month>/reopen")

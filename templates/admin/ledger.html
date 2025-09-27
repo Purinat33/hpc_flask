@@ -3,6 +3,37 @@
 {% block content %}
 <h2>Accounting</h2>
 <p class="muted">Mode: ({{ 'preview/derived' if request.args.get('mode') == 'derived' else 'posted' }})</p>
+{% with msgs = get_flashed_messages(with_categories=true) %}
+{% if msgs %}
+<div class="flash-wrap">
+    {% for cat, m in msgs %}
+    <div class="flash {{cat}}">{{ m }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+<style>
+    .flash-wrap {
+        margin: .5rem 0
+    }
+
+    .flash {
+        padding: .5rem .75rem;
+        border-radius: 8px;
+        background: #f6f7f9;
+    }
+
+    .flash.error {
+        background: #fde7ea;
+        color: #a11;
+    }
+
+    .flash.success {
+        background: #e8f6ee;
+        color: #0a5;
+    }
+</style>
+
 <div class="layout">
     <!-- Sidebar -->
     <aside class="sidebar">
