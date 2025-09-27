@@ -1093,6 +1093,7 @@ def ledger_page():
     from datetime import datetime, timezone, timedelta
     from models.schema import Receipt, Payment
     from sqlalchemy import select, and_
+    from calendar import monthrange
 
     before = (request.args.get("before") or date.today().isoformat()).strip()
     end_d = before
@@ -1201,6 +1202,15 @@ def ledger_page():
         "sum_paid": float(kpi_total_paid),
         "count_eligible": int(kpi_count_eligible),
     }
+    today_d = date.today()
+    this_month_start = date(today_d.year, today_d.month, 1).isoformat()
+    this_month_end = today_d.isoformat()
+    prev_y = (today_d.year if today_d.month > 1 else today_d.year - 1)
+    prev_m = (today_d.month - 1) if today_d.month > 1 else 12
+    prev_last = monthrange(prev_y, prev_m)[1]
+    last_month_start = date(prev_y, prev_m, 1).isoformat()
+    last_month_end = date(prev_y, prev_m, prev_last).isoformat()
+    ytd_start = date(today_d.year, 1, 1).isoformat()
 
     return render_template(
         "admin/ledger.html",
@@ -1218,6 +1228,9 @@ def ledger_page():
         # NEW context
         kpis=kpis,
         paid_receipts=paid_receipts_window,
+        this_month_start=this_month_start, this_month_end=this_month_end,
+        last_month_start=last_month_start, last_month_end=last_month_end,
+        ytd_start=ytd_start,
     )
 
 

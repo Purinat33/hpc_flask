@@ -15,6 +15,8 @@ def chart_of_accounts() -> List[Dict]:
     return [
         {"id": "1000", "name": "Cash/Bank",            "type": "ASSET"},
         {"id": "1100", "name": "Accounts Receivable",  "type": "ASSET"},
+        {"id": "1150",
+            "name": "Contract Asset (Unbilled A/R)",     "type": "ASSET"},
         {"id": "2000", "name": "Unearned Revenue",
             "type": "LIABILITY"},  # reserved
         {"id": "2100", "name": "VAT Output Payable", "type": "LIABILITY"},
@@ -28,6 +30,30 @@ def chart_of_accounts() -> List[Dict]:
 # Quick lookup helpers
 _ACC = {a["id"]: a for a in chart_of_accounts()}
 _ACC_BY_NAME = {a["name"]: a for a in chart_of_accounts()}
+
+
+def _entry_service_delivery(r: dict) -> List[Dict]:
+    """
+    Book revenue in the service month (use period end as the service date).
+    Dr 1150 Contract Asset (net) ; Cr 4000 Service Revenue (net)
+    """
+    total = float(r.get("total") or 0.0)
+    if total <= 0:
+        return []
+    # Use the service period end as the recognition date
+    d_iso = _to_date_iso(r.get("end") or r.get("created_at") or r.get("start"))
+    ref = f"R{r['id']}"
+    memo = f"Revenue recognized for {r.get('username', '?')} (service period)"
+
+    net, _vat = _split_vat(total)  # VAT is not revenue; don’t book it here
+    if net <= 0:
+        return []
+    return [
+        _mk_line(d_iso, ref, memo, _acc(
+            "Contract Asset (Unbilled A/R)"), debit=net),
+        _mk_line(d_iso, ref, memo, _acc(
+            "Service Revenue"),                 credit=net),
+    ]
 
 
 def _acc(name: str) -> str:
@@ -50,25 +76,28 @@ def _mk_line(d: str, ref: str, memo: str, account_id: str, debit: float = 0.0, c
 
 def _entry_receipt_issue(r: dict) -> List[Dict]:
     """
-    When a receipt is created (status 'pending' in your system),
-    recognize revenue and A/R.
-    Dr 1100 A/R; Cr 4000 Service Revenue
+    On invoice creation (your 'pending' state):
+    Dr 1100 Accounts Receivable (gross)
+      Cr 1150 Contract Asset (net)
+      Cr 2100 VAT Output Payable (vat, if any)
     """
     total = float(r.get("total") or 0.0)
     if total <= 0:
         return []
     d_iso = _to_date_iso(r.get("created_at") or r.get("start") or r.get("end"))
     ref = f"R{r['id']}"
-    memo = f"Receipt issued for {r.get('username', '?')}"
+    memo = f"Invoice issued for {r.get('username', '?')}"
 
     net, vat = _split_vat(total)
     lines = [
-        _mk_line(d_iso, ref, memo, _acc("Accounts Receivable"), debit=total),
-        _mk_line(d_iso, ref, memo, _acc("Service Revenue"),     credit=net),
+        _mk_line(d_iso, ref, memo, _acc(
+            "Accounts Receivable"),               debit=total),
+        _mk_line(d_iso, ref, memo, _acc(
+            "Contract Asset (Unbilled A/R)"),     credit=net),
     ]
     if vat > 0:
-        # VAT Output Payable
-        lines.append(_mk_line(d_iso, ref, memo, "2100", credit=vat))
+        lines.append(_mk_line(d_iso, ref, memo, _acc(
+            "VAT Output Payable"),   credit=vat))
     return lines
 
 
@@ -116,29 +145,26 @@ def _split_vat(gross: float) -> tuple[float, float]:
 
 def derive_journal(start: str, end: str) -> pd.DataFrame:
     """
-    Build a journal from existing receipts (no schema changes).
-    Includes both 'issue' and 'paid' postings where applicable.
+    Build a journal from receipts, with IFRS/TFRS/GAAP-like timing:
+      1) Service month (period end):   Dr 1150 ; Cr 4000   [revenue]
+      2) Invoice created:              Dr 1100 ; Cr 1150 ; (Cr 2100 VAT)
+      3) Cash collected (if paid):     Dr 1000 ; Cr 1100
     """
-    # Pull all receipts within window (by created_at for issue; by paid_at for payment)
-    # We'll fetch both pending and paid, then filter lines by date window.
     rows = admin_list_receipts(status=None)  # all
     lines: List[Dict] = []
-
     for r in rows:
-        # Issue lines (date: created_at)
-        issue_lines = _entry_receipt_issue(r)
-        lines.extend(issue_lines)
-        # Payment lines (date: paid_at)
-        pay_lines = _entry_receipt_paid(r)
-        lines.extend(pay_lines)
+        lines.extend(_entry_service_delivery(r))  # <-- revenue timing here
+        lines.extend(_entry_receipt_issue(r))     # <-- reclass to A/R + VAT
+        lines.extend(_entry_receipt_paid(r))      # <-- cash settlement
 
     if not lines:
-        return pd.DataFrame(columns=["date", "ref", "memo", "account_id", "account_name", "account_type", "debit", "credit"])
+        return pd.DataFrame(columns=[
+            "date", "ref", "memo", "account_id", "account_name",
+            "account_type", "debit", "credit"
+        ])
 
     j = pd.DataFrame(lines)
-    # Keep only within window
     j = j[(j["date"] >= start) & (j["date"] <= end)].copy()
-    # Stable ordering: by date, ref, credit first for readability
     j.sort_values(by=["date", "ref", "account_id"], inplace=True)
     return j.reset_index(drop=True)
 

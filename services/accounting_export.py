@@ -8,10 +8,11 @@ from models.billing_store import admin_list_receipts, get_receipt_with_items, _t
 
 # Simple chart-of-accounts (override later from DB/env if you want)
 COA = {
-    "cash": {"id": 1000, "name": "Cash/Bank",            "type": "ASSET"},
-    "ar":   {"id": 1100, "name": "Accounts Receivable",  "type": "ASSET"},
-    "rev":  {"id": 4000, "name": "Service Revenue",      "type": "INCOME"},
-    "vat":  {"id": 2100, "name": "VAT Output Payable",   "type": "LIABILITY"},
+    "cash":     {"id": 1000, "name": "Cash/Bank",                         "type": "ASSET"},
+    "ar":       {"id": 1100, "name": "Accounts Receivable",               "type": "ASSET"},
+    "unbilled": {"id": 1150, "name": "Contract Asset (Unbilled A/R)",     "type": "ASSET"},
+    "rev":      {"id": 4000, "name": "Service Revenue",                   "type": "INCOME"},
+    "vat":      {"id": 2100, "name": "VAT Output Payable",                "type": "LIABILITY"},
 }
 
 
@@ -39,11 +40,6 @@ def _split_vat(gross: float) -> tuple[float, float]:
 
 
 def build_general_ledger_csv(start: str, end: str) -> Tuple[str, str]:
-    """
-    General Journal (double-entry) covering all receipts whose created_at/paid_at fall within [start,end] local dates.
-    One row per journal line. VAT-aware: Dr A/R (gross), Cr Revenue (net), Cr VAT Output (vat).
-    """
-    # collect both pending and paid; we’ll filter rows by date on the fly
     pending = admin_list_receipts(status="pending") or []
     paid = admin_list_receipts(status="paid") or []
     all_rs = pending + paid
@@ -56,31 +52,46 @@ def build_general_ledger_csv(start: str, end: str) -> Tuple[str, str]:
     def in_window(dstr: str) -> bool:
         return bool(dstr) and (start <= dstr <= end)
 
+    def _iso(d):  # keep your helper
+        try:
+            return (d.date() if hasattr(d, "date") else d).isoformat()
+        except Exception:
+            return ""
+
     for r in all_rs:
         rid = r["id"]
-        ref = f"R{rid}"
         user = r["username"]
-        total = float(r["total"] or 0.0)
+        gross = float(r["total"] or 0.0)
+        net, vat = _split_vat(gross)
 
-        # 1) At issuance (when the receipt was created): Dr AR (gross); Cr Revenue (net); Cr VAT Output (vat)
+        service_d = _iso(r.get("end") or r.get("created_at") or r.get("start"))
         issue_d = _iso(r.get("created_at"))
-        if in_window(issue_d) and total > 0:
-            net, vat = _split_vat(total)
-            w.writerow([issue_d, ref, f"Receipt issued for {user}",
-                        COA["ar"]["id"], COA["ar"]["name"], COA["ar"]["type"], f"{total:.2f}", "0.00"])
-            w.writerow([issue_d, ref, f"Receipt issued for {user}",
-                        COA["rev"]["id"], COA["rev"]["name"], COA["rev"]["type"], "0.00", f"{net:.2f}"])
-            if vat > 0:
-                w.writerow([issue_d, ref, f"Receipt issued for {user}",
-                            COA["vat"]["id"], COA["vat"]["name"], COA["vat"]["type"], "0.00", f"{vat:.2f}"])
-
-        # 2) When paid: Dr Cash / Cr AR (gross)
         paid_d = _iso(r.get("paid_at"))
-        if r["status"] == "paid" and in_window(paid_d) and total > 0:
-            w.writerow([paid_d, ref, f"Receipt paid by {user}",
-                        COA["cash"]["id"], COA["cash"]["name"], COA["cash"]["type"], f"{total:.2f}", "0.00"])
-            w.writerow([paid_d, ref, f"Receipt paid by {user}",
-                        COA["ar"]["id"],   COA["ar"]["name"],   COA["ar"]["type"],   "0.00", f"{total:.2f}"])
+
+        # 1) SERVICE MONTH (revenue)
+        if gross > 0 and in_window(service_d) and net > 0:
+            w.writerow([service_d, f"R{rid}", f"Revenue recognized for {user}",
+                        COA["unbilled"]["id"], COA["unbilled"]["name"], COA["unbilled"]["type"], f"{net:.2f}", "0.00"])
+            w.writerow([service_d, f"R{rid}", f"Revenue recognized for {user}",
+                        COA["rev"]["id"],      COA["rev"]["name"],      COA["rev"]["type"],      "0.00",     f"{net:.2f}"])
+
+        # 2) INVOICE ISSUED (reclass + VAT)
+        if gross > 0 and in_window(issue_d):
+            w.writerow([issue_d,   f"R{rid}", f"Invoice issued for {user}",
+                        COA["ar"]["id"],      COA["ar"]["name"],      COA["ar"]["type"],      f"{gross:.2f}", "0.00"])
+            if net > 0:
+                w.writerow([issue_d, f"R{rid}", f"Invoice issued for {user}",
+                            COA["unbilled"]["id"], COA["unbilled"]["name"], COA["unbilled"]["type"], "0.00", f"{net:.2f}"])
+            if vat > 0:
+                w.writerow([issue_d, f"R{rid}", f"Invoice issued for {user}",
+                            COA["vat"]["id"],      COA["vat"]["name"],      COA["vat"]["type"],      "0.00", f"{vat:.2f}"])
+
+        # 3) CASH COLLECTED (paid)
+        if r["status"] == "paid" and gross > 0 and in_window(paid_d):
+            w.writerow([paid_d,    f"R{rid}", f"Receipt paid by {user}",
+                        COA["cash"]["id"],     COA["cash"]["name"],     COA["cash"]["type"],     f"{gross:.2f}", "0.00"])
+            w.writerow([paid_d,    f"R{rid}", f"Receipt paid by {user}",
+                        COA["ar"]["id"],       COA["ar"]["name"],       COA["ar"]["type"],       "0.00",        f"{gross:.2f}"])
 
     out.seek(0)
     fname = f"general_ledger_{start}_to_{end}.csv"

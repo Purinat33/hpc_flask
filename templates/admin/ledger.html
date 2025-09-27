@@ -22,9 +22,22 @@
             Window: <b>{{ start }}</b> → <b>{{ end }}</b>
         </p>
 
-        <div class="toolbar" style="margin-bottom:.75rem;">
+        <div class="toolbar" style="margin-bottom:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+            <form method="get" action="{{ url_for('admin.ledger_page') }}" style="display:flex; gap:.5rem; align-items:center;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="date" name="start" value="{{ start }}">
+                <span>→</span>
+                <input type="date" name="end" value="{{ end }}">
+                <button type="submit">Apply</button>
+            </form>
+            <a class="muted" href="{{ url_for('admin.ledger_page', start=this_month_start, end=this_month_end) }}"><button>This
+            month</button></a>
+            <a class="muted" href="{{ url_for('admin.ledger_page', start=last_month_start, end=last_month_end) }}"><button>Last
+            month</button></a>
+            <a class="muted" href="{{ url_for('admin.ledger_page', start=ytd_start, end=this_month_end) }}"><button>YTD</button></a>
             <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download CSV</button></a>
         </div>
+
 
         <!-- KPI chips -->
         <div class="kpis">
