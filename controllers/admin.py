@@ -944,9 +944,14 @@ def mark_paid(rid: int):
     if ok:
         RECEIPT_MARKED_PAID.labels(actor_type="admin").inc()
         try:
-            post_receipt_paid(rid, current_user.username)
-        except Exception:
-            pass
+            gl_ok = post_receipt_paid(rid, current_user.username)
+            audit("gl.payment.result", target_type="receipt", target_id=str(rid),
+                  status=200 if gl_ok else 409, outcome="success" if gl_ok else "blocked",
+                  extra={"reason": None if gl_ok else "period_closed"})
+        except Exception as e:
+            audit("gl.payment.result", target_type="receipt", target_id=str(rid),
+                  status=500, outcome="failure", extra={"reason": str(e)[:200]})
+
     audit("invoice.mark_paid", target_type="receipt", target_id=str(rid),
           outcome="success" if ok else "failure", status=200 if ok else 404,
           extra={"reason": "manual_mark_paid"})
@@ -1551,6 +1556,9 @@ def create_month_invoices():
                 ok = False
                 try:
                     ok = post_receipt_issued(rid, current_user.username)
+                    audit("invoice.create_month.summary", target_type="month", target_id=f"{y}-{m:02d}",
+                          status=200 if failed == 0 else 207, outcome="success" if failed == 0 else "partial",
+                          extra={"created": created, "skipped": skipped, "failed": failed})
                 except Exception:
                     pass
                 audit("gl.post_issue",
@@ -1570,11 +1578,17 @@ def create_month_invoices():
                 continue
 
         # final summary (treat partial as 207)
-        audit("invoice.create_month.summary",
-              target_type="month", target_id=f"{y}-{m:02d}",
-              outcome="success" if failed == 0 else "partial",
-              status=200 if failed == 0 else 207,
-              extra={"created": int(created), "skipped": int(skipped), "failed": int(failed)})
+        audit(
+            "invoice.create_month.summary",
+            target_type="month", target_id=f"{y}-{m:02d}",
+            outcome="success" if failed == 0 else "partial",
+            status=200 if failed == 0 else 207,
+            extra={"count": {  # <-- 'count' is allowed by _ALLOWED_EXTRA_KEYS
+                "created": int(created),
+                "skipped": int(skipped),
+                "failed": int(failed),
+            }}
+        )
 
     except Exception as e:
         audit("invoice.create_month",

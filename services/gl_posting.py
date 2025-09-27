@@ -33,13 +33,21 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
         if not r:
+            audit("gl.accrual.receipt.blocked", target_type="receipt", target_id=str(receipt_id),
+                  status=404, outcome="blocked", extra={"reason": "not_found"})
             return False
 
         service_dt = r.end or r.created_at or r.start
         if not service_dt:
+            audit("gl.accrual.receipt.blocked", target_type="receipt", target_id=str(r.id),
+                  status=409, outcome="blocked", extra={"reason": "no_service_date"})
             return False
 
         if is_period_closed(service_dt):
+            y, m = _ym(service_dt)
+            audit("gl.accrual.receipt.blocked", target_type="receipt", target_id=str(r.id),
+                  status=409, outcome="blocked",
+                  extra={"reason": "period_closed", "period": f"{y}-{m:02d}"})
             return False
 
         y, m = _ym(service_dt)
@@ -53,11 +61,17 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
             ).limit(1)
         ).first()
         if exists:
+            y, m = _ym(service_dt)
+            audit("gl.accrual.receipt.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop", extra={"idempotent": True, "period": f"{y}-{m:02d}"})
             return True
 
         gross = float(r.total or 0.0)
         net, _vat = _split_net_vat(gross)
         if net <= 0:
+            y, m = _ym(service_dt)
+            audit("gl.accrual.receipt.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop", extra={"reason": "zero_net", "period": f"{y}-{m:02d}"})
             return True  # nothing to accrue
 
         b = JournalBatch(
@@ -83,6 +97,12 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
                       account_name=_ACC[_acc("Service Revenue")]["name"],
                       account_type=_ACC[_acc("Service Revenue")]["type"],
                       debit=0, credit=net, receipt_id=r.id))
+        audit("gl.accrual.receipt.posted", target_type="receipt", target_id=str(r.id),
+              status=200, outcome="success",
+              extra={
+                  "period": f"{y}-{m:02d}", "effective_date": service_dt.isoformat(),
+                  "batch_id": b.id, "lines": 2, "net": net
+        })
         return True
 
 
@@ -92,6 +112,8 @@ def post_service_accruals_for_period(year: int, month: int, actor: str) -> int:
     Safe to run multiple times; skips if already posted or if period closed.
     """
     if is_period_closed(datetime(year, month, 1, tzinfo=timezone.utc)):
+        audit("gl.accrual.period.blocked", target_type="period", target_id=f"{year}-{month:02d}",
+              status=409, outcome="blocked", extra={"reason": "period_closed"})
         return 0
     from calendar import monthrange
     first = datetime(year, month, 1, tzinfo=timezone.utc)
@@ -99,14 +121,19 @@ def post_service_accruals_for_period(year: int, month: int, actor: str) -> int:
                     [1], 23, 59, 59, tzinfo=timezone.utc)
 
     created = 0
+    skipped = 0
     with session_scope() as s:
         # pull candidate receipts by service end
         rs = s.execute(
             select(Receipt.id).where(Receipt.end >= first, Receipt.end <= last)
         ).scalars().all()
     for rid in rs:
-        if post_service_accrual_for_receipt(rid, actor):
-            created += 1
+        ok = post_service_accrual_for_receipt(rid, actor)
+        created += 1 if ok else 0
+        skipped += 0 if ok else 1
+    audit("gl.accrual.period.summary", target_type="period", target_id=f"{year}-{month:02d}",
+          status=200 if skipped == 0 else 207, outcome="success" if skipped == 0 else "partial",
+          extra={"created": created, "skipped": skipped})
     return created
 
 
@@ -176,9 +203,17 @@ def post_receipt_issued(receipt_id: int, actor: str) -> bool:
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
         if not r:
+            audit("gl.issue.blocked", target_type="receipt", target_id=str(receipt_id),
+                  status=404, outcome="blocked", extra={"reason": "not_found"})
             return False
+
+        eff_dt = (r.created_at or r.start or r.end)
         y, m = _ym(r.created_at or r.start)
+
         if is_period_closed(r.created_at or r.start):
+            audit("gl.issue.blocked", target_type="receipt", target_id=str(r.id),
+                  status=409, outcome="blocked",
+                  extra={"reason": "period_closed", "period": f"{y}-{m:02d}"})
             return False  # conservative: don't post into closed period
         # idempotency
         exists = s.execute(
@@ -189,11 +224,17 @@ def post_receipt_issued(receipt_id: int, actor: str) -> bool:
             ).limit(1)
         ).first()
         if exists:
+            audit("gl.issue.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop",
+                  extra={"idempotent": True, "period": f"{y}-{m:02d}"})
             return True
 
         # amounts (gross->net,vat)
         gross = float(r.total or 0)
         if gross <= 0:
+            audit("gl.issue.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop",
+                  extra={"reason": "zero_amount", "period": f"{y}-{m:02d}"})
             return True
         enabled, _label, rate_pct, _inclusive = _tax_cfg()
         rrate = float(rate_pct or 0) / 100.0
@@ -231,6 +272,14 @@ def post_receipt_issued(receipt_id: int, actor: str) -> bool:
                           account_type=_ACC[_acc(
                               "VAT Output Payable")]["type"],
                           debit=0, credit=vat, receipt_id=r.id))
+        audit("gl.issue.posted", target_type="receipt", target_id=str(r.id),
+              status=200, outcome="success",
+              extra={
+                  "period": f"{y}-{m:02d}",
+                  "effective_date": (eff_dt and eff_dt.isoformat()),
+                  "batch_id": b.id, "lines": 2 + (1 if vat > 0 else 0),
+                  "gross": gross, "net": net, "vat": vat, "idempotent": False
+        })
         return True
 
 
@@ -242,8 +291,15 @@ def post_receipt_paid(receipt_id: int, actor: str) -> bool:
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
         if not r or r.status != "paid" or not r.paid_at:
+            audit("gl.payment.blocked", target_type="receipt", target_id=str(receipt_id),
+                  status=409, outcome="blocked",
+                  extra={"reason": "not_paid_or_missing_paid_at"})
             return False
         if is_period_closed(r.paid_at):
+            y, m = _ym(r.paid_at)
+            audit("gl.payment.blocked", target_type="receipt", target_id=str(r.id),
+                  status=409, outcome="blocked",
+                  extra={"reason": "period_closed", "period": f"{y}-{m:02d}"})
             return False
         y, m = _ym(r.paid_at)
         exists = s.execute(
@@ -254,10 +310,16 @@ def post_receipt_paid(receipt_id: int, actor: str) -> bool:
             ).limit(1)
         ).first()
         if exists:
+            audit("gl.payment.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop",
+                  extra={"idempotent": True, "period": f"{y}-{m:02d}"})
             return True
 
         gross = float(r.total or 0)
         if gross <= 0:
+            audit("gl.payment.noop", target_type="receipt", target_id=str(r.id),
+                  status=304, outcome="noop",
+                  extra={"reason": "zero_amount", "period": f"{y}-{m:02d}"})
             return True
 
         b = JournalBatch(
@@ -283,6 +345,12 @@ def post_receipt_paid(receipt_id: int, actor: str) -> bool:
                       account_name=_ACC[_acc("Accounts Receivable")]["name"],
                       account_type=_ACC[_acc("Accounts Receivable")]["type"],
                       debit=0, credit=gross, receipt_id=r.id))
+        audit("gl.payment.posted", target_type="receipt", target_id=str(r.id),
+              status=200, outcome="success",
+              extra={
+                  "period": f"{y}-{m:02d}", "effective_date": r.paid_at.isoformat(),
+                  "batch_id": b.id, "lines": 2, "gross": gross, "idempotent": False
+        })
         return True
 
 
@@ -305,11 +373,15 @@ def reverse_receipt_postings(receipt_id: int, actor: str, kinds: Iterable[str] =
         ).scalars().all()
 
         if not batches:
+            audit("gl.reverse.noop", target_type="receipt", target_id=str(receipt_id),
+                  status=304, outcome="noop", extra={"reason": "no_batches"})
             return 0
 
         y, m = _ym(now)
         status = _ensure_open_period(y, m, actor)
         if status != "open":
+            audit("gl.reverse.blocked", target_type="receipt", target_id=str(receipt_id),
+                  status=409, outcome="blocked", extra={"reason": "current_period_not_open"})
             return 0
 
         for b in batches:
@@ -334,6 +406,9 @@ def reverse_receipt_postings(receipt_id: int, actor: str, kinds: Iterable[str] =
                     receipt_id=ln.receipt_id,
                 ))
             created += 1
+            audit("gl.reverse.posted", target_type="batch", target_id=str(b.id),
+                  status=200, outcome="success",
+                  extra={"reversal_batch_id": rb.id, "period": f"{y}-{m:02d}", "lines": len(lines)})
     return created
 
 
@@ -354,6 +429,8 @@ def close_period(year: int, month: int, actor: str) -> bool:
             s.add(p)
             s.flush()
         if p.status == "closed":
+            audit("period.close.noop", target_type="period", target_id=f"{year}-{month:02d}",
+                  status=304, outcome="noop")
             return True
 
         # aggregate balances from posted GL (exclude prior 'closing')
@@ -434,9 +511,9 @@ def close_period(year: int, month: int, actor: str) -> bool:
         p.closed_by = actor
         s.add(p)
         try:
-            audit("period.close", target_type="period",
+            audit("period.close.posted", target_type="period",
                   target_id=f"{year}-{month:02d}", outcome="success", status=200,
-                  extra={"closing_batch_id": cb.id,
+                  extra={"batch_id": cb.id,
                          "net_to_retained_earnings": round(total_to_re, 2)})
         except Exception:
             pass
@@ -494,10 +571,9 @@ def reopen_period(year: int, month: int, actor: str) -> bool:
         p.closed_by = None
         s.add(p)
         try:
-            audit("period.reopen", target_type="period",
-                  target_id=f"{year}-{month:02d}", outcome="success", status=200,
-                  extra={"reversal_batch_id": rb.id,
-                         "original_closing_batch_id": b.id})
+            audit("period.reopen.posted", target_type="period", target_id=f"{year}-{month:02d}",
+                  status=200, outcome="success",
+                  extra={"reversal_batch_id": rb.id, "lines": len(lines)})
         except Exception:
             pass
         return True
