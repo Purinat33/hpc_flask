@@ -482,7 +482,6 @@ def paid_receipts_csv():
     return ("paid_receipts_history.csv", out.read())
 
 
-# models/billing_store.py
 def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = None) -> Tuple[bool, str]:
     """
     Revert a PAID receipt back to PENDING.
