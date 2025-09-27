@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Iterable, Tuple
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import select, and_
+from models.audit_store import audit
 from models.base import session_scope
 from models.schema import Receipt
 from models.gl import AccountingPeriod, JournalBatch, GLEntry
@@ -442,6 +443,13 @@ def close_period(year: int, month: int, actor: str) -> bool:
         p.closed_at = now
         p.closed_by = actor
         s.add(p)
+        try:
+            audit("period.close", target_type="period",
+                  target_id=f"{year}-{month:02d}", outcome="success", status=200,
+                  extra={"closing_batch_id": cb.id,
+                         "net_to_retained_earnings": round(total_to_re, 2)})
+        except Exception:
+            pass
         return True
 
 
@@ -495,4 +503,11 @@ def reopen_period(year: int, month: int, actor: str) -> bool:
         p.closed_at = None
         p.closed_by = None
         s.add(p)
+        try:
+            audit("period.reopen", target_type="period",
+                  target_id=f"{year}-{month:02d}", outcome="success", status=200,
+                  extra={"reversal_batch_id": rb.id,
+                         "original_closing_batch_id": b.id})
+        except Exception:
+            pass
         return True
