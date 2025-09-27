@@ -32,6 +32,83 @@
         background: #e8f6ee;
         color: #0a5;
     }
+
+    .control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: .75rem;
+  margin: .5rem 0 1rem;
+}
+.control-card {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: .75rem;
+}
+.control-card h4 {
+  margin: 0 0 .5rem 0;
+  font-size: .95rem;
+  color: #333;
+}
+.ctl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+}
+.lbl { font-size: .85rem; color: #666; }
+.status-pill {
+  display: inline-block;
+  padding: .15rem .5rem;
+  border-radius: 999px;
+  font-size: .8rem;
+  border: 1px solid #ddd;
+  background: #f7f7f9;
+}
+.status-pill.open { background:#fff5d6; border-color:#ffe3a3; color:#8a5a00; }
+.status-pill.closed { background:#e8f6ee; border-color:#c9efcf; color:#0a5; }
+/* More breathing room between controls */
+.control-grid{ 
+  gap: 1rem;                      /* space between the cards themselves */
+  margin: .75rem 0 1.25rem;
+}
+.control-card{
+  padding: 1rem;                  /* a bit more inner padding */
+}
+.control-card .ctl-row{
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1rem;               /* horizontal spacing */
+  row-gap: .75rem;                /* ⬅︎ key: vertical spacing between wrapped items */
+  margin-bottom: .75rem;          /* spacing between rows in a card */
+}
+.control-card .ctl-row:last-child{
+  margin-bottom: 0;
+}
+
+/* Buttons feel roomier */
+.control-card button{
+  padding: .55rem .9rem;
+}
+
+/* Optional: force vertical stacking for dense rows */
+.control-card .ctl-row.stack{
+  flex-direction: column;
+  align-items: stretch;
+  row-gap: .6rem;
+}
+.control-card .ctl-row.stack > *{
+  width: 100%;                    /* full-width buttons on stacked rows */
+}
+
+@media (max-width: 900px){
+  /* Keep things comfy on narrow screens too */
+  .control-card .ctl-row{
+    column-gap: .9rem;
+    row-gap: .65rem;
+  }
+}
+
 </style>
 
 <div class="layout">
@@ -54,61 +131,79 @@
             Window: <b>{{ start }}</b> → <b>{{ end }}</b>
         </p>
 
-        <div class="toolbar" style="margin-bottom:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-            <form method="get" action="{{ url_for('admin.ledger_page') }}" style="display:flex; gap:.5rem; align-items:center;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="date" name="start" value="{{ start }}">
-                <span>→</span>
-                <input type="date" name="end" value="{{ end }}">
-                <button type="submit">Apply</button>
-            </form>
-            <a class="muted" href="{{ url_for('admin.ledger_page', start=this_month_start, end=this_month_end) }}"><button>This
-            month</button></a>
-            <a class="muted" href="{{ url_for('admin.ledger_page', start=last_month_start, end=last_month_end) }}"><button>Last
-            month</button></a>
-            <a class="muted" href="{{ url_for('admin.ledger_page', start=ytd_start, end=this_month_end) }}"><button>YTD</button></a>
-            <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download Preview CSV</button></a>
-        <!-- templates/admin/ledger.html  (ADD near your date pickers) -->
-        <form method="post" action="{{ url_for('admin.ui_close_period', year=period_year, month=period_month) }}"
-            style="display:inline">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<!-- Controls: compact, separated -->
+<section class="control-grid">
 
+    <!-- 1) Window -->
+    <div class="control-card">
+        <h4>Window</h4>
+        <form method="get" action="{{ url_for('admin.ledger_page') }}" class="ctl-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="lbl">From</label>
+            <input type="date" name="start" value="{{ start }}">
+            <span>→</span>
+            <label class="lbl">To</label>
+            <input type="date" name="end" value="{{ end }}">
+            <button type="submit">Apply</button>
+        </form>
+        <div class="ctl-row">
+            <a class="muted"
+                href="{{ url_for('admin.ledger_page', start=this_month_start, end=this_month_end) }}"><button
+                    type="button">This month</button></a>
+            <a class="muted"
+                href="{{ url_for('admin.ledger_page', start=last_month_start, end=last_month_end) }}"><button
+                    type="button">Last month</button></a>
+            <a class="muted" href="{{ url_for('admin.ledger_page', start=ytd_start, end=this_month_end) }}"><button
+                    type="button">YTD</button></a>
+        </div>
+    </div>
+
+    <!-- 2) Period -->
+    <div class="control-card">
+        <h4>Period</h4>
+        <form method="post" action="{{ url_for('admin.ui_close_period', year=period_year, month=period_month) }}"
+            class="ctl-row">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if period_status == 'closed' %}
             <button formaction="{{ url_for('admin.ui_reopen_period', year=period_year, month=period_month) }}">
                 🔓 Reopen {{ "%04d-%02d"|format(period_year, period_month) }}
             </button>
+            <span class="status-pill closed">Closed</span>
             {% else %}
             <button>
                 🔒 Close {{ "%04d-%02d"|format(period_year, period_month) }}
             </button>
+            <span class="status-pill open">Open</span>
             {% endif %}
-            <span class="muted">Status: {{ period_status }}</span>
         </form>
-        <!-- templates/admin/ledger.html – inside the toolbar block near your date filters -->
-        <form method="post" action="{{ url_for('admin.export_gl_formal_zip') }}"
-            style="display:flex; gap:.5rem; align-items:center;">
+    </div>
+
+    <!-- 3) Exports -->
+    <div class="control-card">
+        <h4>Exports</h4>
+        <div class="ctl-row">
+            <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button type="button">Download Preview
+                    CSV</button></a>
+            <a href="{{ url_for('admin.list_export_runs') }}"><button type="button">Past Export Runs</button></a>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.export_gl_formal_zip') }}" class="ctl-row">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <!-- we export exactly the visible window -->
             <input type="hidden" name="start" value="{{ start }}">
             <input type="hidden" name="end" value="{{ end }}">
-        
             {% set can_export = (export_stats.batches or 0) > 0 %}
-            <button type="submit" {% if not can_export %}disabled title="Nothing new to export in this window" {% endif %}>
+            <button type="submit" {% if not can_export %}disabled title="Nothing new to export in this window"
+                {% endif %}>
                 ⬇️ Formal GL Export (ZIP)
             </button>
-        
             <span class="muted">
                 {{ export_stats.batches }} batch{{ '' if (export_stats.batches==1) else 'es' }},
-                {{ export_stats.lines }} line{{ '' if (export_stats.lines==1) else 's' }} to export
+                {{ export_stats.lines }} line{{ '' if (export_stats.lines==1) else 's' }} ready
             </span>
-        
-            <a href="{{ url_for('admin.list_export_runs') }}">
-                <button type="button">Past Export Runs</button>
-            </a>
         </form>
+    </div>
 
-
-        </div>
+</section>
 
 
         <!-- KPI chips -->
