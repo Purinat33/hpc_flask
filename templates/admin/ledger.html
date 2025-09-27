@@ -36,6 +36,23 @@
             month</button></a>
             <a class="muted" href="{{ url_for('admin.ledger_page', start=ytd_start, end=this_month_end) }}"><button>YTD</button></a>
             <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download CSV</button></a>
+        <!-- templates/admin/ledger.html  (ADD near your date pickers) -->
+        <form method="post" action="{{ url_for('admin.ui_close_period', year=period_year, month=period_month) }}"
+            style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            {% if period_status == 'closed' %}
+            <button formaction="{{ url_for('admin.ui_reopen_period', year=period_year, month=period_month) }}">
+                🔓 Reopen {{ "%04d-%02d"|format(period_year, period_month) }}
+            </button>
+            {% else %}
+            <button>
+                🔒 Close {{ "%04d-%02d"|format(period_year, period_month) }}
+            </button>
+            {% endif %}
+            <span class="muted">Status: {{ period_status }}</span>
+        </form>
+
         </div>
 
 

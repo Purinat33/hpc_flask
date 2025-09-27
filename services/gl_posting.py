@@ -11,6 +11,142 @@ from services.accounting import chart_of_accounts, _acc, _ACC
 from models.billing_store import _tax_cfg
 
 
+# services/gl_posting.py  (ADD)
+
+from sqlalchemy import select, func
+from models.schema import Receipt
+from decimal import Decimal
+from services.accounting import _acc, _ACC
+from models.billing_store import _tax_cfg
+
+
+def _split_net_vat(gross: float) -> tuple[float, float]:
+    enabled, _label, rate_pct, _inclusive = _tax_cfg()
+    r = float(rate_pct or 0.0) / 100.0
+    if not enabled or r <= 0 or gross <= 0:
+        return round(gross, 2), 0.0
+    net = round(gross / (1.0 + r), 2)
+    vat = round(gross - net, 2)
+    return net, vat
+
+
+def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
+    """
+    Post service-month revenue into the month of r.end (or created_at/start fallback):
+      Dr 1150 Contract Asset (net)
+      Cr 4000 Service Revenue   (net)
+    Idempotent per receipt_id.
+    Refuses if the target month is closed.
+    """
+    now = datetime.now(timezone.utc)
+    with session_scope() as s:
+        r = s.get(Receipt, receipt_id)
+        if not r:
+            return False
+
+        service_dt = r.end or r.created_at or r.start
+        if not service_dt:
+            return False
+
+        if is_period_closed(service_dt):
+            return False
+
+        y, m = _ym(service_dt)
+
+        # idempotency: have we already posted an accrual for this receipt?
+        exists = s.execute(
+            select(JournalBatch.id).where(
+                JournalBatch.source == "billing",
+                JournalBatch.source_ref == f"R{r.id}",
+                JournalBatch.kind == "accrual",
+            ).limit(1)
+        ).first()
+        if exists:
+            return True
+
+        gross = float(r.total or 0.0)
+        net, _vat = _split_net_vat(gross)
+        if net <= 0:
+            return True  # nothing to accrue
+
+        b = JournalBatch(
+            source="billing", source_ref=f"R{r.id}", kind="accrual",
+            posted_at=now, posted_by=actor, period_year=y, period_month=m
+        )
+        s.add(b)
+        s.flush()
+
+        d_iso = service_dt
+        memo = f"Revenue recognized for {r.username} (service period)"
+        ref = f"R{r.id}"
+
+        s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
+                      account_id=_acc("Contract Asset (Unbilled A/R)"),
+                      account_name=_ACC[_acc(
+                          "Contract Asset (Unbilled A/R)")]["name"],
+                      account_type=_ACC[_acc(
+                          "Contract Asset (Unbilled A/R)")]["type"],
+                      debit=net, credit=0, receipt_id=r.id))
+        s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
+                      account_id=_acc("Service Revenue"),
+                      account_name=_ACC[_acc("Service Revenue")]["name"],
+                      account_type=_ACC[_acc("Service Revenue")]["type"],
+                      debit=0, credit=net, receipt_id=r.id))
+        return True
+
+
+def post_service_accruals_for_period(year: int, month: int, actor: str) -> int:
+    """
+    Bulk-accrue all receipts whose service period END falls inside (year,month).
+    Safe to run multiple times; skips if already posted or if period closed.
+    """
+    if is_period_closed(datetime(year, month, 1, tzinfo=timezone.utc)):
+        return 0
+    from calendar import monthrange
+    first = datetime(year, month, 1, tzinfo=timezone.utc)
+    last = datetime(year, month, monthrange(year, month)
+                    [1], 23, 59, 59, tzinfo=timezone.utc)
+
+    created = 0
+    with session_scope() as s:
+        # pull candidate receipts by service end
+        rs = s.execute(
+            select(Receipt.id).where(Receipt.end >= first, Receipt.end <= last)
+        ).scalars().all()
+    for rid in rs:
+        if post_service_accrual_for_receipt(rid, actor):
+            created += 1
+    return created
+
+
+def bootstrap_periods(actor: str) -> int:
+    """
+    Ensure AccountingPeriod rows exist for every month seen in receipts
+    (service end, invoice created_at, and paid_at). Leaves status=open.
+    Returns number of periods created.
+    """
+    created = 0
+    with session_scope() as s:
+        # months from end/created_at/paid_at
+        months = set()
+        for col in (Receipt.end, Receipt.created_at, Receipt.paid_at):
+            rows = s.execute(select(func.date_trunc('month', col)).where(
+                col.isnot(None)).distinct()).all()
+            for (dt,) in rows:
+                if dt:
+                    months.add((dt.year, dt.month))
+        for (y, m) in months:
+            p = s.execute(select(AccountingPeriod).where(
+                AccountingPeriod.year == y, AccountingPeriod.month == m
+            )).scalars().one_or_none()
+            if not p:
+                s.add(AccountingPeriod(year=y, month=m, status="open",
+                                       opened_at=datetime.now(timezone.utc),
+                                       opened_by=actor))
+                created += 1
+    return created
+
+
 def _ym(dt: datetime) -> Tuple[int, int]:
     # keep simple; periods are calendar months UTC here
     local = dt.astimezone(timezone.utc)

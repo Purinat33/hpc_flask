@@ -1,3 +1,6 @@
+from sqlalchemy import select
+from models.gl import AccountingPeriod
+from services.gl_posting import close_period, reopen_period, post_service_accruals_for_period, bootstrap_periods
 from datetime import date
 from weasyprint import HTML
 from flask import current_app, make_response
@@ -1212,6 +1215,10 @@ def ledger_page():
     last_month_end = date(prev_y, prev_m, prev_last).isoformat()
     ytd_start = date(today_d.year, 1, 1).isoformat()
 
+    sel = date.fromisoformat(end_q)
+    y, m = sel.year, sel.month
+    status = _period_status(y, m)
+
     return render_template(
         "admin/ledger.html",
         start=start_q, end=end_q,
@@ -1231,6 +1238,7 @@ def ledger_page():
         this_month_start=this_month_start, this_month_end=this_month_end,
         last_month_start=last_month_start, last_month_end=last_month_end,
         ytd_start=ytd_start,
+        period_year=y, period_month=m, period_status=(status or "open"),
     )
 
 
@@ -1664,3 +1672,44 @@ def close_period_endpoint(year: int, month: int):
 def reopen_period_endpoint(year: int, month: int):
     ok = reopen_period(year, month, current_user.username)
     return redirect(url_for("admin.ledger_page"))
+
+
+def _period_status(y: int, m: int) -> str | None:
+    with session_scope() as s:
+        return s.execute(
+            select(AccountingPeriod.status).where(
+                AccountingPeriod.year == y, AccountingPeriod.month == m
+            )
+        ).scalar_one_or_none()
+
+
+@admin_bp.post("/admin/periods/<int:year>/<int:month>/close")
+@login_required
+@fresh_login_required
+@admin_required
+def ui_close_period(year, month):
+    actor = getattr(request, "user", None) and request.user.username or "admin"
+    # Optional: ensure accruals exist before closing
+    post_service_accruals_for_period(year, month, actor)
+    ok = close_period(year, month, actor)
+    return redirect(request.referrer or url_for("admin.ledger_page"))
+
+
+@admin_bp.post("/admin/periods/<int:year>/<int:month>/reopen")
+@login_required
+@fresh_login_required
+@admin_required
+def ui_reopen_period(year, month):
+    actor = getattr(request, "user", None) and request.user.username or "admin"
+    ok = reopen_period(year, month, actor)
+    return redirect(request.referrer or url_for("admin.ledger_page"))
+
+
+@admin_bp.post("/admin/periods/bootstrap")
+@login_required
+@fresh_login_required
+@admin_required
+def ui_bootstrap_periods():
+    actor = getattr(request, "user", None) and request.user.username or "admin"
+    n = bootstrap_periods(actor)
+    return redirect(request.referrer or url_for("admin.ledger_page"))
