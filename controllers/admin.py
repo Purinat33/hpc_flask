@@ -1079,34 +1079,143 @@ def simulate_rates_json():
 @login_required
 @admin_required
 def ledger_page():
+    """
+    Accounting overview + safety signals for reversals.
+    Adds a 'Paid Receipts (window)' table with flags that gate safe 'revert to pending':
+      - has_external_payment (true if any succeeded Payment with provider != internal_admin)
+      - exported_to_gl_at (optional future field on Receipt; shows if present)
+      - etax_submitted_at / etax_status (optional future field(s) on Receipt; shows if present)
+      - customer_sent_at (optional future field on Receipt; shows if present)
+      - eligible_to_revert (derived; true iff no external payment and none of the above flags set)
+    """
+    from datetime import datetime, timezone, timedelta
+    from models.schema import Receipt, Payment
+    from sqlalchemy import select, and_
+
     before = (request.args.get("before") or date.today().isoformat()).strip()
     end_d = before
     start_d = (date.fromisoformat(before) - timedelta(days=365)).isoformat()
 
+    # allow overrides via query
     start_q = (request.args.get("start") or start_d).strip()
     end_q = (request.args.get("end") or end_d).strip()
 
+    # ---- existing derived accounting artifacts (unchanged) ----
     j = derive_journal(start_q, end_q)
     tb = trial_balance(j)
     pnl = income_statement(j)
     bs = balance_sheet(j)
+
+    # ---- new: paid receipts within window + safety flags ----
+    def _to_utc_start(diso: str) -> datetime:
+        # naive date -> UTC 00:00:00
+        return datetime.fromisoformat(diso).replace(tzinfo=timezone.utc)
+
+    def _to_utc_end_inclusive(diso: str) -> datetime:
+        # naive date -> UTC 23:59:59
+        return datetime.fromisoformat(diso).replace(tzinfo=timezone.utc) + timedelta(hours=23, minutes=59, seconds=59)
+
+    start_utc = _to_utc_start(start_q)
+    end_utc = _to_utc_end_inclusive(end_q)
+
+    paid_receipts_window: list[dict] = []
+    kpi_total_paid = 0.0
+    kpi_count_paid = 0
+    kpi_count_eligible = 0
+
+    with session_scope() as s:
+        # Pull paid receipts in window (by paid_at)
+        rows = (
+            s.query(Receipt)
+            .filter(
+                Receipt.status == "paid",
+                Receipt.paid_at.isnot(None),
+                Receipt.paid_at >= start_utc,
+                Receipt.paid_at <= end_utc,
+            )
+            .order_by(Receipt.paid_at.desc(), Receipt.id.desc())
+            .all()
+        )
+
+        for r in rows:
+            # any non-internal succeeded payment?
+            has_external_payment = s.execute(
+                select(Payment.id).where(
+                    and_(
+                        Payment.receipt_id == r.id,
+                        Payment.status == "succeeded",
+                        Payment.provider != "internal_admin",
+                    )
+                ).limit(1)
+            ).first() is not None
+
+            # Optional future flags on Receipt (display if your schema later adds them)
+            exported_to_gl_at = getattr(r, "exported_to_gl_at", None)
+            etax_submitted_at = getattr(r, "etax_submitted_at", None)
+            etax_status = getattr(r, "etax_status", None)
+            customer_sent_at = getattr(r, "customer_sent_at", None)
+
+            # Eligibility is conservative: only if no external money AND no downstream lock flags
+            eligible_to_revert = (
+                (not has_external_payment)
+                and (exported_to_gl_at is None)
+                and (etax_submitted_at is None)
+                and (customer_sent_at is None)
+                and (str(etax_status or "").lower() in {"", "draft", "none"})
+            )
+
+            kpi_total_paid += float(r.total or 0)
+            kpi_count_paid += 1
+            if eligible_to_revert:
+                kpi_count_eligible += 1
+
+            paid_receipts_window.append({
+                "id": r.id,
+                "username": r.username,
+                "invoice_no": r.invoice_no,
+                "total": float(r.total or 0),
+                "paid_at": r.paid_at,
+                "method": r.method,
+                "tx_ref": r.tx_ref,
+
+                # safety signals
+                "has_external_payment": bool(has_external_payment),
+                "exported_to_gl_at": exported_to_gl_at,
+                "etax_submitted_at": etax_submitted_at,
+                "etax_status": etax_status,
+                "customer_sent_at": customer_sent_at,
+                "eligible_to_revert": bool(eligible_to_revert),
+            })
+
+    # meta for the trial balance card (unchanged)
+    tb_meta = {
+        "sum_debits": tb.attrs.get("sum_debits", 0.0),
+        "sum_credits": tb.attrs.get("sum_credits", 0.0),
+        "out_of_balance": tb.attrs.get("out_of_balance", 0.0),
+    }
+
+    kpis = {
+        "count_paid": int(kpi_count_paid),
+        "sum_paid": float(kpi_total_paid),
+        "count_eligible": int(kpi_count_eligible),
+    }
 
     return render_template(
         "admin/ledger.html",
         start=start_q, end=end_q,
         journal=j.to_dict(orient="records"),
         tb=tb.to_dict(orient="records"),
-        tb_meta={
-            "sum_debits": tb.attrs.get("sum_debits", 0.0),
-            "sum_credits": tb.attrs.get("sum_credits", 0.0),
-            "out_of_balance": tb.attrs.get("out_of_balance", 0.0),
-        },
+        tb_meta=tb_meta,
         pnl=pnl.to_dict(orient="records")[0] if not pnl.empty else {
             "Revenue": 0, "Expenses": 0, "Net_Income": 0},
         bs=bs.to_dict(orient="records")[0] if not bs.empty else {
             "Assets": 0, "Liabilities": 0, "Equity_Including_PnL": 0, "Check(Assets - L-E)": 0
         },
         today=date.today().isoformat(),
+
+        # NEW context
+        kpis=kpis,
+        paid_receipts=paid_receipts_window,
     )
 
 

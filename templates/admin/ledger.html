@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Ledger (Derived){% endblock %}
+{% block title %}Accounting & Reversal Signals{% endblock %}
 {% block content %}
-<h2>Ledger (Derived, read-only)</h2>
+<h2>Accounting (Derived, read-only)</h2>
 
 <div class="layout">
     <!-- Sidebar -->
@@ -9,8 +9,7 @@
         <a class="slink" href="{{ url_for('admin.admin_form', section='rates',  type='mu') }}">Change Rate</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='usage',  type='mu') }}">Usage Tables</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='myusage') }}">My Usage</a>
-        <a class="slink {{ 'on' if section=='billing' else '' }}"
-            href="{{ url_for('admin.admin_form', section='billing', bview=bview or 'invoices') }}">{{ _("Invoices") }}</a>
+        <a class="slink" href="{{ url_for('admin.admin_form', section='billing', bview='invoices') }}">Invoices</a>
         <a class="slink" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
         <a class="slink" href="{{ url_for('admin.admin_form', section='dashboard') }}">Dashboard</a>
         <a class="slink on" href="{{ url_for('admin.ledger_page') }}">Accounting</a>
@@ -22,11 +21,124 @@
         <p class="muted">
             Window: <b>{{ start }}</b> → <b>{{ end }}</b>
         </p>
+
         <div class="toolbar" style="margin-bottom:.75rem;">
             <a href="{{ url_for('admin.ledger_csv', start=start, end=end) }}"><button>Download CSV</button></a>
-            {# keep the other export buttons commented for now #}
         </div>
 
+        <!-- KPI chips -->
+        <div class="kpis">
+            <div class="chip">
+                <div class="klabel">Paid invoices</div>
+                <div class="kval">{{ kpis.count_paid }}</div>
+            </div>
+            <div class="chip">
+                <div class="klabel">Sum paid (window)</div>
+                <div class="kval">฿{{ '%.2f'|format(kpis.sum_paid or 0) }}</div>
+            </div>
+            <div class="chip {{ 'ok' if (kpis.count_eligible or 0) > 0 else '' }}">
+                <div class="klabel">Eligible to Revert</div>
+                <div class="kval">{{ kpis.count_eligible }}</div>
+            </div>
+        </div>
+
+        <!-- Safety signals table -->
+        <div class="card" style="margin:1rem 0;">
+            <div style="display:flex;align-items:center;gap:.5rem;">
+                <h3 style="margin:0;">Paid Receipts (window)</h3>
+                <span class="muted">Only receipts with <b>no external payment</b> and <b>no downstream locks</b> are
+                    eligible for a safe revert.</span>
+            </div>
+            <div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:.5rem;">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Invoice #</th>
+                            <th class="num">Total</th>
+                            <th>Paid At</th>
+                            <th>External Payment?</th>
+                            <th>GL Exported?</th>
+                            <th>E-Tax</th>
+                            <th>Customer Sent?</th>
+                            <th>Eligible to Revert?</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in paid_receipts %}
+                        <tr>
+                            <td>{{ r.id }}</td>
+                            <td>{{ r.username }}</td>
+                            <td>{{ r.invoice_no or '—' }}</td>
+                            <td class="num">฿{{ '%.2f'|format(r.total or 0) }}</td>
+                            <td>{{ r.paid_at.isoformat().replace('+00:00', 'Z') if r.paid_at else '—' }}</td>
+
+                            <!-- External payment -->
+                            <td>
+                                {% if r.has_external_payment %}
+                                <span class="tag bad">Yes</span>
+                                {% else %}
+                                <span class="tag ok">No</span>
+                                {% endif %}
+                            </td>
+
+                            <!-- GL exported -->
+                            <td>
+                                {% if r.exported_to_gl_at %}
+                                <span class="tag bad" title="{{ r.exported_to_gl_at }}">Yes</span>
+                                {% else %}
+                                <span class="tag">—</span>
+                                {% endif %}
+                            </td>
+
+                            <!-- E-Tax status -->
+                            <td>
+                                {% if r.etax_submitted_at %}
+                                <span class="tag bad" title="{{ r.etax_submitted_at }}">Submitted</span>
+                                {% elif r.etax_status %}
+                                <span
+                                    class="tag {{ 'ok' if r.etax_status|lower in ['draft','none',''] else 'warn' }}">{{ r.etax_status }}</span>
+                                {% else %}
+                                <span class="tag">—</span>
+                                {% endif %}
+                            </td>
+
+                            <!-- Customer sent -->
+                            <td>
+                                {% if r.customer_sent_at %}
+                                <span class="tag warn" title="{{ r.customer_sent_at }}">Sent</span>
+                                {% else %}
+                                <span class="tag">—</span>
+                                {% endif %}
+                            </td>
+
+                            <!-- Eligible -->
+                            <td>
+                                {% if r.eligible_to_revert %}
+                                <span class="tag ok">Yes</span>
+                                {% else %}
+                                <span class="tag bad">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <details style="margin-top:.5rem;">
+                <summary>Revert policy (why this matters)</summary>
+                <ul style="margin:.5rem 1.25rem;">
+                    <li><b>External payment = Yes</b> ⟶ do <i>not</i> revert; use a refund/credit note.</li>
+                    <li><b>GL Exported / E-Tax Submitted / Customer Sent = Yes</b> ⟶ do <i>not</i> revert; post reversal
+                        in downstream systems.</li>
+                    <li>Only revert for administrative corrections before downstream actions.</li>
+                </ul>
+            </details>
+        </div>
+
+        <!-- Existing 3-column grid: Trial Balance, P&L/BS, Journal -->
         <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap:1rem;">
             <div class="card">
                 <h3>Trial Balance</h3>
@@ -139,6 +251,58 @@
             .table-wrap {
                 border: 1px solid #eee;
                 border-radius: 6px;
+            }
+
+            .kpis {
+                display: flex;
+                gap: .75rem;
+                flex-wrap: wrap;
+                margin: .5rem 0 0;
+            }
+
+            .chip {
+                background: #f7f7f9;
+                border: 1px solid #eee;
+                border-radius: 10px;
+                padding: .5rem .75rem;
+            }
+
+            .chip.ok {
+                background: #f2fbf5;
+                border-color: #c9efcf;
+            }
+
+            .klabel {
+                font-size: .8rem;
+                color: #666;
+            }
+
+            .kval {
+                font-weight: 700;
+                font-size: 1.1rem;
+            }
+
+            .tag {
+                display: inline-block;
+                padding: .1rem .4rem;
+                border-radius: 6px;
+                font-size: .75rem;
+                background: #f0f0f0;
+            }
+
+            .tag.ok {
+                background: #e5f7ea;
+                color: #0a5;
+            }
+
+            .tag.bad {
+                background: #fde7ea;
+                color: #c11;
+            }
+
+            .tag.warn {
+                background: #fff5d6;
+                color: #a76b00;
             }
         </style>
     </main>

@@ -482,13 +482,15 @@ def paid_receipts_csv():
     return ("paid_receipts_history.csv", out.read())
 
 
+# models/billing_store.py
 def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = None) -> Tuple[bool, str]:
     """
     Revert a PAID receipt back to PENDING.
     - Cancels any internal_admin succeeded Payment(s)
-    - Refuses to proceed if any non-internal succeeded Payment exists
+    - Refuses if any non-internal succeeded Payment exists
+    - Refuses if downstream locks are set (GL export / eTax / customer-sent / etax_status not draft/none)
     - Clears paid fields on Receipt
-    - Keeps invoice_no as-is
+    - Keeps invoice_no
     - Emits PaymentEvent(s)
     Returns (ok, message).
     """
@@ -505,15 +507,13 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
         if rcpt is None:
             return False, "receipt_not_found"
         if rcpt.status == "void":
-            # don’t mutate void receipts
             s.add(PaymentEvent(
                 provider=PROVIDER_INTERNAL,
                 external_event_id=None,
                 payment_id=None,
                 event_type="admin.revert_noop_void",
                 raw=json.dumps({"receipt_id": receipt_id, "actor": actor}),
-                signature_ok=1,
-                received_at=now,
+                signature_ok=1, received_at=now,
             ))
             return False, "already_void"
         if rcpt.status == "pending":
@@ -523,10 +523,40 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
                 payment_id=None,
                 event_type="admin.revert_noop_pending",
                 raw=json.dumps({"receipt_id": receipt_id, "actor": actor}),
-                signature_ok=1,
-                received_at=now,
+                signature_ok=1, received_at=now,
             ))
             return True, "already_pending"
+
+        # --- NEW: downstream lock guard (optional fields are read if present) ---
+        exported_to_gl_at = getattr(rcpt, "exported_to_gl_at", None)
+        etax_submitted_at = getattr(rcpt, "etax_submitted_at", None)
+        etax_status = str(getattr(rcpt, "etax_status", "") or "").lower()
+        customer_sent_at = getattr(rcpt, "customer_sent_at", None)
+        downstream_locked = (
+            (exported_to_gl_at is not None)
+            or (etax_submitted_at is not None)
+            or (customer_sent_at is not None)
+            or (etax_status not in {"", "draft", "none"})
+        )
+        if downstream_locked:
+            s.add(PaymentEvent(
+                provider=PROVIDER_INTERNAL,
+                external_event_id=None,
+                payment_id=None,
+                event_type="admin.revert_blocked_downstream_lock",
+                raw=json.dumps({
+                    "receipt_id": receipt_id,
+                    "actor": actor,
+                    "reason": reason,
+                    "exported_to_gl_at": (exported_to_gl_at.isoformat().replace("+00:00", "Z") if exported_to_gl_at else None),
+                    "etax_submitted_at": (etax_submitted_at.isoformat().replace("+00:00", "Z") if etax_submitted_at else None),
+                    "etax_status": etax_status or None,
+                    "customer_sent_at": (customer_sent_at.isoformat().replace("+00:00", "Z") if customer_sent_at else None),
+                }),
+                signature_ok=1, received_at=now,
+            ))
+            return False, "downstream_locks_present"
+        # --- /NEW ---
 
         # must be 'paid' here
         succeeded = s.execute(
@@ -552,14 +582,12 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
                     "external_providers": sorted({p.provider for p in external_succeeded}),
                     "payment_ids": [p.id for p in external_succeeded],
                 }),
-                signature_ok=1,
-                received_at=now,
+                signature_ok=1, received_at=now,
             ))
             return False, "has_external_succeeded_payment"
 
         # Cancel internal_admin succeeded payments (if any)
         for p in succeeded:
-            # only internal_admin should be here due to guard above
             p.status = "canceled"
             p.updated_at = now
             s.add(p)
@@ -576,8 +604,7 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
                     "actor": actor,
                     "reason": reason,
                 }),
-                signature_ok=1,
-                received_at=now,
+                signature_ok=1, received_at=now,
             ))
 
         # Revert receipt fields
@@ -595,7 +622,6 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
         rcpt.tx_ref = None
         rcpt.approved_by = None
         rcpt.approved_at = None
-        # keep rcpt.invoice_no unchanged
         s.add(rcpt)
 
         s.add(PaymentEvent(
@@ -609,8 +635,7 @@ def revert_receipt_to_pending(receipt_id: int, actor: str, reason: str | None = 
                 "reason": reason,
                 "previous": prev,
             }),
-            signature_ok=1,
-            received_at=now,
+            signature_ok=1, received_at=now,
         ))
 
         return True, "ok"
