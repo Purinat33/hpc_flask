@@ -2020,3 +2020,118 @@ def redownload_export_run(run_id: int):
         mem.seek(0)
         return Response(mem.read(), mimetype="application/zip",
                         headers={"Content-Disposition": f'attachment; filename="gl_export_run_{run.id}_redownload.zip"'})
+
+
+@admin_bp.get("/admin/export/ledger.pdf")
+@login_required
+@admin_required
+def export_ledger_pdf():
+    from flask import current_app
+    from hashlib import sha256
+    import secrets
+    import socket
+    import csv
+    import io
+    from datetime import datetime, timezone
+    from weasyprint import HTML
+
+    # --- inputs / mode ---
+    start = (request.args.get("start") or "1970-01-01").strip()
+    end = (request.args.get("end") or date.today().isoformat()).strip()
+    mode = (request.args.get("mode") or "posted").strip().lower()
+    is_preview = (mode == "derived")
+
+    # --- source data (respecting mode) ---
+    if is_preview:
+        df = derive_journal(start, end)
+    else:
+        df = _load_posted_journal(start, end)
+
+    # empty guard (render a stub page so it still prints a memo)
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "date", "ref", "memo", "account_id", "account_name", "account_type", "debit", "credit"
+        ])
+
+    # --- canonical sort / CSV bytes for hashing ---
+    df = df.sort_values(["date", "ref", "account_id"],
+                        kind="mergesort").reset_index(drop=True)
+
+    csv_buf = io.StringIO()
+    w = csv.writer(csv_buf)
+    w.writerow(["date", "ref", "memo", "account_id",
+               "account_name", "account_type", "debit", "credit"])
+    for _, r in df.iterrows():
+        w.writerow([
+            r.get("date", ""), r.get("ref", ""), r.get("memo", ""),
+            r.get("account_id", ""), r.get(
+                "account_name", ""), r.get("account_type", ""),
+            float(r.get("debit") or 0), float(r.get("credit") or 0)
+        ])
+    csv_bytes = csv_buf.getvalue().encode("utf-8")
+
+    # --- run metadata ---
+    now = datetime.now(timezone.utc)
+    run_id = f"GLPDF-{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    criteria = {"start": start, "end": end,
+                "mode": "derived" if is_preview else "posted"}
+    doc_digest = sha256(csv_bytes + json.dumps(criteria,
+                        sort_keys=True).encode("utf-8")).hexdigest()
+    doc_digest_short = doc_digest[:12]
+
+    # --- paginate (we control rows/page so page hashes are reproducible) ---
+    ROWS_PER_PAGE = 36  # tweak to taste; ~rows that fit A4 with header/footer
+    pages = []
+    for i in range(0, len(df), ROWS_PER_PAGE):
+        chunk = df.iloc[i:i+ROWS_PER_PAGE].copy()
+        page_index = len(pages) + 1
+        first_ref = str(chunk.iloc[0]["ref"]) if not chunk.empty else "-"
+        last_ref = str(chunk.iloc[-1]["ref"]) if not chunk.empty else "-"
+        # per-page hash ties to the exact slice + global digest
+        page_hash = sha256(f"{run_id}|{page_index}|{doc_digest}|{first_ref}|{last_ref}".encode(
+            "utf-8")).hexdigest()[:12]
+        pages.append({
+            "index": page_index,
+            "rows": chunk.to_dict(orient="records"),
+            "first_ref": first_ref,
+            "last_ref": last_ref,
+            "hash": page_hash,
+        })
+    total_pages = max(1, len(pages))
+
+    # --- optional: persist an 'export run' manifest (tamper-evidence trail) ---
+    # You can store this alongside your CSV ExportRun table or a new one.
+    manifest = {
+        "run_id": run_id,
+        "mode": "derived" if is_preview else "posted",
+        "window": {"start": start, "end": end},
+        "doc_sha256": doc_digest,
+        "total_lines": int(len(df)),
+        "total_pages": int(total_pages),
+        "page_hashes": [{"page": p["index"], "hash": p["hash"], "first_ref": p["first_ref"], "last_ref": p["last_ref"]} for p in pages],
+        "generated_at": now.isoformat(),
+        "host": socket.gethostname(),
+        "generated_by": current_user.username,
+    }
+    audit("export.ledger_pdf", target_type="window", target_id=f"{start}:{end}",
+          outcome="success", status=200, extra={"run_id": run_id, "mode": criteria["mode"], "doc_sha256": doc_digest})
+
+    # --- render HTML -> PDF ---
+    html = render_template(
+        "admin/ledger_pdf.html",
+        pages=pages,
+        total_pages=total_pages,
+        doc_digest=doc_digest,
+        doc_digest_short=doc_digest_short,
+        run_id=run_id,
+        start=start, end=end,
+        is_preview=is_preview,
+        printed_on=now,
+        printed_by=current_user.username,
+        watermark_text=("PREVIEW ONLY" if is_preview else "CONFIDENTIAL"),
+    )
+    pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
+
+    fname = f"general_ledger_{criteria['mode']}_{start}_to_{end}_{run_id}.pdf"
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})

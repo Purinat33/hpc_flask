@@ -232,7 +232,7 @@ class AuditLog(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "outcome in ('success','failure','partial','blocked') or outcome is null", name="ck_audit_outcome"),
+            "outcome in ('success','failure','partial','blocked', 'noop') or outcome is null", name="ck_audit_outcome"),
         Index("idx_audit_ts", "ts"),
         Index("idx_audit_actor", "actor"),
         Index("idx_audit_action", "action"),

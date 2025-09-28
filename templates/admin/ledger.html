@@ -237,6 +237,9 @@
                 {{ export_stats.lines }} line{{ '' if (export_stats.lines==1) else 's' }} ready
             </span>
         </form>
+        <a href="{{ url_for('admin.export_ledger_pdf', start=start, end=end, mode=(request.args.get('mode') or 'posted')) }}">
+            <button type="button">Download Ledger PDF</button>
+        </a>
     </div>
 
 </section>
