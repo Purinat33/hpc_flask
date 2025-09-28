@@ -1,195 +1,394 @@
 <!DOCTYPE html>
 <html>
-  <head>
+
+<head>
     <meta charset="utf-8" />
     <title>General Ledger ({{ 'Preview' if is_preview else 'Posted' }})</title>
     <style>
-      @page {
-        size: A4;
-        margin: 18mm 14mm 18mm 14mm;
-      }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
-      }
+        /* Page + margin boxes with real page counters */
+        @page {
+            size: A4;
+            margin: 18mm 14mm 18mm 14mm;
 
-      /* Watermark: big, faint, diagonal */
-      .wm {
-        position: fixed;
-        top: 30%;
-        left: -10%;
-        right: -10%;
-        transform: rotate(-30deg);
-        text-align: center;
-        font-size: 90px;
-        letter-spacing: 6px;
-        color: rgba(200, 0, 0, 0.08);
-        z-index: 0;
-      }
+            @top-left {
+                content: element(page-header);
+            }
 
-      .page {
-        page-break-after: always;
-        position: relative;
-        z-index: 1;
-      }
-      .header,
-      .footer {
-        font-size: 10.5px;
-        color: #555;
-      }
-      .header {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        border-bottom: 1px solid #ddd;
-        padding-bottom: 6px;
-        margin-bottom: 8px;
-      }
-      .h-left {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-      .pill {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-weight: 700;
-        font-size: 10px;
-        border: 1px solid #ddd;
-      }
-      .pill.posted {
-        background: #e8f6ee;
-        border-color: #c9efcf;
-        color: #0a5;
-      }
-      .pill.preview {
-        background: #fff5d6;
-        border-color: #ffe3a3;
-        color: #8a5a00;
-      }
+            @bottom-right {
+                content: "Page " counter(page) " / " counter(pages);
+                font-size: 10.5px;
+                color: #555;
+            }
+        }
 
-      .meta {
-        display: flex;
-        gap: 14px;
-      }
-      .meta b {
-        font-weight: 700;
-      }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                "Helvetica Neue", Arial, sans-serif;
+        }
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 11px;
-      }
-      thead th {
-        text-align: left;
-        border-bottom: 1px solid #ccc;
-        padding: 6px 4px;
-        background: #fafafa;
-      }
-      tbody td {
-        border-bottom: 1px solid #eee;
-        padding: 5px 4px;
-        vertical-align: top;
-      }
-      td.num,
-      th.num {
-        text-align: right;
-      }
+        /* Watermark: big, faint, diagonal */
+        .wm {
+            position: fixed;
+            top: 30%;
+            left: -10%;
+            right: -10%;
+            transform: rotate(-30deg);
+            text-align: center;
+            font-size: 90px;
+            letter-spacing: 6px;
+            color: rgba(200, 0, 0, 0.08);
+            z-index: 0;
+        }
 
-      .footer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-top: 1px solid #ddd;
-        padding-top: 6px;
-        margin-top: 8px;
-      }
-      .muted {
-        color: #777;
-      }
+        .page {
+            page-break-after: always;
+            position: relative;
+            z-index: 1;
+        }
 
-      /* Make sure each chunk fits: keep rows tidy */
-      .row {
-        line-height: 1.25;
-      }
+        .page:last-child {
+            page-break-after: auto;
+            /* avoid trailing blank page */
+        }
+
+        .header,
+        .footer {
+            font-size: 10.5px;
+            color: #555;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+
+            /* Make this a running header for margin box */
+            position: running(page-header);
+        }
+
+        .h-left {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 10px;
+            border: 1px solid #ddd;
+        }
+
+        .pill.posted {
+            background: #e8f6ee;
+            border-color: #c9efcf;
+            color: #0a5;
+        }
+
+        .pill.preview {
+            background: #fff5d6;
+            border-color: #ffe3a3;
+            color: #8a5a00;
+        }
+
+        .meta {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: baseline;
+            max-width: 70%;
+        }
+
+        .meta b {
+            font-weight: 700;
+        }
+
+        .code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                "Liberation Mono", "Courier New", monospace;
+        }
+
+        .wrap {
+            word-break: break-all;
+            overflow-wrap: anywhere;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+
+        thead th {
+            text-align: left;
+            border-bottom: 1px solid #ccc;
+            padding: 6px 4px;
+            background: #fafafa;
+        }
+
+        tbody td {
+            border-bottom: 1px solid #eee;
+            padding: 5px 4px;
+            vertical-align: top;
+            /* Keep rows single-line to guarantee fixed page height */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        td.num,
+        th.num {
+            text-align: right;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #ddd;
+            padding-top: 6px;
+            margin-top: 8px;
+        }
+
+        .muted {
+            color: #777;
+        }
+
+        /* Sections on the summary page */
+        .section {
+            margin-top: 12px;
+        }
+
+        .section h3 {
+            margin: 0 0 6px 0;
+            font-size: 12.5px;
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .summary-table th,
+        .summary-table td {
+            padding: 5px 4px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .summary-table th {
+            border-bottom: 1px solid #ccc;
+            background: #fafafa;
+        }
     </style>
-  </head>
-  <body>
+</head>
+
+<body>
     <div class="wm">{{ watermark_text }}</div>
 
     {% if total_pages == 0 %}
     <div class="page">
-      <div class="header">
-        <div class="h-left">
-          <div class="pill {{ 'preview' if is_preview else 'posted' }}">
-            {{ 'Mode: Preview (derived)' if is_preview else 'Mode: Posted
-            (authoritative)' }}
-          </div>
-          <div>General Ledger</div>
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'Mode: Preview (derived)' if is_preview else 'Mode: Posted (authoritative)' }}
+                </div>
+                <div>General Ledger</div>
+            </div>
+            <div class="meta">
+                <div><b>Window</b> {{ start }} → {{ end }}</div>
+                <div><b>Run</b> {{ run_id }}</div>
+                <div><b>Doc SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+            </div>
         </div>
-        <div class="meta">
-          <div><b>Window</b> {{ start }} → {{ end }}</div>
-          <div><b>Run</b> {{ run_id }}</div>
-          <div><b>Doc SHA256</b> {{ doc_digest_short }}…</div>
-        </div>
-      </div>
-      <p class="muted">No lines in this window.</p>
+        <p class="muted">No lines in this window.</p>
     </div>
-    {% endif %} {% for p in pages %}
+    {% endif %}
+
+    {% for p in pages %}
     <div class="page">
-      <div class="header">
-        <div class="h-left">
-          <div class="pill {{ 'preview' if is_preview else 'posted' }}">
-            {{ 'Mode: Preview (derived)' if is_preview else 'Mode: Posted
-            (authoritative)' }}
-          </div>
-          <div><b>General Ledger</b></div>
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'Mode: Preview (derived)' if is_preview else 'Mode: Posted (authoritative)' }}
+                </div>
+                <div><b>General Ledger</b></div>
+            </div>
+            <div class="meta">
+                <div><b>Window</b> {{ start }} → {{ end }}</div>
+                <div><b>Run</b> {{ run_id }}</div>
+                <div><b>Doc SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+                <div><b>Page Hash</b> <span class="code">{{ p.hash }}</span></div>
+                <div><b>Chunk</b> {{ p.index }} / {{ total_pages }}</div>
+            </div>
         </div>
-        <div class="meta">
-          <div><b>Window</b> {{ start }} → {{ end }}</div>
-          <div><b>Run</b> {{ run_id }}</div>
-          <div><b>Doc SHA256</b> {{ doc_digest_short }}…</div>
-          <div><b>Page Hash</b> {{ p.hash }}</div>
-          <div><b>Page</b> {{ p.index }} / {{ total_pages }}</div>
-        </div>
-      </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 12%">Date</th>
-            <th style="width: 11%">Ref</th>
-            <th>Memo</th>
-            <th style="width: 22%">Account</th>
-            <th style="width: 10%" class="num">Dr</th>
-            <th style="width: 10%" class="num">Cr</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in p.rows %}
-          <tr class="row">
-            <td>{{ r.date }}</td>
-            <td>{{ r.ref }}</td>
-            <td>{{ r.memo }}</td>
-            <td>{{ r.account_id }} — {{ r.account_name }}</td>
-            <td class="num">{{ '%.2f'|format(r.debit or 0) }}</td>
-            <td class="num">{{ '%.2f'|format(r.credit or 0) }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 12%">Date</th>
+                    <th style="width: 12%">Ref</th>
+                    <th>Memo</th>
+                    <th style="width: 24%">Account</th>
+                    <th style="width: 10%" class="num">Dr</th>
+                    <th style="width: 10%" class="num">Cr</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in p.rows %}
+                <tr>
+                    <td>{{ r.date }}</td>
+                    <td>{{ r.ref }}</td>
+                    <td>{{ r.memo }}</td>
+                    <td>{{ r.account_id }} — {{ r.account_name }}</td>
+                    <td class="num">{{ '%.2f'|format(r.debit or 0) }}</td>
+                    <td class="num">{{ '%.2f'|format(r.credit or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
 
-      <div class="footer">
-        <div class="muted">
-          Printed {{ printed_on.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z') }}
-          by {{ printed_by }} • First/Last Ref on page: {{ p.first_ref }} → {{
-          p.last_ref }}
+        <div class="footer">
+            <div class="muted">
+                Printed {{ printed_on.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z') }}
+                by {{ printed_by }} • First/Last Ref on chunk: {{ p.first_ref }} → {{ p.last_ref }}
+            </div>
+            <div class="muted wrap">
+                Run {{ run_id }} • Doc SHA256
+                <span class="code wrap">{{ doc_digest }}</span>
+            </div>
         </div>
-        <div class="muted">Run {{ run_id }} • Doc SHA256 {{ doc_digest }}</div>
-      </div>
     </div>
     {% endfor %}
-  </body>
+
+    <!-- Summary & Controls page -->
+    <div class="page">
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'Mode: Preview (derived)' if is_preview else 'Mode: Posted (authoritative)' }}
+                </div>
+                <div><b>Summary & Controls</b></div>
+            </div>
+            <div class="meta">
+                <div><b>Window</b> {{ start }} → {{ end }}</div>
+                <div><b>Run</b> {{ run_id }}</div>
+                <div><b>Doc SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+            </div>
+        </div>
+
+        <div class="grid2">
+            <div class="section">
+                <h3>Trial Balance (window totals)</h3>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 18%">Account</th>
+                            <th>Name</th>
+                            <th style="width: 12%">Type</th>
+                            <th style="width: 12%" class="num">Dr</th>
+                            <th style="width: 12%" class="num">Cr</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in tb_rows %}
+                        <tr>
+                            <td class="code">{{ r.account_id }}</td>
+                            <td>{{ r.account_name }}</td>
+                            <td>{{ r.account_type }}</td>
+                            <td class="num">{{ '%.2f'|format(r.debit_sum or 0) }}</td>
+                            <td class="num">{{ '%.2f'|format(r.credit_sum or 0) }}</td>
+                        </tr>
+                        {% endfor %}
+                        <tr>
+                            <td colspan="3"><b>Totals</b></td>
+                            <td class="num"><b>{{ '%.2f'|format(tb_total_dr or 0) }}</b></td>
+                            <td class="num"><b>{{ '%.2f'|format(tb_total_cr or 0) }}</b></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section">
+                <h3>Income Statement (snapshot)</h3>
+                <table class="summary-table">
+                    <tbody>
+                        <tr>
+                            <td><b>Total Income</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.income or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Total Expense</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.expense or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Net Income</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.net_income or 0) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3 style="margin-top:10px;">Balance Sheet Movement (snapshot)</h3>
+                <table class="summary-table">
+                    <tbody>
+                        <tr>
+                            <td><b>Assets Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.assets_delta or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Liabilities Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.liabilities_delta or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Equity Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.equity_delta or 0) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p class="muted" style="margin-top:8px;">
+                    Note: Summary reflects totals within this window; it is not a full historical balance.
+                </p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Chart of Accounts (legend)</h3>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th style="width: 18%">Account</th>
+                        <th>Name</th>
+                        <th style="width: 14%">Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in coa_legend %}
+                    <tr>
+                        <td class="code">{{ a.account_id }}</td>
+                        <td>{{ a.account_name }}</td>
+                        <td>{{ a.account_type }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                <div class="muted">
+                    Printed {{ printed_on.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z') }}
+                    by {{ printed_by }}
+                </div>
+                <div class="muted wrap">
+                    Run {{ run_id }} • Full Doc SHA256 <span class="code wrap">{{ doc_digest }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
 </html>

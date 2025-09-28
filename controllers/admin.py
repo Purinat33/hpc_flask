@@ -2040,8 +2040,12 @@ def export_ledger_pdf():
     import socket
     import csv
     import io
-    from datetime import datetime, timezone
+    import json
+    from datetime import datetime, timezone, date
     from weasyprint import HTML
+
+    # local imports (pandas etc.)
+    import pandas as pd
 
     # --- inputs / mode ---
     start = (request.args.get("start") or "1970-01-01").strip()
@@ -2058,23 +2062,31 @@ def export_ledger_pdf():
     # empty guard (render a stub page so it still prints a memo)
     if df is None or df.empty:
         df = pd.DataFrame(columns=[
-            "date", "ref", "memo", "account_id", "account_name", "account_type", "debit", "credit"
+            "date", "ref", "memo", "account_id", "account_name",
+            "account_type", "debit", "credit"
         ])
 
-    # --- canonical sort / CSV bytes for hashing ---
+    # --- canonical sort ---
     df = df.sort_values(["date", "ref", "account_id"],
                         kind="mergesort").reset_index(drop=True)
 
+    # numeric safety
+    for col in ("debit", "credit"):
+        if col not in df.columns:
+            df[col] = 0.0
+        df[col] = pd.to_numeric(df[col].fillna(0), errors="coerce").fillna(0.0)
+
+    # --- canonical CSV bytes for hashing (mode/window included) ---
     csv_buf = io.StringIO()
     w = csv.writer(csv_buf)
     w.writerow(["date", "ref", "memo", "account_id",
-               "account_name", "account_type", "debit", "credit"])
+                "account_name", "account_type", "debit", "credit"])
     for _, r in df.iterrows():
         w.writerow([
             r.get("date", ""), r.get("ref", ""), r.get("memo", ""),
-            r.get("account_id", ""), r.get(
-                "account_name", ""), r.get("account_type", ""),
-            float(r.get("debit") or 0), float(r.get("credit") or 0)
+            r.get("account_id", ""), r.get("account_name", ""),
+            r.get("account_type", ""), float(r.get("debit") or 0.0),
+            float(r.get("credit") or 0.0)
         ])
     csv_bytes = csv_buf.getvalue().encode("utf-8")
 
@@ -2087,17 +2099,19 @@ def export_ledger_pdf():
                         sort_keys=True).encode("utf-8")).hexdigest()
     doc_digest_short = doc_digest[:12]
 
-    # --- paginate (we control rows/page so page hashes are reproducible) ---
-    ROWS_PER_PAGE = 36  # tweak to taste; ~rows that fit A4 with header/footer
+    # --- paginate: predictable rows per logical "page" (each becomes a physical page)
+    # To keep one physical page per chunk, clamp row height (single line with ellipsis).
+    ROWS_PER_PAGE = 36  # tune with your header/footer/watermark layout
     pages = []
     for i in range(0, len(df), ROWS_PER_PAGE):
         chunk = df.iloc[i:i+ROWS_PER_PAGE].copy()
         page_index = len(pages) + 1
         first_ref = str(chunk.iloc[0]["ref"]) if not chunk.empty else "-"
         last_ref = str(chunk.iloc[-1]["ref"]) if not chunk.empty else "-"
-        # per-page hash ties to the exact slice + global digest
-        page_hash = sha256(f"{run_id}|{page_index}|{doc_digest}|{first_ref}|{last_ref}".encode(
-            "utf-8")).hexdigest()[:12]
+        page_hash = sha256(
+            f"{run_id}|{page_index}|{doc_digest}|{first_ref}|{last_ref}".encode(
+                "utf-8")
+        ).hexdigest()[:12]
         pages.append({
             "index": page_index,
             "rows": chunk.to_dict(orient="records"),
@@ -2105,10 +2119,71 @@ def export_ledger_pdf():
             "last_ref": last_ref,
             "hash": page_hash,
         })
+
+    # add a final control line (0.00/0.00) at the end of the very last ledger table
+    if pages:
+        pages[-1]["rows"].append({
+            "date": "",
+            "ref": "",
+            "memo": "— End of ledger —",
+            "account_id": "",
+            "account_name": "",
+            "account_type": "",
+            "debit": 0.00,
+            "credit": 0.00
+        })
+
     total_pages = max(1, len(pages))
 
-    # --- optional: persist an 'export run' manifest (tamper-evidence trail) ---
-    # You can store this alongside your CSV ExportRun table or a new one.
+    # --- build summary aggregates (for the final summary page) ---
+    # Trial Balance by account (window totals)
+    tb = (df.groupby(["account_id", "account_name", "account_type"], dropna=False)
+            .agg(debit_sum=("debit", "sum"), credit_sum=("credit", "sum"))
+            .reset_index())
+    tb["debit_sum"] = tb["debit_sum"].round(2)
+    tb["credit_sum"] = tb["credit_sum"].round(2)
+    tb_total_dr = float(tb["debit_sum"].sum().round(2) if hasattr(
+        tb["debit_sum"].sum(), "round") else round(tb["debit_sum"].sum(), 2))
+    tb_total_cr = float(tb["credit_sum"].sum().round(2) if hasattr(
+        tb["credit_sum"].sum(), "round") else round(tb["credit_sum"].sum(), 2))
+
+    # P&L snapshot
+    inc = tb[tb["account_type"] == "INCOME"]
+    exp = tb[tb["account_type"] == "EXPENSE"]
+    total_income = round(
+        float(inc["credit_sum"].sum() - inc["debit_sum"].sum()), 2)
+    total_expense = round(
+        float(exp["debit_sum"].sum() - exp["credit_sum"].sum()), 2)
+    net_income = round(total_income - total_expense, 2)
+    pl = {
+        "income": total_income,
+        "expense": total_expense,
+        "net_income": net_income
+    }
+
+    # Balance Sheet movement snapshot (window deltas)
+    asg = tb[tb["account_type"] == "ASSET"]
+    lbg = tb[tb["account_type"] == "LIABILITY"]
+    eqg = tb[tb["account_type"] == "EQUITY"]
+    assets_delta = round(
+        float(asg["debit_sum"].sum() - asg["credit_sum"].sum()), 2)
+    liab_delta = round(
+        float(lbg["credit_sum"].sum() - lbg["debit_sum"].sum()), 2)
+    equity_delta = round(
+        float(eqg["credit_sum"].sum() - eqg["debit_sum"].sum()), 2)
+    bs = {
+        "assets_delta": assets_delta,
+        "liabilities_delta": liab_delta,
+        "equity_delta": equity_delta
+    }
+
+    # COA legend (only accounts present in window)
+    coa_legend = (df[["account_id", "account_name", "account_type"]]
+                  .drop_duplicates()
+                  .sort_values(["account_type", "account_id"])
+                  .to_dict(orient="records"))
+
+    # --- optional persisted manifest (tamper-evidence) ---
     manifest = {
         "run_id": run_id,
         "mode": "derived" if is_preview else "posted",
@@ -2122,7 +2197,8 @@ def export_ledger_pdf():
         "generated_by": current_user.username,
     }
     audit("export.ledger_pdf", target_type="window", target_id=f"{start}:{end}",
-          outcome="success", status=200, extra={"run_id": run_id, "mode": criteria["mode"], "doc_sha256": doc_digest})
+          outcome="success", status=200,
+          extra={"run_id": run_id, "mode": criteria["mode"], "doc_sha256": doc_digest})
 
     # --- render HTML -> PDF ---
     html = render_template(
@@ -2137,6 +2213,13 @@ def export_ledger_pdf():
         printed_on=now,
         printed_by=current_user.username,
         watermark_text=("PREVIEW ONLY" if is_preview else "CONFIDENTIAL"),
+        # summary payload
+        tb_rows=tb.to_dict(orient="records"),
+        tb_total_dr=tb_total_dr,
+        tb_total_cr=tb_total_cr,
+        pl=pl,
+        bs=bs,
+        coa_legend=coa_legend,
     )
     pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
 
