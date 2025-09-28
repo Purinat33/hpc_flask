@@ -99,7 +99,7 @@ class JournalBatch(Base):
                          name="uq_batch_source_ref_kind"),
         Index("idx_batch_period", "period_year", "period_month"),
         CheckConstraint(
-            "kind in ('accrual','issue','payment','reversal','closing')", name="ck_batch_kind"),
+            "kind in ('accrual','issue','payment','reversal','closing', 'impairment')", name="ck_batch_kind"),
     )
 
 

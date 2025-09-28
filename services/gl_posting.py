@@ -2,6 +2,8 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable, Tuple
+
+import pandas as pd
 from models.audit_store import audit
 from models.base import session_scope
 from models.schema import Receipt
@@ -510,6 +512,7 @@ def close_period(year: int, month: int, actor: str) -> bool:
     Close an open period by zeroing INCOME and EXPENSE into 3000 Retained Earnings.
     Generates a single 'closing' batch. No effect if already closed.
     """
+    post_ecl_provision(year, month, actor, ar_due_days=30)
     now = datetime.now(timezone.utc)
     with session_scope() as s:
         p = s.execute(
@@ -673,4 +676,186 @@ def reopen_period(year: int, month: int, actor: str) -> bool:
                   extra={"reversal_batch_id": rb.id, "lines": len(lines)})
         except Exception:
             pass
+        return True
+
+
+def post_ecl_provision(year: int, month: int, actor: str,
+                       rates: dict | None = None,
+                       ar_due_days: int = 0) -> bool:
+    """
+    Post IFRS/TFRS 9 ECL provision (simplified approach) at period end.
+    Creates ONE 'impairment' batch with lines for A/R and Contract Assets deltas.
+
+    rates example (defaults applied if None):
+      {
+        "ar": {"current":0.005,"1-30":0.01,"31-60":0.02,"61-90":0.05,"90+":0.20},
+        "ca": {"current":0.005,"1-30":0.01,"31-60":0.02,"61-90":0.05,"90+":0.20},
+      }
+    """
+    from calendar import monthrange
+    from sqlalchemy import select, func, and_
+    if rates is None:
+        rates = {
+            "ar": {"current": 0.005, "1-30": 0.01, "31-60": 0.02, "61-90": 0.05, "90+": 0.20},
+            "ca": {"current": 0.005, "1-30": 0.01, "31-60": 0.02, "61-90": 0.05, "90+": 0.20},
+        }
+
+    # Reporting timestamp = last moment of the month (UTC)
+    asof = datetime(year, month, monthrange(year, month)
+                    [1], 23, 59, 59, tzinfo=timezone.utc)
+
+    def bucket(days: int) -> str:
+        if days <= 0:
+            return "current"
+        if days <= 30:
+            return "1-30"
+        if days <= 60:
+            return "31-60"
+        if days <= 90:
+            return "61-90"
+        return "90+"
+
+    AR = _acc("Accounts Receivable")
+    CA = _acc("Contract Asset (Unbilled A/R)")
+    ALW_AR = _acc("Allowance for ECL - Trade receivables")
+    ALW_CA = _acc("Allowance for ECL - Contract assets")
+    ECL_EXP = _acc("Impairment loss (ECL)")
+
+    with session_scope() as s:
+        # -------- Outstanding by receipt (A/R: dr-cr; CA: dr-cr) --------
+        def _outstanding_per_receipt(account_id: str):
+            rows = s.execute(
+                select(GLEntry.receipt_id,
+                       func.coalesce(func.sum(GLEntry.debit), 0.0).label("dr"),
+                       func.coalesce(func.sum(GLEntry.credit), 0.0).label("cr"))
+                .join(JournalBatch, GLEntry.batch_id == JournalBatch.id)
+                .where(and_(GLEntry.account_id == account_id,
+                            GLEntry.date <= asof,
+                            JournalBatch.kind != "closing"))
+                .group_by(GLEntry.receipt_id)
+            ).all()
+            # receipt_id -> amount
+            return {rid: float(dr or 0) - float(cr or 0) for (rid, dr, cr) in rows if rid is not None}
+
+        ar_os = _outstanding_per_receipt(AR)  # positive = still due gross
+        ca_os = _outstanding_per_receipt(CA)  # positive = still unbilled net
+
+        # -------- Pull receipt dates to compute age --------
+        recs = {}
+        if ar_os or ca_os:
+            rids = list({*ar_os.keys(), *ca_os.keys()})
+            for r in s.execute(select(Receipt.id, Receipt.created_at, Receipt.end).where(Receipt.id.in_(rids))).all():
+                recs[r.id] = {"created_at": r.created_at, "end": r.end}
+
+        def _age_days_for_ar(rid: int) -> int:
+            inv = recs.get(rid, {}).get("created_at") or asof
+            due = (inv + pd.to_timedelta(ar_due_days, unit="D")
+                   ) if ar_due_days else inv
+            return (asof.date() - due.date()).days
+
+        def _age_days_for_ca(rid: int) -> int:
+            sv = recs.get(rid, {}).get("end") or recs.get(
+                rid, {}).get("created_at") or asof
+            return (asof.date() - sv.date()).days
+
+        # -------- Required allowance (provision matrix) --------
+        buckets_exposure = {"ar": {}, "ca": {}}
+        required_ar = 0.0
+        for rid, amt in ar_os.items():
+            if amt <= 0.005:  # settled
+                continue
+            b = bucket(_age_days_for_ar(rid))
+            buckets_exposure["ar"][b] = buckets_exposure["ar"].get(
+                b, 0.0) + amt
+            required_ar += amt * float(rates["ar"].get(b, 0.0))
+
+        required_ca = 0.0
+        for rid, amt in ca_os.items():
+            if amt <= 0.005:
+                continue
+            b = bucket(_age_days_for_ca(rid))
+            buckets_exposure["ca"][b] = buckets_exposure["ca"].get(
+                b, 0.0) + amt
+            required_ca += amt * float(rates["ca"].get(b, 0.0))
+
+        required_ar = round(required_ar, 2)
+        required_ca = round(required_ca, 2)
+
+        # -------- Existing allowance balances as of asof (credit-balance, positive) --------
+        def _allow_bal(account_id: str) -> float:
+            row = s.execute(
+                select(func.coalesce(func.sum(GLEntry.debit), 0.0),
+                       func.coalesce(func.sum(GLEntry.credit), 0.0))
+                .where(and_(GLEntry.account_id == account_id, GLEntry.date <= asof))
+            ).first()
+            dr, cr = (row or (0.0, 0.0))
+            return round(float(cr or 0) - float(dr or 0), 2)
+
+        have_ar = _allow_bal(ALW_AR)
+        have_ca = _allow_bal(ALW_CA)
+
+        delta_ar = round(required_ar - have_ar, 2)
+        delta_ca = round(required_ca - have_ca, 2)
+
+        if abs(delta_ar) < 0.01 and abs(delta_ca) < 0.01:
+            audit("gl.ecl.noop", target_type="period", target_id=f"{year}-{month:02d}",
+                  status=304, outcome="noop",
+                  extra={"required_ar": required_ar, "required_ca": required_ca})
+            return True
+
+        # Ensure period is open
+        y, m = year, month
+        if is_period_closed(asof):
+            audit("gl.ecl.blocked", target_type="period", target_id=f"{y}-{m:02d}",
+                  status=409, outcome="blocked", extra={"reason": "period_closed"})
+            return False
+
+        # -------- Post one impairment batch --------
+        b = JournalBatch(
+            source="billing", source_ref=f"ECL-{y}-{m:02d}", kind="impairment",
+            posted_at=asof, posted_by=actor, period_year=y, period_month=m
+        )
+        s.add(b)
+        s.flush()
+
+        ref = f"ECL{y}{m:02d}"
+        memo_ar = f"ECL provision (trade receivables) {y}-{m:02d} — provision matrix"
+        memo_ca = f"ECL provision (contract assets) {y}-{m:02d} — provision matrix"
+
+        def _post_delta(delta: float, allow_acct: str, memo: str):
+            if round(abs(delta), 2) < 0.01:  # nothing
+                return 0
+            if delta > 0:
+                # increase allowance: Dr expense / Cr allowance
+                s.add(GLEntry(batch_id=b.id, date=asof, ref=ref, memo=memo,
+                              account_id=ECL_EXP, account_name=_ACC[ECL_EXP][
+                                  "name"], account_type=_ACC[ECL_EXP]["type"],
+                              debit=abs(delta), credit=0))
+                s.add(GLEntry(batch_id=b.id, date=asof, ref=ref, memo=memo,
+                              account_id=allow_acct, account_name=_ACC[allow_acct][
+                                  "name"], account_type=_ACC[allow_acct]["type"],
+                              debit=0, credit=abs(delta)))
+                return 2
+            else:
+                # decrease allowance: Dr allowance / Cr expense
+                s.add(GLEntry(batch_id=b.id, date=asof, ref=ref, memo=memo,
+                              account_id=allow_acct, account_name=_ACC[allow_acct][
+                                  "name"], account_type=_ACC[allow_acct]["type"],
+                              debit=abs(delta), credit=0))
+                s.add(GLEntry(batch_id=b.id, date=asof, ref=ref, memo=memo,
+                              account_id=ECL_EXP, account_name=_ACC[ECL_EXP][
+                                  "name"], account_type=_ACC[ECL_EXP]["type"],
+                              debit=0, credit=abs(delta)))
+                return 2
+
+        lines = 0
+        lines += _post_delta(delta_ar, ALW_AR, memo_ar)
+        lines += _post_delta(delta_ca, ALW_CA, memo_ca)
+
+        audit("gl.ecl.posted", target_type="period", target_id=f"{y}-{m:02d}",
+              status=200, outcome="success",
+              extra={"batch_id": b.id, "lines": lines,
+                     "required_ar": required_ar, "required_ca": required_ca,
+                     "delta_ar": delta_ar, "delta_ca": delta_ca,
+                     "buckets": buckets_exposure, "rates": rates})
         return True

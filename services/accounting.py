@@ -16,6 +16,10 @@ def chart_of_accounts() -> List[Dict]:
         {"id": "1100", "name": "Accounts Receivable",  "type": "ASSET"},
         {"id": "1150",
             "name": "Contract Asset (Unbilled A/R)",     "type": "ASSET"},
+        {"id": "1159", "name": "Allowance for ECL - Contract assets",
+            "type": "ASSET"},   # contra
+        {"id": "1190", "name": "Allowance for ECL - Trade receivables",
+            "type": "ASSET"},  # contra
         {"id": "2000", "name": "Unearned Revenue",
             "type": "LIABILITY"},  # reserved
         {"id": "2100", "name": "VAT Output Payable", "type": "LIABILITY"},
@@ -23,6 +27,7 @@ def chart_of_accounts() -> List[Dict]:
         {"id": "4000", "name": "Service Revenue",      "type": "INCOME"},
         {"id": "5000", "name": "Cost of Service",
             "type": "EXPENSE"},     # reserved
+        {"id": "6100", "name": "Impairment loss (ECL)", "type": "EXPENSE"},
     ]
 
 

@@ -24,6 +24,9 @@ COA = {
     "unbilled": {"id": 1150, "name": "Contract Asset (Unbilled A/R)",     "type": "ASSET"},
     "rev":      {"id": 4000, "name": "Service Revenue",                   "type": "INCOME"},
     "vat":      {"id": 2100, "name": "VAT Output Payable",                "type": "LIABILITY"},
+    "allow_ar":  {"id": 1290, "name": "Allowance for ECL - Trade receivables", "type": "ASSET"},
+    "allow_ca":  {"id": 1291, "name": "Allowance for ECL - Contract assets",   "type": "ASSET"},
+    "ecl_exp":   {"id": 6090, "name": "Impairment loss (ECL)",                 "type": "EXPENSE"},
 }
 
 
@@ -51,7 +54,8 @@ def run_formal_gl_export(start: str, end: str, actor: str, kind: str = "posted_g
             select(JournalBatch.id)
             .where(
                 JournalBatch.exported_at.is_(None),
-                JournalBatch.kind.in_(["accrual", "issue", "payment"]),
+                JournalBatch.kind.in_(
+                    ["accrual", "issue", "payment", "impairment"]),
                 GLEntry.batch_id == JournalBatch.id,   # ensures there are lines
                 GLEntry.date >= s_utc, GLEntry.date <= e_utc,
             )

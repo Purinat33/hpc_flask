@@ -532,6 +532,79 @@
                 color: #a76b00;
             }
         </style>
+        <!-- Compliance & System Notes (collapsible) -->
+        <section class="card gl-memo">
+            <details class="gl-memo-details">
+                <summary>📘 Accounting policy & controls (IFRS refs)</summary>
+        
+                <ul class="gl-memo-list">
+                    <li><b>Revenue timing (IFRS 15)</b> — We recognize service revenue in the service month:
+                        <em>Dr 1150 Contract Asset</em> / <em>Cr 4000 Service Revenue</em>. On invoice:
+                        <em>Dr 1100 A/R</em>, <em>Cr 1150</em>, and <em>Cr 2100 VAT (if applicable)</em>. On cash:
+                        <em>Dr 1000 Cash</em> / <em>Cr 1100 A/R</em>. (Refs: IFRS 15.38 on over-time recognition; IFRS
+                        15.105–107 on contract assets.)
+                    </li>
+        
+                    <li><b>ECL provision (IFRS 9)</b> — Monthly impairment uses the simplified approach and a provision matrix
+                        by aging bucket for <em>trade receivables</em> and <em>contract assets</em>. We post only the delta:
+                        <em>Dr 6100 Impairment loss (ECL)</em> / <em>Cr Allowance</em>. (Refs: IFRS 9.5.5.15 simplified
+                        approach; IFRS 9.B5.5.35 provision matrix; IFRS 15.107 links contract assets to IFRS 9 impairment.)
+                    </li>
+        
+                    <li><b>Period close</b> — End-of-month: run ECL, then close Income & Expense to <em>3000 Retained
+                            Earnings</em> in a single
+                        closing batch; re-open is done via a dated <em>reversal</em>. (Good practice control; not a substitution
+                        for statutory closing disclosures.)
+                    </li>
+        
+                    <li><b>Controls</b> — Idempotent batches keyed by (<code>source</code>, <code>source_ref</code>,
+                        <code>kind</code>);
+                        sequenced lines with stable external IDs; audit events on every action (blocked/noop/success).
+                    </li>
+        
+                    <li><b>Exports</b> — “Posted GL” window only; shipped with manifest & HMAC signature.
+                        CSVs for Xero (bank/sales) are convenience formats; authoritative is the posted GL.
+                    </li>
+                </ul>
+        
+                <p class="gl-memo-disclaimer">
+                    <b>Note:</b> This is an internal systems summary aligned to IFRS 15/9 references above.
+                    Final policy decisions, materiality, and disclosures remain with Finance/Legal.
+                </p>
+            </details>
+        </section>
+        
+        <style>
+            .gl-memo {
+                margin: 1rem 0;
+            }
+        
+            .gl-memo-details {
+                position: static;
+            }
+        
+            /* ensure downward expansion */
+            .gl-memo-details>summary {
+                cursor: pointer;
+                font-weight: 600;
+                list-style: none;
+            }
+        
+            .gl-memo-details>summary::-webkit-details-marker {
+                display: none;
+            }
+        
+            .gl-memo-list {
+                margin: .5rem 1.25rem;
+            }
+        
+            .gl-memo-disclaimer {
+                margin: .75rem 0 0;
+                color: #666;
+                font-size: .9rem;
+            }
+        </style>
+
     </main>
 </div>
 
