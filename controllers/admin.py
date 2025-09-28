@@ -1834,7 +1834,7 @@ def _period_status(y: int, m: int) -> str | None:
 def ui_close_period(year, month):
     from calendar import monthrange
     from datetime import datetime, timezone
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     from models.schema import Receipt
     from models.gl import JournalBatch, GLEntry
 
@@ -1850,16 +1850,24 @@ def ui_close_period(year, month):
         flash(f"Close blocked: failed to run accruals — {e}", "error")
         return redirect(request.referrer or url_for("admin.ledger_page"))
 
-    # 2) Verify coverage: every receipt with service END in (y,m) has an accrual batch
+    # 2) Verify coverage: every *non-zero-net* receipt with service END in (y,m)
+    #    has an accrual batch. Zero-net receipts do not require accruals.
     first = datetime(year, month, 1, tzinfo=timezone.utc)
     last = datetime(year, month, monthrange(year, month)
                     [1], 23, 59, 59, tzinfo=timezone.utc)
 
     missing_ids = []
     with session_scope() as s:
-        # all candidate receipts (service period ends in y-m)
+        # All candidate receipts whose service period ends in y-m and have non-zero net.
+        # If you also track a status, you can AND an "active" status filter here.
         candidate_ids = s.execute(
-            select(Receipt.id).where(Receipt.end >= first, Receipt.end <= last)
+            select(Receipt.id).where(
+                Receipt.end >= first,
+                Receipt.end <= last,
+                # mirror post_service_accrual_for_receipt(): skip zero/negative gross
+                func.coalesce(Receipt.total, 0) > 0
+                # , Receipt.status.in_(("open","issued"))   # (optional)
+            )
         ).scalars().all()
 
         if candidate_ids:
