@@ -532,78 +532,392 @@
                 color: #a76b00;
             }
         </style>
-        <!-- Compliance & System Notes (collapsible) -->
-        <section class="card gl-memo">
-            <details class="gl-memo-details">
-                <summary>📘 Accounting policy & controls (IFRS refs)</summary>
-        
-                <ul class="gl-memo-list">
-                    <li><b>Revenue timing (IFRS 15)</b> — We recognize service revenue in the service month:
-                        <em>Dr 1150 Contract Asset</em> / <em>Cr 4000 Service Revenue</em>. On invoice:
-                        <em>Dr 1100 A/R</em>, <em>Cr 1150</em>, and <em>Cr 2100 VAT (if applicable)</em>. On cash:
-                        <em>Dr 1000 Cash</em> / <em>Cr 1100 A/R</em>. (Refs: IFRS 15.38 on over-time recognition; IFRS
-                        15.105–107 on contract assets.)
-                    </li>
-        
-                    <li><b>ECL provision (IFRS 9)</b> — Monthly impairment uses the simplified approach and a provision matrix
-                        by aging bucket for <em>trade receivables</em> and <em>contract assets</em>. We post only the delta:
-                        <em>Dr 6100 Impairment loss (ECL)</em> / <em>Cr Allowance</em>. (Refs: IFRS 9.5.5.15 simplified
-                        approach; IFRS 9.B5.5.35 provision matrix; IFRS 15.107 links contract assets to IFRS 9 impairment.)
-                    </li>
-        
-                    <li><b>Period close</b> — End-of-month: run ECL, then close Income & Expense to <em>3000 Retained
-                            Earnings</em> in a single
-                        closing batch; re-open is done via a dated <em>reversal</em>. (Good practice control; not a substitution
-                        for statutory closing disclosures.)
-                    </li>
-        
-                    <li><b>Controls</b> — Idempotent batches keyed by (<code>source</code>, <code>source_ref</code>,
-                        <code>kind</code>);
-                        sequenced lines with stable external IDs; audit events on every action (blocked/noop/success).
-                    </li>
-        
-                    <li><b>Exports</b> — “Posted GL” window only; shipped with manifest & HMAC signature.
-                        CSVs for Xero (bank/sales) are convenience formats; authoritative is the posted GL.
-                    </li>
-                </ul>
-        
-                <p class="gl-memo-disclaimer">
-                    <b>Note:</b> This is an internal systems summary aligned to IFRS 15/9 references above.
-                    Final policy decisions, materiality, and disclosures remain with Finance/Legal.
-                </p>
-            </details>
-        </section>
-        
-        <style>
-            .gl-memo {
-                margin: 1rem 0;
-            }
-        
-            .gl-memo-details {
-                position: static;
-            }
-        
-            /* ensure downward expansion */
-            .gl-memo-details>summary {
-                cursor: pointer;
-                font-weight: 600;
-                list-style: none;
-            }
-        
-            .gl-memo-details>summary::-webkit-details-marker {
-                display: none;
-            }
-        
-            .gl-memo-list {
-                margin: .5rem 1.25rem;
-            }
-        
-            .gl-memo-disclaimer {
-                margin: .75rem 0 0;
-                color: #666;
-                font-size: .9rem;
-            }
-        </style>
+<!-- Compliance & System Notes (collapsible) -->
+<section class="card gl-memo">
+    <details class="gl-memo-details">
+        <summary>📘 Accounting policy & controls (IFRS/TFRS refs + how-to)</summary>
+
+        <ul class="gl-memo-list">
+            <li>
+                <b>Revenue timing — over-time services (IFRS/TFRS 15)</b> — We recognise revenue in the service month
+                when performance obligations are satisfied over time, with an interim <em>contract asset</em> until
+                billing:
+                <em>Dr 1150 Contract Asset</em> / <em>Cr 4000 Service Revenue</em>. On invoice: <em>Dr 1100 A/R</em>,
+                <em>Cr 1150</em>,
+                <em>Cr 2100 VAT Output</em>. On cash: <em>Dr 1000 Cash</em> / <em>Cr 1100 A/R</em>.
+                <span class="gl-law-ref">Refs: IFRS 15.35 & 15.38 (over-time & progress measurement); IFRS 15.105–107
+                    (contract assets/receivables & impairment). TFRS 15 mirrors IFRS paragraph numbering.</span>
+            </li>
+
+            <li>
+                <b>Impairment — simplified ECL (IFRS/TFRS 9)</b> — Monthly allowance is measured using the
+                <em>simplified approach</em> with an ageing provision matrix; applies to both trade receivables and
+                contract assets.
+                We post only the change (delta): <em>Dr 6100 Impairment loss (ECL)</em> / <em>Cr 1190/1159
+                    Allowance</em>.
+                <span class="gl-law-ref">Refs: IFRS 9.5.5.15 (lifetime ECL for trade receivables/contract assets) and
+                    IFRS 9.B5.5.35 (provision matrix). TFRS 9 mirrors IFRS paragraph numbering.</span>
+            </li>
+
+            <li>
+                <b>VAT — Thai compliance touchpoints</b> — Output VAT is recognised on tax-invoice issuance for taxable
+                supplies,
+                presented separately from revenue; invoices must meet “full tax invoice” content.
+                <span class="gl-law-ref">Refs: ประมวลรัษฎากร มาตรา 77/1 (นิยามภาษีมูลค่าเพิ่ม), มาตรา 86/4 (ข้อกำหนด
+                    “ใบกำกับภาษี” แบบเต็ม); คำสั่งกรมสรรพากรที่ ป.86/2542
+                    (การออกใบกำกับภาษีหลายแผ่น/ข้อกำหนดรูปแบบ).</span>
+            </li>
+
+            <li>
+                <b>e-Tax invoice / e-Receipt</b> — Electronic issuance/retention is supported externally; our export
+                delivers the data you
+                need to feed an approved e-Tax system. Digital signing, approved formats and retention must follow the
+                DGT announcements.
+                <span class="gl-law-ref">Refs: ประกาศอธิบดีกรมสรรพากร (ฉบับที่ 15) พ.ศ. 2562 เรื่องหลักเกณฑ์ วิธีการ
+                    และเงื่อนไขการจัดทำ/ส่งมอบ/เก็บรักษาใบกำกับภาษีอิเล็กทรอนิกส์และใบรับอิเล็กทรอนิกส์.</span>
+            </li>
+
+            <li>
+                <b>Period close</b> — End-of-month: run ECL, then close Income & Expense to <em>3000 Retained
+                    Earnings</em> via a single
+                closing batch; re-open only via a dated <em>reversal</em>. This is a systems control (not a substitute
+                for statutory FS).
+            </li>
+
+            <li>
+                <b>Controls</b> — Idempotent batches keyed by (<code>source</code>, <code>source_ref</code>,
+                <code>kind</code>);
+                stable external IDs per line; exhaustive audit events (blocked/noop/success). Formal exports include a
+                manifest and
+                HMAC signature; “Posted GL” is authoritative.
+            </li>
+        </ul>
+
+        <div class="gl-legend">
+            <h4>Legend (accounts used)</h4>
+            <dl>
+                <dt>1000</dt>
+                <dd>Cash/Bank — Asset</dd>
+                <dt>1100</dt>
+                <dd>Accounts Receivable — Asset</dd>
+                <dt>1150</dt>
+                <dd>Contract Asset (Unbilled A/R) — Asset <span class="tag">IFRS/TFRS 15</span></dd>
+                <dt>1159</dt>
+                <dd>Allowance for ECL - Contract assets — Contra-asset <span class="tag">IFRS/TFRS 9</span></dd>
+                <dt>1190</dt>
+                <dd>Allowance for ECL - Trade receivables — Contra-asset <span class="tag">IFRS/TFRS 9</span></dd>
+                <dt>2100</dt>
+                <dd>VAT Output Payable — Liability <span class="tag">Thai VAT</span></dd>
+                <dt>3000</dt>
+                <dd>Retained Earnings — Equity</dd>
+                <dt>4000</dt>
+                <dd>Service Revenue — Income <span class="tag">IFRS/TFRS 15</span></dd>
+                <dt>6100</dt>
+                <dd>Impairment loss (ECL) — Expense <span class="tag">IFRS/TFRS 9</span></dd>
+            </dl>
+        </div>
+
+        <div class="gl-legend">
+            <h4>Legend (UI signals)</h4>
+            <dl>
+                <dt>External Payment</dt>
+                <dd>Any non-internal successful collection — if “Yes”, use refund/credit note (no “revert”).</dd>
+                <dt>GL Exported</dt>
+                <dd>Batch included in a formal GL export — downstream reversal required (no delete/revert).</dd>
+                <dt>E-Tax</dt>
+                <dd>Submitted or status ≠ Draft — reverse in the e-Tax channel (no delete/revert).</dd>
+                <dt>Customer Sent</dt>
+                <dd>Invoice delivered to customer — follow customer-facing correction flow.</dd>
+                <dt>Eligible to Revert</dt>
+                <dd>Only when all the above are <em>clean</em> (no external money; no locks).</dd>
+            </dl>
+        </div>
+
+        <div class="gl-workflow">
+            <h4>Quick workflow (month-end)</h4>
+            <ol>
+                <li><b>Set window</b> and ensure the target <b>period is Open</b>.</li>
+                <li><b>Accrue revenue</b> in service month (Dr 1150 / Cr 4000).</li>
+                <li><b>Issue invoice</b>: Dr 1100; Cr 1150; Cr 2100 (if VAT enabled).</li>
+                <li><b>Record cash</b>: Dr 1000; Cr 1100 when paid.</li>
+                <li><b>Run ECL</b> (simplified approach; provision matrix by ageing) for A/R and contract assets.</li>
+                <li><b>Close period</b> (P&L → 3000). If needed, re-open via dated reversal.</li>
+                <li><b>Export</b> the <em>Posted GL</em> (ZIP: CSV + manifest + HMAC) to downstream systems/e-Tax
+                    gateways.</li>
+            </ol>
+        </div>
+
+        <div class="gl-legend">
+            <h4>References</h4>
+            <dl>
+                <dt>IFRS 15</dt>
+                <dd>Revenue from Contracts with Customers — §§ 35, 38, 105-107.</dd>
+                <dt>IFRS 9</dt>
+                <dd>Financial Instruments — § 5.5.15; App B § B5.5.35.</dd>
+                <dt>TFRS 15</dt>
+                <dd>มาตรฐานการรายงานทางการเงิน ฉบับที่ 15 (รายได้จากสัญญาที่ทำกับลูกค้า)</dd>
+                <dt>TFRS 9</dt>
+                <dd>มาตรฐานการรายงานทางการเงิน ฉบับที่ 9 (เครื่องมือทางการเงิน)</dd>
+                <dt>VAT — ประมวลรัษฎากร</dt>
+                <dd>มาตรา 77/1 (นิยาม), มาตรา 86/4 (ใบกำกับภาษีแบบเต็ม), คำสั่ง ป.86/2542 (ข้อกำหนดรูปแบบ/หลายแผ่น).
+                </dd>
+                <dt>e-Tax/e-Receipt</dt>
+                <dd>ประกาศอธิบดีกรมสรรพากร (ฉบับที่ 15) พ.ศ. 2562 — หลักเกณฑ์การจัดทำ ส่งมอบ
+                    และเก็บรักษาเอกสารอิเล็กทรอนิกส์.</dd>
+            </dl>
+        </div>
+
+        <p class="gl-memo-disclaimer">
+            <b>Note:</b> This is a systems-level summary aligned to IFRS/TFRS and Thai VAT refs above. It does not
+            replace
+            formal accounting policies, statutory financial statements, or tax filings. <b>Legal/Finance must
+                confirm</b>
+            materiality, disclosures, e-Tax enrolment/signature/archival requirements, and any industry-specific rules.
+        </p>
+    </details>
+</section>
+
+<style>
+    /* helper notes inside bullets */
+    .gl-memo .gl-law-ref {
+        display: block;
+        margin: .25rem 0 0;
+        font-size: .85rem;
+        color: #666;
+    }
+
+    /* compact legend (reuse your gl-legend style) */
+    .gl-legend h4 {
+        margin: .35rem 0 .35rem;
+        font-size: .95rem;
+        color: #333;
+    }
+
+    .gl-legend dl {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: .35rem .75rem;
+        margin: 0;
+    }
+
+    .gl-legend dt {
+        font-weight: 700;
+        color: #333;
+    }
+
+    .gl-legend dd {
+        margin: 0;
+        color: #555;
+    }
+</style>
+
+
+<style>
+    /* compact sources list */
+    .gl-refs {
+        margin: .75rem 0 0;
+        padding-left: 1.15rem;
+        color: #555;
+        font-size: .9rem;
+    }
+
+    .gl-refs li {
+        margin: .2rem 0;
+    }
+</style>
+
+
+<!-- Additions for styles used above -->
+<style>
+    /* compact 2-column legend; reuse your existing gl-legend base */
+    .gl-lawlist {
+        display: grid;
+        grid-template-columns: 70px 1fr;
+        gap: .35rem .75rem;
+        margin: 0;
+    }
+
+    .gl-lawlist dt {
+        font-weight: 700;
+        color: #333;
+    }
+
+    .gl-lawlist dd {
+        margin: 0;
+        color: #555;
+    }
+</style>
+
+
+
+<style>
+    /* tiny helper for the reference list */
+    .gl-refs {
+        margin: .85rem 1.25rem .25rem;
+        color: #555;
+        font-size: .9rem;
+    }
+
+    .gl-refs li {
+        margin: .15rem 0;
+    }
+</style>
+
+<style>
+    .gl-memo {
+        margin: 1rem 0;
+    }
+
+    .gl-memo-details {
+        position: static;
+    }
+
+    .gl-memo-details>summary {
+        cursor: pointer;
+        font-weight: 600;
+        list-style: none;
+    }
+
+    .gl-memo-details>summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .gl-memo-list {
+        margin: .5rem 1.25rem;
+    }
+
+    .gl-memo-disclaimer {
+        margin: .75rem 0 0;
+        color: #666;
+        font-size: .9rem;
+    }
+
+    .gl-memo-note {
+        display: block;
+        margin: .25rem 0 0;
+        font-size: .85rem;
+        color: #666;
+    }
+
+    .gl-legend {
+        margin: .75rem 0 0;
+    }
+
+    .gl-legend h4 {
+        margin: .25rem 0 .35rem;
+        font-size: .95rem;
+        color: #333;
+    }
+
+    .gl-legend dl {
+        display: grid;
+        grid-template-columns: 70px 1fr;
+        gap: .35rem .75rem;
+        margin: 0;
+    }
+
+    .gl-legend dt {
+        font-weight: 700;
+        color: #333;
+    }
+
+    .gl-legend dd {
+        margin: 0;
+        color: #555;
+    }
+
+    .gl-workflow {
+        margin: .85rem 0 0;
+    }
+
+    .gl-workflow h4 {
+        margin: .25rem 0 .35rem;
+        font-size: .95rem;
+        color: #333;
+    }
+
+    .gl-workflow ol {
+        margin: .25rem 1.15rem;
+        line-height: 1.35;
+    }
+
+    .gl-workflow li {
+        margin: .25rem 0;
+    }
+
+    /* NEW: compact sources list */
+    .gl-cites {
+        margin: .85rem 0 0;
+    }
+
+    .gl-cites h4 {
+        margin: .25rem 0 .35rem;
+        font-size: .95rem;
+        color: #333;
+    }
+
+    .gl-cites ul {
+        margin: .25rem 1.15rem;
+    }
+
+    .gl-cites li {
+        margin: .2rem 0;
+        font-size: .92rem;
+    }
+</style>
+<!-- Add these tiny utility styles just under your existing .gl-memo styles -->
+<style>
+    /* small standard-law badges */
+    .std {
+        display: inline-block;
+        padding: .05rem .4rem;
+        border-radius: 999px;
+        font-size: .72rem;
+        border: 1px solid #ddd;
+        background: #f7f7f9;
+        color: #444;
+        margin-left: .3rem;
+    }
+
+    .std-ifrs {
+        border-color: #cfe3ff;
+        background: #f2f7ff;
+    }
+
+    .std-tfrs {
+        border-color: #d6f0d6;
+        background: #f3fbf3;
+    }
+
+    .std-thlaw {
+        border-color: #ffe3a3;
+        background: #fff7e0;
+    }
+
+    .gl-sources {
+        margin: .9rem 0 0;
+    }
+
+    .gl-sources h4 {
+        margin: .25rem 0 .35rem;
+        font-size: .95rem;
+        color: #333;
+    }
+
+    .gl-sources ul {
+        margin: .25rem 1.15rem;
+        line-height: 1.35;
+    }
+
+    .gl-sources li {
+        margin: .25rem 0;
+    }
+
+    .gl-sources a {
+        text-decoration: underline;
+    }
+</style>
+
 
     </main>
 </div>
