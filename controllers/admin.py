@@ -2101,7 +2101,7 @@ def export_ledger_pdf():
 
     # --- paginate: predictable rows per logical "page" (each becomes a physical page)
     # To keep one physical page per chunk, clamp row height (single line with ellipsis).
-    ROWS_PER_PAGE = 36  # tune with your header/footer/watermark layout
+    ROWS_PER_PAGE = 34  # tune with your header/footer/watermark layout
     pages = []
     for i in range(0, len(df), ROWS_PER_PAGE):
         chunk = df.iloc[i:i+ROWS_PER_PAGE].copy()

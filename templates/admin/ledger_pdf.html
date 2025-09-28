@@ -135,14 +135,14 @@
         }
 
         tbody td {
-            border-bottom: 1px solid #eee;
-            padding: 5px 4px;
-            vertical-align: top;
-            /* Keep rows single-line to guarantee fixed page height */
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
+  border-bottom: 1px solid #eee;
+  padding: 5px 4px;
+  vertical-align: top;
+  /* default: allow wrapping */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 
         td.num,
         th.num {
@@ -190,18 +190,32 @@
         }
 
         /* Make columns deterministic and stop overflow */
-table.gl { table-layout: fixed; width: 100%; border-collapse: collapse; }
-table.gl th, table.gl td { box-sizing: border-box; padding: 2.5mm; vertical-align: top; }
+table.gl td:nth-child(1),
+table.gl td:nth-child(2),
+table.gl td:nth-child(5),
+table.gl td:nth-child(6) {
+  white-space: nowrap;
+}
+
+table.gl td:nth-child(3),
+table.gl td:nth-child(4) {
+  overflow-wrap: anywhere;    /* break long tokens */
+  word-break: break-word;
+  hyphens: auto;
+}
 
 /* Column widths — use mm so they honor the physical page width */
-.col-date { width: 22mm; white-space: nowrap; }
-.col-ref  { width: 24mm; white-space: nowrap; }
-/* Let the long text wrap inside these cells */
+/* Column widths — mm maps to real paper width */
+.col-date { width: 20mm; white-space: nowrap; }
+.col-ref  { width: 22mm; white-space: nowrap; }
 .col-memo { width: auto; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
-.col-acct { width: 45mm; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
-/* Numbers: keep on one line and right align */
-.col-dr, .col-cr { width: 24mm; text-align: right; white-space: nowrap;
-                   font-variant-numeric: tabular-nums; }
+.col-acct { width: 58mm; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+.col-dr, .col-cr {
+  width: 24mm;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Printing niceties */
 thead { display: table-header-group; }     /* repeat headers on each page */
@@ -263,12 +277,12 @@ tr { page-break-inside: avoid; }
             </colgroup>
             <thead>
                 <tr>
-                    <th style="width: 12%">Date</th>
-                    <th style="width: 12%">Ref</th>
+                    <th>Date</th>
+                    <th>Ref</th>
                     <th>Memo</th>
-                    <th style="width: 24%">Account</th>
-                    <th style="width: 10%" class="num">Dr</th>
-                    <th style="width: 10%" class="num">Cr</th>
+                    <th>Account</th>
+                    <th class="num">Dr</th>
+                    <th class="num">Cr</th>
                 </tr>
             </thead>
             <tbody>
