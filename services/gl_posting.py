@@ -28,6 +28,9 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
       Cr 4000 Service Revenue   (net)
     Idempotent per receipt_id.
     Refuses if the target month is closed.
+
+    If the receipt was already issued in the SAME period as the service, we create a
+    zero-impact 'accrual marker' batch so close checks pass without affecting balances.
     """
     now = datetime.now(timezone.utc)
     with session_scope() as s:
@@ -52,7 +55,7 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
 
         y, m = _ym(service_dt)
 
-        # idempotency: have we already posted an accrual for this receipt?
+        # Idempotency: already have an accrual (real or marker) for this receipt?
         exists = s.execute(
             select(JournalBatch.id).where(
                 JournalBatch.source == "billing",
@@ -61,18 +64,56 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
             ).limit(1)
         ).first()
         if exists:
-            y, m = _ym(service_dt)
             audit("gl.accrual.receipt.noop", target_type="receipt", target_id=str(r.id),
-                  status=304, outcome="noop", extra={"idempotent": True, "period": f"{y}-{m:02d}"})
+                  status=304, outcome="noop",
+                  extra={"idempotent": True, "period": f"{y}-{m:02d}"})
             return True
 
         gross = float(r.total or 0.0)
         net, _vat = _split_net_vat(gross)
+
+        # Was the receipt issued, and if so, in which period?
+        issue_row = s.execute(
+            select(JournalBatch.id, JournalBatch.period_year, JournalBatch.period_month).where(
+                JournalBatch.source == "billing",
+                JournalBatch.source_ref == f"R{r.id}",
+                JournalBatch.kind == "issue",
+            ).limit(1)
+        ).first()
+
+        issued_in_same_period = bool(
+            issue_row and issue_row.period_year == y and issue_row.period_month == m)
+
+        if issued_in_same_period:
+            # Create a zero-impact accrual "marker" so the close pre-check finds an accrual batch.
+            b = JournalBatch(
+                source="billing", source_ref=f"R{r.id}", kind="accrual",
+                posted_at=now, posted_by=actor, period_year=y, period_month=m
+            )
+            s.add(b)
+            s.flush()
+
+            # Optional: add a 0/0 line for traceability; no financial effect.
+            s.add(GLEntry(batch_id=b.id, date=service_dt, ref=f"R{r.id}",
+                          memo=f"Accrual marker — already issued in {y}-{m:02d}",
+                          account_id=_acc("Service Revenue"),
+                          account_name=_ACC[_acc("Service Revenue")]["name"],
+                          account_type=_ACC[_acc("Service Revenue")]["type"],
+                          debit=0.0, credit=0.0, receipt_id=r.id))
+
+            audit("gl.accrual.receipt.posted", target_type="receipt", target_id=str(r.id),
+                  status=200, outcome="success",
+                  extra={"period": f"{y}-{m:02d}", "effective_date": service_dt.isoformat(),
+                         "batch_id": b.id, "lines": 1, "net": 0.0, "marker": True,
+                         "reason": "already_issued_same_period"})
+            return True
+
+        # If not issued in the same period, proceed with a real accrual (unless zero)
         if net <= 0:
-            y, m = _ym(service_dt)
             audit("gl.accrual.receipt.noop", target_type="receipt", target_id=str(r.id),
-                  status=304, outcome="noop", extra={"reason": "zero_net", "period": f"{y}-{m:02d}"})
-            return True  # nothing to accrue
+                  status=304, outcome="noop",
+                  extra={"reason": "zero_net", "period": f"{y}-{m:02d}"})
+            return True
 
         b = JournalBatch(
             source="billing", source_ref=f"R{r.id}", kind="accrual",
@@ -81,9 +122,9 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
         s.add(b)
         s.flush()
 
-        d_iso = service_dt
         memo = f"Revenue recognized for {r.username} (service period)"
         ref = f"R{r.id}"
+        d_iso = service_dt
 
         s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
                       account_id=_acc("Contract Asset (Unbilled A/R)"),
@@ -97,12 +138,11 @@ def post_service_accrual_for_receipt(receipt_id: int, actor: str) -> bool:
                       account_name=_ACC[_acc("Service Revenue")]["name"],
                       account_type=_ACC[_acc("Service Revenue")]["type"],
                       debit=0, credit=net, receipt_id=r.id))
+
         audit("gl.accrual.receipt.posted", target_type="receipt", target_id=str(r.id),
               status=200, outcome="success",
-              extra={
-                  "period": f"{y}-{m:02d}", "effective_date": service_dt.isoformat(),
-                  "batch_id": b.id, "lines": 2, "net": net
-        })
+              extra={"period": f"{y}-{m:02d}", "effective_date": service_dt.isoformat(),
+                     "batch_id": b.id, "lines": 2, "net": net})
         return True
 
 
@@ -196,9 +236,18 @@ def is_period_closed(dt: datetime) -> bool:
 
 def post_receipt_issued(receipt_id: int, actor: str) -> bool:
     """
-    Dr 1100 A/R (gross); Cr 4000 Revenue (net); Cr 2100 VAT Output (vat, if any).
+    When issuing a receipt:
+      Dr 1100 A/R (gross)
+      Cr 2100 VAT Output (if VAT enabled)
+      Cr 1150 Contract Asset (net) if there was a prior accrual for this receipt,
+         otherwise Cr 4000 Service Revenue (net).
+
     Idempotent on (source='billing', source_ref=f'R{rid}', kind='issue').
+    Refuses if the target month is closed.
     """
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
     now = datetime.now(timezone.utc)
     with session_scope() as s:
         r = s.get(Receipt, receipt_id)
@@ -207,78 +256,122 @@ def post_receipt_issued(receipt_id: int, actor: str) -> bool:
                   status=404, outcome="blocked", extra={"reason": "not_found"})
             return False
 
-        eff_dt = (r.created_at or r.start or r.end)
-        y, m = _ym(r.created_at or r.start)
+        eff_dt = (r.created_at or r.start or r.end or now)
+        y, m = _ym(eff_dt)
 
-        if is_period_closed(r.created_at or r.start):
+        if is_period_closed(eff_dt):
             audit("gl.issue.blocked", target_type="receipt", target_id=str(r.id),
                   status=409, outcome="blocked",
                   extra={"reason": "period_closed", "period": f"{y}-{m:02d}"})
-            return False  # conservative: don't post into closed period
+            return False
+
         # idempotency
-        exists = s.execute(
+        exists_issue = s.execute(
             select(JournalBatch.id).where(
                 JournalBatch.source == "billing",
                 JournalBatch.source_ref == f"R{r.id}",
                 JournalBatch.kind == "issue",
             ).limit(1)
         ).first()
-        if exists:
+        if exists_issue:
             audit("gl.issue.noop", target_type="receipt", target_id=str(r.id),
                   status=304, outcome="noop",
                   extra={"idempotent": True, "period": f"{y}-{m:02d}"})
             return True
 
-        # amounts (gross->net,vat)
-        gross = float(r.total or 0)
+        gross = float(r.total or 0.0)
         if gross <= 0:
             audit("gl.issue.noop", target_type="receipt", target_id=str(r.id),
                   status=304, outcome="noop",
                   extra={"reason": "zero_amount", "period": f"{y}-{m:02d}"})
             return True
+
+        # split gross -> net + vat using current tax cfg
         enabled, _label, rate_pct, _inclusive = _tax_cfg()
-        rrate = float(rate_pct or 0) / 100.0
+        rrate = float(rate_pct or 0.0) / 100.0
         net = round(gross / (1.0 + rrate),
                     2) if (enabled and rrate > 0) else gross
         vat = round(gross - net, 2) if (enabled and rrate > 0) else 0.0
 
+        # Does a prior accrual batch exist for this receipt?
+        has_prior_accrual = bool(s.execute(
+            select(JournalBatch.id).where(
+                JournalBatch.source == "billing",
+                JournalBatch.source_ref == f"R{r.id}",
+                JournalBatch.kind == "accrual",
+            ).limit(1)
+        ).first())
+        # Decide whether to route through Contract Asset even if accrual hasn't posted yet:
+        # if the service period < issue period, we should credit Contract Asset.
+        service_dt = (r.end or r.start or eff_dt)
+        sy, sm = _ym(service_dt)
+        assume_prior_accrual = (sy, sm) < (y, m)
+        use_contract_asset = has_prior_accrual or assume_prior_accrual
+
+        # Create issue batch
         b = JournalBatch(
             source="billing", source_ref=f"R{r.id}", kind="issue",
-            posted_at=now, posted_by=actor,
-            period_year=y, period_month=m,
+            posted_at=now, posted_by=actor, period_year=y, period_month=m,
         )
         s.add(b)
         s.flush()
 
-        d_iso = (r.created_at or r.start or r.end)
-        memo = f"Receipt issued for {r.username}"
         ref = f"R{r.id}"
+        base_memo = f"Receipt issued for {r.username}"
 
-        s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
+        # AR (gross)
+        s.add(GLEntry(batch_id=b.id, date=eff_dt, ref=ref, memo=base_memo,
                       account_id=_acc("Accounts Receivable"),
                       account_name=_ACC[_acc("Accounts Receivable")]["name"],
                       account_type=_ACC[_acc("Accounts Receivable")]["type"],
                       debit=gross, credit=0, receipt_id=r.id))
-        s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
-                      account_id=_acc("Service Revenue"),
-                      account_name=_ACC[_acc("Service Revenue")]["name"],
-                      account_type=_ACC[_acc("Service Revenue")]["type"],
-                      debit=0, credit=net, receipt_id=r.id))
+        # VAT (if any)
         if vat > 0:
-            s.add(GLEntry(batch_id=b.id, date=d_iso, ref=ref, memo=memo,
+            s.add(GLEntry(batch_id=b.id, date=eff_dt, ref=ref, memo=base_memo,
                           account_id=_acc("VAT Output Payable"),
                           account_name=_ACC[_acc(
                               "VAT Output Payable")]["name"],
                           account_type=_ACC[_acc(
                               "VAT Output Payable")]["type"],
                           debit=0, credit=vat, receipt_id=r.id))
+
+        # Revenue vs Contract Asset
+        if use_contract_asset:
+            # Clear/route via Contract Asset. If no accrual is posted yet, this will be
+            # offset later when the accrual Dr hits Contract Asset in the service period.
+            line_memo = (f"{base_memo} — applies prior accrual"
+                         if has_prior_accrual
+                         else (f"{base_memo} — service {sy}-{sm:02d} < issue {y}-{m:02d}; "
+                               f"recognize via Contract Asset"))
+
+            s.add(GLEntry(batch_id=b.id, date=eff_dt, ref=ref,
+                          memo=line_memo,
+                          account_id=_acc("Contract Asset (Unbilled A/R)"),
+                          account_name=_ACC[_acc(
+                              "Contract Asset (Unbilled A/R)")]["name"],
+                          account_type=_ACC[_acc(
+                              "Contract Asset (Unbilled A/R)")]["type"],
+                          debit=0, credit=net, receipt_id=r.id))
+        else:
+            # Same-period service & issue with no accrual → recognize revenue now.
+            s.add(GLEntry(batch_id=b.id, date=eff_dt, ref=ref,
+                          memo=f"{base_memo} — no prior accrual (same-period)",
+                          account_id=_acc("Service Revenue"),
+                          account_name=_ACC[_acc("Service Revenue")]["name"],
+                          account_type=_ACC[_acc("Service Revenue")]["type"],
+                          debit=0, credit=net, receipt_id=r.id))
+
         audit("gl.issue.posted", target_type="receipt", target_id=str(r.id),
               status=200, outcome="success",
               extra={
                   "period": f"{y}-{m:02d}",
-                  "effective_date": (eff_dt and eff_dt.isoformat()),
-                  "batch_id": b.id, "lines": 2 + (1 if vat > 0 else 0),
-                  "gross": gross, "net": net, "vat": vat, "idempotent": False
+                  "effective_date": eff_dt.isoformat(),
+                  "batch_id": b.id,
+                  "gross": gross, "net": net, "vat": vat,
+                  "cleared_contract_asset": bool(use_contract_asset),
+                  "assumed_prior_accrual": bool(assume_prior_accrual),
+                  "service_period": f"{sy}-{sm:02d}",
+                  "lines": 2 + (1 if vat > 0 else 0) + 1
         })
         return True
 
@@ -466,6 +559,10 @@ def close_period(year: int, month: int, actor: str) -> bool:
         )
         s.add(cb)
         s.flush()
+        # Date closing entries at the end of the period for cleaner reporting
+        from calendar import monthrange as _mr
+        close_date = datetime(year, month, _mr(year, month)[
+                              1], 23, 59, 59, tzinfo=timezone.utc)
 
         re_acct = _acc("Retained Earnings")
         re_name = _ACC[re_acct]["name"]
@@ -478,14 +575,14 @@ def close_period(year: int, month: int, actor: str) -> bool:
                                                    "EQUITY", "INCOME") else (agg["dr"] - agg["cr"])
             if t == "INCOME" and abs(bal) > 0.005:
                 # income has credit balance → debit it to zero
-                s.add(GLEntry(batch_id=cb.id, date=now, ref=f"CL-{year}{month:02d}",
+                s.add(GLEntry(batch_id=cb.id, date=close_date, ref=f"CL-{year}{month:02d}",
                               memo="Close INCOME to Retained Earnings",
                               account_id=acct, account_name=agg["name"], account_type=t,
                               debit=abs(bal), credit=0))
                 total_to_re += abs(bal)  # RE will be credited
             if t == "EXPENSE" and abs(bal) > 0.005:
                 # expense has debit balance → credit it to zero
-                s.add(GLEntry(batch_id=cb.id, date=now, ref=f"CL-{year}{month:02d}",
+                s.add(GLEntry(batch_id=cb.id, date=close_date, ref=f"CL-{year}{month:02d}",
                               memo="Close EXPENSE to Retained Earnings",
                               account_id=acct, account_name=agg["name"], account_type=t,
                               debit=0, credit=abs(bal)))
@@ -495,13 +592,13 @@ def close_period(year: int, month: int, actor: str) -> bool:
         if abs(total_to_re) > 0.005:
             if total_to_re > 0:
                 # net income → credit RE
-                s.add(GLEntry(batch_id=cb.id, date=now, ref=f"CL-{year}{month:02d}",
+                s.add(GLEntry(batch_id=cb.id, date=close_date, ref=f"CL-{year}{month:02d}",
                               memo="Close to Retained Earnings",
                               account_id=re_acct, account_name=re_name, account_type=re_type,
                               debit=0, credit=abs(total_to_re)))
             else:
                 # net loss → debit RE
-                s.add(GLEntry(batch_id=cb.id, date=now, ref=f"CL-{year}{month:02d}",
+                s.add(GLEntry(batch_id=cb.id, date=close_date, ref=f"CL-{year}{month:02d}",
                               memo="Close to Retained Earnings",
                               account_id=re_acct, account_name=re_name, account_type=re_type,
                               debit=abs(total_to_re), credit=0))

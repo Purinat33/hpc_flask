@@ -7,7 +7,7 @@
     <style>
         /* Page + margin boxes with real page counters */
         @page {
-            size: A4;
+            size: A4 landscape;
             margin: 18mm 14mm 18mm 14mm;
 
             @top-left {
@@ -20,10 +20,13 @@
                 color: #555;
             }
         }
+        html{
+            margin: 0; padding: 0;
+        }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                "Helvetica Neue", Arial, sans-serif;
+                "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0;
         }
 
         /* Watermark: big, faint, diagonal */
@@ -185,6 +188,27 @@
             border-bottom: 1px solid #ccc;
             background: #fafafa;
         }
+
+        /* Make columns deterministic and stop overflow */
+table.gl { table-layout: fixed; width: 100%; border-collapse: collapse; }
+table.gl th, table.gl td { box-sizing: border-box; padding: 2.5mm; vertical-align: top; }
+
+/* Column widths — use mm so they honor the physical page width */
+.col-date { width: 22mm; white-space: nowrap; }
+.col-ref  { width: 24mm; white-space: nowrap; }
+/* Let the long text wrap inside these cells */
+.col-memo { width: auto; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+.col-acct { width: 45mm; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+/* Numbers: keep on one line and right align */
+.col-dr, .col-cr { width: 24mm; text-align: right; white-space: nowrap;
+                   font-variant-numeric: tabular-nums; }
+
+/* Printing niceties */
+thead { display: table-header-group; }     /* repeat headers on each page */
+tr { page-break-inside: avoid; }
+
+.main, .content, .page { max-width: 100%; }
+
     </style>
 </head>
 
@@ -228,7 +252,15 @@
             </div>
         </div>
 
-        <table>
+        <table class="gl">
+            <colgroup>
+                <col class="col-date">
+                <col class="col-ref">
+                <col class="col-memo">
+                <col class="col-acct">
+                <col class="col-dr">
+                <col class="col-cr">
+            </colgroup>
             <thead>
                 <tr>
                     <th style="width: 12%">Date</th>
