@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 from app import create_app
 from models.base import Base, init_engine_and_session
+from models.users_db import create_user
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -64,3 +65,30 @@ def _db_clean(db_engine):
             END$$;
         """))
     yield
+
+
+@pytest.fixture()
+def client(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def admin_user(client):
+    # ensure admin exists
+    create_user("admin", "admin", role="admin")
+    # login
+    client.post("/login", data={"username": "admin",
+                "password": "admin"}, follow_redirects=True)
+    yield
+    # logout
+    client.post("/logout", follow_redirects=True)
+
+
+@pytest.fixture
+def login_admin(client, admin_user):
+    u, p = admin_user
+    # Your login form field names may differ
+    client.post("/login", data={"username": u,
+                "password": p}, follow_redirects=True)
+    yield
+    client.post("/logout")
