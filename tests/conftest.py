@@ -1,3 +1,4 @@
+# tests/conftest.py
 import os
 import pytest
 from sqlalchemy import text
@@ -10,41 +11,41 @@ def _set_env():
     os.environ.setdefault("APP_ENV", "test")
     os.environ.setdefault("METRICS_ENABLED", "0")
     os.environ.setdefault("COPILOT_ENABLED", "0")
-    # IMPORTANT: point to test Postgres (compose.test.yml sets it inside container)
-    os.environ.setdefault(
-        "DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:55432/hpc_test")
+    os.environ.setdefault("AUTO_CREATE_SCHEMA", "1")
     yield
 
 
 @pytest.fixture(scope="session")
 def app():
-    # Disable CSRF in tests to simplify form posts
-    test_config = {
-        "TESTING": True,
-        "WTF_CSRF_ENABLED": False,
-    }
-    app = create_app(test_config)
-    return app
+    return create_app({"TESTING": True, "WTF_CSRF_ENABLED": False})
 
 
 @pytest.fixture(scope="session")
 def db_engine():
     engine, _Session = init_engine_and_session()
-    # Create schema once per session
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+
+    # Ensure audit roles can access the freshly-created tables/sequences
+    with engine.begin() as conn:
+        conn.execute(
+            text("GRANT USAGE ON SCHEMA public TO audit_writer, audit_reader;"))
+        conn.execute(text(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO audit_writer;"))
+        conn.execute(
+            text("GRANT SELECT ON ALL TABLES IN SCHEMA public TO audit_reader;"))
+        conn.execute(text(
+            "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO audit_writer;"))
+
     return engine
 
 
 @pytest.fixture(autouse=True)
 def _db_clean(db_engine):
-    # Truncate all tables before each test for isolation
-    # Works even if models call their own session_scope() under the hood
     with db_engine.begin() as conn:
         conn.execute(text("""
             DO $$
-            DECLARE
-              r RECORD;
+            DECLARE r RECORD;
             BEGIN
               FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
                 EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE';
@@ -52,8 +53,3 @@ def _db_clean(db_engine):
             END$$;
         """))
     yield
-
-
-@pytest.fixture()
-def client(app):
-    return app.test_client()
