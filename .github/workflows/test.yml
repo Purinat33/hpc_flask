@@ -65,11 +65,23 @@ jobs:
 
       - name: Create app/audit roles & grants
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER app_rw WITH PASSWORD 'muict';" || true
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER audit_writer WITH PASSWORD 'auditw';" || true
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER audit_reader WITH PASSWORD 'auditro';" || true
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE hpc_app TO app_rw; GRANT CONNECT ON DATABASE hpc_app TO audit_writer, audit_reader;"
-          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO app_rw, audit_writer, audit_reader; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_rw, audit_writer; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO audit_reader;"
+          # create roles (idempotent)
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='app_rw') THEN CREATE USER app_rw WITH PASSWORD 'muict'; END IF; END $$;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='audit_writer') THEN CREATE USER audit_writer WITH PASSWORD 'auditw'; END IF; END $$;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='audit_reader') THEN CREATE USER audit_reader WITH PASSWORD 'auditro'; END IF; END $$;"
+
+          # db-level privileges
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE hpc_app TO app_rw;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE hpc_app TO audit_writer, audit_reader;"
+
+          # **schema-level privileges (the missing piece)**
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "GRANT USAGE, CREATE ON SCHEMA public TO app_rw, audit_writer;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO audit_reader;"
+
+          # defaults for future tables/sequences
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_rw, audit_writer;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO audit_reader;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, UPDATE ON SEQUENCES TO app_rw, audit_writer;"
 
       - name: Run tests
         run: pytest -q --maxfail=1 --disable-warnings
