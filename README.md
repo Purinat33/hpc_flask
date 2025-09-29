@@ -12,16 +12,14 @@ Then access:
 
 - Application at http://localhost:8000
 - Adminer (Database tool) at http://localhost:8080
+- Documentation at http://localhost:9999
+- API Doc at http://localhost:8081
 
-### Accessing the Documentation
+### Running Tests
 
 ```bash
-mkdocs serve -a localhost:9999
+docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm app_test
 ```
-
-Then access:
-
-- Documentation at http://localhost:9999
 
 ## Features:
 
