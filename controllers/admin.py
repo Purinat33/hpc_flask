@@ -2226,3 +2226,276 @@ def export_ledger_pdf():
     fname = f"general_ledger_{criteria['mode']}_{start}_to_{end}_{run_id}.pdf"
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@admin_bp.get("/admin/export/ledger_th.pdf")
+@login_required
+@admin_required
+def export_ledger_th_pdf():
+    from flask import current_app
+    from hashlib import sha256
+    import secrets
+    import socket
+    import csv
+    import io
+    import json
+    from datetime import datetime, timezone, date
+    from weasyprint import HTML
+    import pandas as pd
+
+    # --- inputs / mode ---
+    start = (request.args.get("start") or "1970-01-01").strip()
+    end = (request.args.get("end") or date.today().isoformat()).strip()
+    mode = (request.args.get("mode") or "posted").strip().lower()
+    is_preview = (mode == "derived")
+
+    # --- source data (respecting mode) ---
+    df = derive_journal(
+        start, end) if is_preview else _load_posted_journal(start, end)
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["date", "ref", "memo", "account_id",
+                          "account_name", "account_type", "debit", "credit"])
+
+    # --- canonical sort ---
+    df = df.sort_values(["date", "ref", "account_id"],
+                        kind="mergesort").reset_index(drop=True)
+
+    # numeric safety
+    for col in ("debit", "credit"):
+        if col not in df.columns:
+            df[col] = 0.0
+        df[col] = pd.to_numeric(df[col].fillna(0), errors="coerce").fillna(0.0)
+
+    import re
+
+    MEMO_TEMPLATES = {
+        "REVENUE_RECOGNIZED": {
+            "en": "Revenue recognized for {user} (service period)",
+            "th": "บันทึกรายได้สำหรับ {user} (งวดให้บริการ)"
+        },
+        "RECEIPT_ISSUED": {
+            "en": "Receipt issued for {user}",
+            "th": "ออกใบรับสำหรับ {user}"
+        },
+        "RECEIPT_ISSUED_CA": {
+            "en": "— service {period} < issue {issue}; recognize via Contract Asset",
+            "th": "— บริการ {period} < ออก {issue}; รับรู้ผ่านสินทรัพย์ตามสัญญา"
+        },
+        "PERIOD_CLOSE_INCOME": {
+            "en": "Close INCOME to Retained Earnings",
+            "th": "ปิดบัญชีรายได้ไปยังกำไรสะสม"
+        },
+        "PERIOD_CLOSE_EXPENSE": {
+            "en": "Close EXPENSE to Retained Earnings",
+            "th": "ปิดบัญชีค่าใช้จ่ายไปยังกำไรสะสม"
+        },
+        "PERIOD_CLOSE": {
+            "en": "Close to Retained Earnings",
+            "th": "ปิดยอดไปยังกำไรสะสม"
+        },
+        "ECL_PROVISION": {
+            "en": "ECL provision (contract assets) {period} — provision matrix",
+            "th": "ตั้งค่าเผื่อ ECL (สินทรัพย์ตามสัญญา) {period} — เมทริกซ์การกันสำรอง"
+        },
+        "RECEIPT_PAID": {
+            "en": "Receipt paid by {user}",
+            "th": "รับชำระเงินจาก {user}"
+        },
+    }
+
+    # Regex rules for when memo_id/args aren't available
+    RX_RULES = [
+        # Revenue recognized for alice (service period)
+        (re.compile(r'^Revenue recognized for (?P<user>[\w.\-]+) \(service period\)$', re.U),
+         lambda m: f"บันทึกรายได้สำหรับ {m['user']} (งวดให้บริการ)"),
+
+        # Receipt issued for alice
+        (re.compile(r'^Receipt issued for (?P<user>[\w.\-]+)$', re.U),
+         lambda m: f"ออกใบรับสำหรับ {m['user']}"),
+
+        # Receipt paid by alice
+        (re.compile(r'^Receipt paid by (?P<user>[\w.\-]+)$', re.U),
+         lambda m: f"รับชำระเงินจาก {m['user']}"),
+
+        # Receipt issued for alice — service 2025-01 < issue 2025-09; recognize via Contract Asset
+        (re.compile(
+            r'^Receipt issued for (?P<user>[\w.\-]+)\s*[—–-]\s*service\s*(?P<period>\d{4}-\d{2})\s*<\s*issue\s*(?P<issue>\d{4}-\d{2});\s*recognize via Contract Asset$',
+            re.U),
+         lambda m: f"ออกใบรับสำหรับ {m['user']} — บริการ {m['period']} < ออก {m['issue']}; รับรู้ผ่านสินทรัพย์ตามสัญญา"),
+
+        # Close ... to Retained Earnings
+        (re.compile(r'^Close INCOME to Retained Earnings$', re.U),
+         lambda m: "ปิดบัญชีรายได้ไปยังกำไรสะสม"),
+        (re.compile(r'^Close EXPENSE to Retained Earnings$', re.U),
+         lambda m: "ปิดบัญชีค่าใช้จ่ายไปยังกำไรสะสม"),
+        (re.compile(r'^Close to Retained Earnings$', re.U),
+         lambda m: "ปิดยอดไปยังกำไรสะสม"),
+
+        # ECL provision (contract assets) 2025-01 — provision matrix
+        (re.compile(r'^ECL provision \(contract assets\)\s*(?P<period>\d{4}-\d{2})\s*[—–-]\s*provision matrix$', re.U),
+         lambda m: f"ตั้งค่าเผื่อ ECL (สินทรัพย์ตามสัญญา) {m['period']} — เมทริกซ์การกันสำรอง"),
+    ]
+
+    def memo_localize(memo_id, memo_args, lang="th"):
+        tpl_key = memo_id or ""
+        # Map a few generic IDs to our table
+        key_map = {
+            "PERIOD_CLOSE_INCOME": "PERIOD_CLOSE_INCOME",
+            "PERIOD_CLOSE_EXPENSE": "PERIOD_CLOSE_EXPENSE",
+            "PERIOD_CLOSE": "PERIOD_CLOSE",
+            "REVENUE_RECOGNIZED": "REVENUE_RECOGNIZED",
+            "RECEIPT_ISSUED": "RECEIPT_ISSUED",
+            "RECEIPT_PAID": "RECEIPT_PAID",
+            "ECL_PROVISION": "ECL_PROVISION",
+            "RECEIPT_ISSUED_CA": "RECEIPT_ISSUED_CA",
+        }
+        tpl = MEMO_TEMPLATES.get(key_map.get(tpl_key, ""), {})
+        s = tpl.get(lang) or tpl.get("en") or ""
+        try:
+            return s.format(**(memo_args or {}))
+        except Exception:
+            return s
+
+    def memo_heuristic_th(memo_text: str) -> str:
+        if not memo_text:
+            return memo_text
+        # collapse internal whitespace and linebreaks to improve matching
+        oneline = " ".join(str(memo_text).split())
+        for rx, render in RX_RULES:
+            m = rx.match(oneline)
+            if m:
+                return render(m)
+        return memo_text  # fallback
+
+    def build_memo_th(row):
+        mid = row.get("memo_id")
+        if pd.notna(mid):
+            return memo_localize(mid, row.get("memo_args") or {}, "th")
+        return memo_heuristic_th(row.get("memo"))
+
+    df["memo_th"] = df.apply(build_memo_th, axis=1)
+
+    # --- canonical CSV bytes for hashing (keep source memo for stability) ---
+    csv_buf = io.StringIO()
+    w = csv.writer(csv_buf)
+    w.writerow(["date", "ref", "memo", "account_id",
+               "account_name", "account_type", "debit", "credit"])
+    for _, r in df.iterrows():
+        w.writerow([
+            r.get("date", ""), r.get("ref", ""), r.get("memo", ""),
+            r.get("account_id", ""), r.get("account_name", ""),
+            r.get("account_type", ""),
+            float(r.get("debit") or 0.0), float(r.get("credit") or 0.0)
+        ])
+    csv_bytes = csv_buf.getvalue().encode("utf-8")
+
+    # --- run metadata ---
+    now = datetime.now(timezone.utc)
+    run_id = f"GLPDF-{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    criteria = {"start": start, "end": end,
+                "mode": "derived" if is_preview else "posted"}
+    doc_digest = sha256(csv_bytes + json.dumps(criteria,
+                        sort_keys=True).encode("utf-8")).hexdigest()
+    doc_digest_short = doc_digest[:12]
+
+    # --- paginate (slightly fewer rows for 12pt) ---
+    ROWS_PER_PAGE = 28  # was 34
+    pages = []
+    for i in range(0, len(df), ROWS_PER_PAGE):
+        chunk = df.iloc[i:i+ROWS_PER_PAGE].copy()
+        page_index = len(pages) + 1
+        first_ref = str(chunk.iloc[0]["ref"]) if not chunk.empty else "-"
+        last_ref = str(chunk.iloc[-1]["ref"]) if not chunk.empty else "-"
+        page_hash = sha256(f"{run_id}|{page_index}|{doc_digest}|{first_ref}|{last_ref}".encode(
+            "utf-8")).hexdigest()[:12]
+        pages.append({
+            "index": page_index,
+            "rows": chunk.to_dict(orient="records"),
+            "first_ref": first_ref,
+            "last_ref": last_ref,
+            "hash": page_hash,
+        })
+
+    # final control line
+    if pages:
+        pages[-1]["rows"].append({
+            "date": "", "ref": "", "memo": "— End of ledger —", "memo_th": "— สิ้นสุดสมุดบัญชี —",
+            "account_id": "", "account_name": "", "account_type": "", "debit": 0.00, "credit": 0.00
+        })
+
+    total_pages = max(1, len(pages))
+
+    # --- summary aggregates ---
+    tb = (df.groupby(["account_id", "account_name", "account_type"], dropna=False)
+            .agg(debit_sum=("debit", "sum"), credit_sum=("credit", "sum"))
+            .reset_index())
+    tb["debit_sum"] = tb["debit_sum"].round(2)
+    tb["credit_sum"] = tb["credit_sum"].round(2)
+    tb_total_dr = float(round(tb["debit_sum"].sum(), 2))
+    tb_total_cr = float(round(tb["credit_sum"].sum(), 2))
+
+    inc = tb[tb["account_type"] == "INCOME"]
+    exp = tb[tb["account_type"] == "EXPENSE"]
+    total_income = round(
+        float(inc["credit_sum"].sum() - inc["debit_sum"].sum()), 2)
+    total_expense = round(
+        float(exp["debit_sum"].sum() - exp["credit_sum"].sum()), 2)
+    pl = {"income": total_income, "expense": total_expense,
+          "net_income": round(total_income - total_expense, 2)}
+
+    asg = tb[tb["account_type"] == "ASSET"]
+    lbg = tb[tb["account_type"] == "LIABILITY"]
+    eqg = tb[tb["account_type"] == "EQUITY"]
+    bs = {
+        "assets_delta":      round(float(asg["debit_sum"].sum() - asg["credit_sum"].sum()), 2),
+        "liabilities_delta": round(float(lbg["credit_sum"].sum() - lbg["debit_sum"].sum()), 2),
+        "equity_delta":      round(float(eqg["credit_sum"].sum() - eqg["debit_sum"].sum()), 2),
+    }
+
+    coa_legend = (df[["account_id", "account_name", "account_type"]]
+                  .drop_duplicates()
+                  .sort_values(["account_type", "account_id"])
+                  .to_dict(orient="records"))
+
+    manifest = {
+        "run_id": run_id,
+        "mode": criteria["mode"],
+        "window": {"start": start, "end": end},
+        "doc_sha256": doc_digest,
+        "total_lines": int(len(df)),
+        "total_pages": int(total_pages),
+        "page_hashes": [{"page": p["index"], "hash": p["hash"], "first_ref": p["first_ref"], "last_ref": p["last_ref"]} for p in pages],
+        "generated_at": now.isoformat(),
+        "host": socket.gethostname(),
+        "generated_by": current_user.username,
+    }
+    audit("export.ledger_th_pdf", target_type="window", target_id=f"{start}:{end}",
+          outcome="success", status=200,
+          extra={"run_id": run_id, "mode": criteria["mode"], "doc_sha256": doc_digest})
+
+    # --- render HTML -> PDF ---
+    html = render_template(
+        "admin/ledger_pdf_th.html",
+        pages=pages,
+        total_pages=total_pages,
+        doc_digest=doc_digest,
+        doc_digest_short=doc_digest_short,
+        run_id=run_id,
+        start=start, end=end,
+        is_preview=is_preview,
+        printed_on=now,
+        printed_by=current_user.username,
+        watermark_text=(
+            "ใช้สำหรับการภายในเท่านั้น" if is_preview else "ลับสุดยอด"),
+        tb_rows=tb.to_dict(orient="records"),
+        tb_total_dr=tb_total_dr,
+        tb_total_cr=tb_total_cr,
+        pl=pl,
+        bs=bs,
+        coa_legend=coa_legend,
+    )
+
+    pdf = HTML(string=html, base_url=current_app.static_folder).write_pdf()
+    fname = f"general_ledger_{criteria['mode']}_{start}_to_{end}_{run_id}.pdf"
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename=\"{fname}\"'})

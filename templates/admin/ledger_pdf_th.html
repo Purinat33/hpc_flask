@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="utf-8" />
+    <title>บัญชีแยกประเภท {{ '(ตัวอย่าง)' if is_preview else '(ทางการ)' }}</title>
+    <style>
+        /* Embed Thai font (put files under static/fonts/...) */
+        @font-face {
+            font-family: "TH Sarabun New";
+            src: url("fonts/THSarabunNew.ttf") format("truetype");
+            font-weight: 400;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: "TH Sarabun New";
+            src: url("fonts/THSarabunNew Italic.ttf") format("truetype");
+            font-weight: 400;
+            font-style: italic;
+        }
+
+        @font-face {
+            font-family: "TH Sarabun New";
+            src: url("fonts/THSarabunNew Bold.ttf") format("truetype");
+            font-weight: 700;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: "TH Sarabun New";
+            src: url("fonts/THSarabunNew BoldItalic.ttf") format("truetype");
+            font-weight: 700;
+            font-style: italic;
+        }
+
+        /* Physical page */
+        @page {
+            size: A4 landscape;
+            margin: 18mm 14mm 18mm 14mm;
+
+            @top-left {
+                content: element(page-header);
+            }
+
+            @bottom-right {
+                content: "หน้า " counter(page) " / " counter(pages);
+                font-size: 10pt;
+                color: #555;
+            }
+        }
+
+        html {
+            margin: 0;
+            padding: 0;
+            font-size: 12pt;
+            line-height: 1.28;
+        }
+
+        body {
+            font-family: "TH Sarabun New", "Noto Sans Thai", "Noto Sans", Arial, sans-serif;
+            font-size: 12pt;
+            line-height: 1.28;
+            margin: 0;
+            padding: 0;
+            /* Thai-friendly breaking */
+            word-break: normal;
+        }
+
+        /* Watermark – IMPORTANT: no letter-spacing for Thai */
+        .wm {
+            position: fixed;
+            top: 30%;
+            left: -10%;
+            right: -10%;
+            transform: rotate(-30deg);
+            text-align: center;
+            font-size: 84pt;
+            letter-spacing: 0;
+            color: rgba(200, 0, 0, 0.08);
+            z-index: 0;
+            font-weight: 700;
+        }
+
+        .page {
+            page-break-after: always;
+            position: relative;
+            z-index: 1;
+        }
+
+        .page:last-child {
+            page-break-after: auto;
+        }
+
+        .header,
+        .footer {
+            font-size: 10pt;
+            color: #555;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+            position: running(page-header);
+        }
+
+        .h-left {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 10pt;
+            border: 1px solid #ddd;
+        }
+
+        .pill.posted {
+            background: #e8f6ee;
+            border-color: #c9efcf;
+            color: #0a5;
+        }
+
+        .pill.preview {
+            background: #fff5d6;
+            border-color: #ffe3a3;
+            color: #8a5a00;
+        }
+
+        .meta {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: baseline;
+            max-width: 70%;
+        }
+
+        .meta b {
+            font-weight: 700;
+        }
+
+        .code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .wrap {
+            word-break: break-all;
+            overflow-wrap: anywhere;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: inherit;
+            table-layout: fixed;
+        }
+
+        thead th {
+            text-align: left;
+            border-bottom: 1px solid #ccc;
+            padding: 6px 6px;
+            background: #fafafa;
+        }
+
+        tbody td {
+            border-bottom: 1px solid #eee;
+            padding: 6px 6px;
+            vertical-align: top;
+            white-space: normal;
+            overflow: visible;
+        }
+
+        td.num,
+        th.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #ddd;
+            padding-top: 6px;
+            margin-top: 8px;
+        }
+
+        .muted {
+            color: #777;
+        }
+
+        .section {
+            margin-top: 12px;
+        }
+
+        .section h3 {
+            margin: 0 0 6px 0;
+            font-size: 12.5pt;
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .summary-table th,
+        .summary-table td {
+            padding: 5px 4px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .summary-table th {
+            border-bottom: 1px solid #ccc;
+            background: #fafafa;
+        }
+
+        /* Column behaviors */
+        table.gl td:nth-child(1),
+        table.gl td:nth-child(2),
+        table.gl td:nth-child(5),
+        table.gl td:nth-child(6) {
+            white-space: nowrap;
+        }
+
+        table.gl td:nth-child(3),
+        /* memo */
+        table.gl td:nth-child(4)
+
+        /* account */
+            {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        /* Physical widths in mm */
+        .col-date {
+            width: 20mm;
+            white-space: nowrap;
+        }
+
+        .col-ref {
+            width: 22mm;
+            white-space: nowrap;
+        }
+
+        .col-memo {
+            width: auto;
+        }
+
+        .col-acct {
+            width: 58mm;
+        }
+
+        .col-dr,
+        .col-cr {
+            width: 24mm;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        /* Printing niceties */
+        thead {
+            display: table-header-group;
+        }
+
+        tr {
+            page-break-inside: avoid;
+        }
+
+        .main,
+        .content,
+        .page {
+            max-width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wm">{{ watermark_text }}</div>
+
+    {% if total_pages == 0 %}
+    <div class="page">
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'โหมด: ตัวอย่าง (คำนวณ)' if is_preview else 'โหมด: ทางการ (ยืนยัน)' }}
+                </div>
+                <div><b>บัญชีแยกประเภท</b></div>
+            </div>
+            <div class="meta">
+                <div><b>ช่วงวันที่</b> {{ start }} → {{ end }}</div>
+                <div><b>รหัสการรัน</b> {{ run_id }}</div>
+                <div><b>เอกสาร SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+            </div>
+        </div>
+        <p class="muted">ไม่พบรายการในช่วงวันที่ที่กำหนด</p>
+    </div>
+    {% endif %}
+
+    {% for p in pages %}
+    <div class="page">
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'โหมด: ตัวอย่าง (คำนวณ)' if is_preview else 'โหมด: ทางการ (ยืนยัน)' }}
+                </div>
+                <div><b>บัญชีแยกประเภท</b></div>
+            </div>
+            <div class="meta">
+                <div><b>ช่วงวันที่</b> {{ start }} → {{ end }}</div>
+                <div><b>รหัสการรัน</b> {{ run_id }}</div>
+                <div><b>เอกสาร SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+                <div><b>แฮชหน้า</b> <span class="code">{{ p.hash }}</span></div>
+                <div><b>หน้า</b> {{ p.index }} / {{ total_pages }}</div>
+            </div>
+        </div>
+
+        <table class="gl">
+            <colgroup>
+                <col class="col-date">
+                <col class="col-ref">
+                <col class="col-memo">
+                <col class="col-acct">
+                <col class="col-dr">
+                <col class="col-cr">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>วันที่</th>
+                    <th>อ้างอิง</th>
+                    <th>รายละเอียด</th>
+                    <th>บัญชี</th>
+                    <th class="num">เดบิต</th>
+                    <th class="num">เครดิต</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in p.rows %}
+                <tr>
+                    <td>{{ r.date }}</td>
+                    <td>{{ r.ref }}</td>
+                    <td>{{ r.memo_th or r.memo }}</td>
+                    <td>{{ r.account_id }} — {{ r.account_name }}</td>
+                    <td class="num">{{ '%.2f'|format(r.debit or 0) }}</td>
+                    <td class="num">{{ '%.2f'|format(r.credit or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="footer">
+            <div class="muted">
+                พิมพ์เมื่อ {{ printed_on.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z') }}
+                โดย {{ printed_by }} • อ้างอิงแรก/สุดท้าย: {{ p.first_ref }} → {{ p.last_ref }}
+            </div>
+            <div class="muted wrap">
+                รัน {{ run_id }} • เอกสาร SHA256 <span class="code wrap">{{ doc_digest }}</span>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Summary page -->
+    <div class="page">
+        <div class="header">
+            <div class="h-left">
+                <div class="pill {{ 'preview' if is_preview else 'posted' }}">
+                    {{ 'โหมด: ตัวอย่าง (คำนวณ)' if is_preview else 'โหมด: ทางการ (ยืนยัน)' }}
+                </div>
+                <div><b>สรุปและการควบคุม</b></div>
+            </div>
+            <div class="meta">
+                <div><b>ช่วงวันที่</b> {{ start }} → {{ end }}</div>
+                <div><b>รหัสการรัน</b> {{ run_id }}</div>
+                <div><b>เอกสาร SHA256</b> <span class="code">{{ doc_digest_short }}</span>…</div>
+            </div>
+        </div>
+
+        <div class="grid2">
+            <div class="section">
+                <h3>งบทดลอง (รวมเฉพาะช่วงวันที่)</h3>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th style="width:18%">เลขที่บัญชี</th>
+                            <th>ชื่อบัญชี</th>
+                            <th style="width:12%">ประเภท</th>
+                            <th style="width:12%" class="num">เดบิต</th>
+                            <th style="width:12%" class="num">เครดิต</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in tb_rows %}
+                        <tr>
+                            <td class="code">{{ r.account_id }}</td>
+                            <td>{{ r.account_name }}</td>
+                            <td>{{ r.account_type }}</td>
+                            <td class="num">{{ '%.2f'|format(r.debit_sum or 0) }}</td>
+                            <td class="num">{{ '%.2f'|format(r.credit_sum or 0) }}</td>
+                        </tr>
+                        {% endfor %}
+                        <tr>
+                            <td colspan="3"><b>รวม</b></td>
+                            <td class="num"><b>{{ '%.2f'|format(tb_total_dr or 0) }}</b></td>
+                            <td class="num"><b>{{ '%.2f'|format(tb_total_cr or 0) }}</b></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section">
+                <h3>งบกำไรขาดทุน (ภาพรวม)</h3>
+                <table class="summary-table">
+                    <tbody>
+                        <tr>
+                            <td><b>รายได้รวม</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.income or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>ค่าใช้จ่ายรวม</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.expense or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>กำไรสุทธิ</b></td>
+                            <td class="num">{{ '%.2f'|format(pl.net_income or 0) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3 style="margin-top:10px;">งบแสดงฐานะการเงิน (การเปลี่ยนแปลง)</h3>
+                <table class="summary-table">
+                    <tbody>
+                        <tr>
+                            <td><b>สินทรัพย์ Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.assets_delta or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>หนี้สิน Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.liabilities_delta or 0) }}</td>
+                        </tr>
+                        <tr>
+                            <td><b>ส่วนของผู้ถือหุ้น Δ</b></td>
+                            <td class="num">{{ '%.2f'|format(bs.equity_delta or 0) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p class="muted" style="margin-top:8px;">
+                    หมายเหตุ: สรุปนี้สะท้อนยอดรวมเฉพาะช่วงวันที่ ไม่ใช่ฐานะทางการเงินตลอดอดีตทั้งหมด
+                </p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>ผังบัญชี (อ้างอิง)</h3>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th style="width:18%">เลขที่บัญชี</th>
+                        <th>ชื่อบัญชี</th>
+                        <th style="width:14%">ประเภท</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in coa_legend %}
+                    <tr>
+                        <td class="code">{{ a.account_id }}</td>
+                        <td>{{ a.account_name }}</td>
+                        <td>{{ a.account_type }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                <div class="muted">
+                    พิมพ์เมื่อ {{ printed_on.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z') }} โดย {{ printed_by }}
+                </div>
+                <div class="muted wrap">
+                    รัน {{ run_id }} • เอกสาร SHA256 เต็ม <span class="code wrap">{{ doc_digest }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

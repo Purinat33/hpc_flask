@@ -240,6 +240,9 @@
         <a href="{{ url_for('admin.export_ledger_pdf', start=start, end=end, mode=(request.args.get('mode') or 'posted')) }}">
             <button type="button">Download Ledger PDF</button>
         </a>
+        <a href="{{ url_for('admin.export_ledger_th_pdf', start=start, end=end, mode=(request.args.get('mode') or 'posted')) }}">
+            <button type="button">บันทึกบัญชีแยกประเภท (PDF)</button>
+        </a>
     </div>
 
 </section>
