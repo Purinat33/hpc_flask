@@ -28,6 +28,17 @@ def db_engine():
 
     # Ensure audit roles can access the freshly-created tables/sequences
     with engine.begin() as conn:
+        conn.execute(text("""
+            DO $$
+            BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='audit_writer') THEN
+                CREATE ROLE audit_writer LOGIN PASSWORD 'auditw';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='audit_reader') THEN
+                CREATE ROLE audit_reader LOGIN PASSWORD 'auditro';
+            END IF;
+            END$$;
+        """))
         conn.execute(
             text("GRANT USAGE ON SCHEMA public TO audit_writer, audit_reader;"))
         conn.execute(text(
