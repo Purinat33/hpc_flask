@@ -2,9 +2,9 @@ name: tests
 
 on:
   pull_request:
-    branches: [pg-only]
+    branches: [main, pg-only, postgres]
   push:
-    branches: [pg-only]
+    branches: [main, pg-only, postgres]
 
 jobs:
   pytest:
