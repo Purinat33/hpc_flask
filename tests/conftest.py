@@ -52,3 +52,8 @@ def _db_clean(db_engine):
             END$$;
         """))
     yield
+
+
+@pytest.fixture()
+def client(app):
+    return app.test_client()

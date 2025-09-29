@@ -1,0 +1,75 @@
+name: tests
+
+on:
+  pull_request:
+    branches: [pg-only]
+  push:
+    branches: [pg-only]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hpc_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d hpc_app"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+
+    env:
+      # mirror your compose envs, but point to localhost
+      DATABASE_URL: postgresql+psycopg2://app_rw:muict@localhost:5432/hpc_app
+      AUDIT_DATABASE_URL: postgresql+psycopg2://audit_writer:auditw@localhost:5432/hpc_app
+      AUDIT_READER_URL: postgresql+psycopg2://audit_reader:auditro@localhost:5432/hpc_app
+      # make the app bootstrap the tables for tests
+      AUTO_CREATE_SCHEMA: "1"
+      # keep tests deterministic
+      APP_ENV: "test"
+      LOG_TO_STDOUT: "1"
+      COPILOT_ENABLED: "0"
+      ADMIN_PASSWORD: "" # don’t seed admin in CI
+      # audit signing – OK to use defaults, or set something explicit:
+      AUDIT_HMAC_KEY_ID: "k1"
+      AUDIT_HMAC_SECRET: "secret-key"
+      AUDIT_HMAC_KEYRING: "k1=secret-key"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov psycopg2-binary
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -c "SELECT 1" && break
+            sleep 1
+          done
+
+      - name: Create app/audit roles & grants
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER app_rw WITH PASSWORD 'muict';" || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER audit_writer WITH PASSWORD 'auditw';" || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER audit_reader WITH PASSWORD 'auditro';" || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE hpc_app TO app_rw; GRANT CONNECT ON DATABASE hpc_app TO audit_writer, audit_reader;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d hpc_app -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO app_rw, audit_writer, audit_reader; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_rw, audit_writer; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO audit_reader;"
+
+      - name: Run tests
+        run: pytest -q --maxfail=1 --disable-warnings
