@@ -4,6 +4,14 @@
 
 ## Quick Start:
 
+Generate `test.csv` by running in the cluster:
+
+```bash
+sacct --parsable2 -S2025-01-01 -E2025-09-24 -L --state=COMPLETED,FAILED,CANCELLED,TIMEOUT,PREEMPTED,NODE_FAIL,BOOT_FAIL,DEADLINE --format=User,JobID,JobName,Elapsed,TotalCPU,CPUTime,CPUTimeRAW,ReqTRES,AllocTRES,AveRSS,MaxRSS,TRESUsageInTot,TRESUsageOutTot,End,State,ExitCode,DerivedExitCode,ConsumedEnergyRaw,ConsumedEnergy,NodeList,AllocNodes,Account,WCKey,Comment,workdir --allusers >> test.csv
+```
+
+and putting `test.csv` inside `./instance` folder before running:
+
 ```bash
 docker compose up -d --build
 ```
