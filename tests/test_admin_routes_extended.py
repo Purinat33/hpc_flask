@@ -519,3 +519,107 @@ def test_export_ledger_csv_preview_mode(client, admin_user, monkeypatch):
         body_text = "\n".join(lines[1:])
         assert ("accounts receivable" in body_text) or (
             "service revenue" in body_text)
+
+
+@pytest.mark.db
+def test_admin_form_billing_section_lists_pending_and_paid(client, admin_user, monkeypatch):
+    """
+    Ensures /admin?section=billing renders and shows both pending and paid
+    receipts fetched via admin_list_receipts().
+    """
+    from tests.test_admin_routes_extended import _dt  # reuse helper
+
+    def fake_admin_list_receipts(status=None):
+        # Minimal fields the template expects for each receipt row:
+        # id, username, status, total, start, end, (and paid_at for paid)
+        if status == "pending":
+            return [{
+                "id": 1,
+                "username": "alice",
+                "status": "pending",
+                "total": 10.0,
+                "start": _dt(2025, 1, 1),
+                "end": _dt(2025, 1, 31),
+            }]
+        if status == "paid":
+            return [{
+                "id": 2,
+                "username": "bob",
+                "status": "paid",
+                "total": 20.0,
+                "start": _dt(2025, 1, 1),
+                "end": _dt(2025, 1, 31),
+                "paid_at": _dt(2025, 2, 1),
+            }]
+        # Not used by this branch, but keep a safe default
+        return [{
+            "id": 3,
+            "username": "carol",
+            "status": "pending",
+            "total": 5.0,
+            "start": _dt(2025, 1, 1),
+            "end": _dt(2025, 1, 31),
+        }]
+
+    monkeypatch.setattr(
+        "controllers.admin.admin_list_receipts", fake_admin_list_receipts)
+
+    r = client.get("/admin?section=billing")
+    assert r.status_code == 200
+    body = r.data.lower()
+    assert b"alice" in body  # pending shows
+    assert b"bob" in body    # paid shows
+
+
+@pytest.mark.db
+def test_admin_form_tiers_section_merges_db_jobs_overrides(client, admin_user, monkeypatch):
+    """
+    Ensures /admin?section=tiers renders and merges users from:
+    - DB (User table)
+    - Observed jobs (fetch_jobs_with_fallbacks)
+    - Overrides (load_overrides_dict)
+    Also exercises tiers_lookback_days and requires 'before' to be parsable.
+    """
+    # Ensure at least one DB user exists
+    from models.users_db import create_user
+    try:
+        create_user("alice", "pw", role="user")
+    except Exception:
+        pass  # user may already exist in a reused test DB
+
+    # Overrides map (lowercased keys in code)
+    monkeypatch.setattr(
+        "controllers.admin.load_overrides_dict", lambda: {"bob": "gov"})
+
+    # Jobs dataframe with a few distinct users
+    import pandas as pd
+    df_jobs = pd.DataFrame([
+        {"User": "alice"},
+        {"User": "bob"},
+        {"User": "carol"},
+        {"User": ""},         # should be filtered out
+        {"User": None},       # should be filtered out
+    ])
+    monkeypatch.setattr(
+        "controllers.admin.fetch_jobs_with_fallbacks",
+        lambda start, end: (df_jobs.copy(), "test_source", [])
+    )
+
+    # If classify_user_type gets called for non-overridden users, make it deterministic
+    monkeypatch.setattr("controllers.admin.classify_user_type", lambda u: "mu")
+
+    # Also, admin_form() queries the DB directly for User.username; our created user covers that.
+
+    # Call with explicit 'before' and lookback param to cover the parsing path
+    r = client.get(
+        "/admin?section=tiers&before=2025-01-31&tiers_lookback_days=30")
+    assert r.status_code == 200
+    body = r.data.lower()
+
+    # General presence: the page and the standard tier list
+    assert b"tier" in body or b"tiers" in body
+    assert b"mu" in body and b"gov" in body and b"private" in body
+
+    # The merged usernames should appear somewhere
+    for uname in (b"alice", b"bob", b"carol"):
+        assert uname in body
