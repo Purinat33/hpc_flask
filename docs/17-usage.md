@@ -1,272 +1,159 @@
-# User & Admin Handbook
+# User Guide
 
-> A friendly guide to using the **HPC Billing Platform** day-to-day. Written for **end users** (researchers) and **admins/finance**. It complements the technical books with step-by-step instructions, tips, and guardrails.
-
----
-
-## 1) Quick tour
-
-- **Login:** `/login`
-- **My usage:** `/me` (views: `detail`, `aggregate`, `billed`)
-- **Export CSV:** `/me.csv?start=YYYY-MM-DD&end=YYYY-MM-DD`
-- **Create receipt:** `POST /me/receipt` (from **My usage**)
-- **My receipts:** `/me/receipts` → view any receipt
-- **Pay a receipt:** `/payments/receipt/<rid>/start` → (provider checkout) → `/payments/thanks`
-- **Language:** `POST /i18n/set` (`lang=en` or `th`)
-- **Admin console:** `/admin` (sections: **rates**, **usage**, **billing**, **myusage**, **dashboard**, **audit**, **tiers**)
-- **Docs Copilot (in-app help):** click the **❓ Help** button (bottom-right)
-- **API Explorer (dev):** Swagger UI at `http://localhost:8081`
+This guide is for **end users** (role=`user`). It covers signing in, viewing your usage, downloading CSVs, and accessing your invoices (receipts). Admin‑only features (rate editing, GL exports, month creation) are documented in the Admin Guide.
 
 ---
 
-## 2) For end users
+## 1) Sign in & language
 
-### 2.1 Sign in & language
+1. Visit the app URL (ask your admin for the link).
+2. Enter **username** and **password**.
+3. Switch language at any time: **Menu → Language → English/ไทย** (persists in a cookie).
+   PDFs are available in **EN** and **TH** layouts.
 
-1. Open `/login`.
-2. Enter your username/password.
-3. (Optional) Switch language via the footer or `POST /i18n/set`.
-
-> Too many bad attempts trigger a **temporary lock** (per username+IP). Wait for the lock to expire or contact an admin.
-
----
-
-### 2.2 See your usage
-
-- Go to `/me`.
-- Choose a **date window** (defaults sensibly).
-- Pick a view:
-
-  - **Detail** – one row per Slurm job.
-  - **Aggregate** – grouped totals (CPU/GPU/MEM hours, cost).
-  - **Billed** – jobs already included on receipts (historic).
-
-**What’s shown**
-
-- CPU **core-hours**, GPU hours, **MEM GB-hours**, job state, and your **pricing tier**.
-- Costs are recomputed for display, but billing totals are **snapshotted** on receipts.
+> If you see “too many attempts,” wait for the lockout window to expire and try again (security throttle).
 
 ---
 
-### 2.3 Download your usage (CSV)
+## 2) Navigation
 
-Use the button on the page or call:
+- **My Usage** – inspect jobs and costs, change view and period, export CSV.
+- **My Receipts** – list of invoices generated for you; open details or download PDFs.
+- **Help** – in‑app tips; optional **Copilot** chat bubble (if enabled by your admin).
 
-```
-/me.csv?start=2025-09-01&end=2025-09-13
+---
+
+## 3) My Usage
+
+The **My Usage** page shows your Slurm jobs priced by the current rates. Use the controls at the top:
+
+- **Before** (date): include all jobs **up to** this date (default: today).
+- **View**:
+
+  - **Detail** – one row per **parent job** (steps are rolled up).
+  - **Aggregate** – grouped totals (e.g., by node/user/month).
+  - **Billed** – only jobs already included in receipts.
+  - **Trend** – daily/monthly charts.
+
+```mermaid
+flowchart LR
+  A[Pick Before date] --> B[Choose View]
+  B --> C{Detail?}
+  C -- Yes --> D[One row per job\nparent; step rows rolled up]
+  C -- No --> E[Aggregates/Charts]
 ```
 
-Open in Excel/Sheets for your own analysis.
+### 3.1 Columns (Detail view)
 
-> Tip: If nothing appears, extend the window—jobs that finish near midnight might land outside a very tight range.
+- **Job** – canonical job ID (arrays/steps compacted to the parent ID).
+- **Walltime** – elapsed time.
+- **CPU core‑hours** – see _How costs are computed_ below.
+- **GPU hours** – allocation‑based.
+- **Mem GB‑hours** – step‑usage when available; else allocation.
+- **Cost** – `CPU*rate_cpu + GPU*rate_gpu + Mem*rate_mem` at **current** rates (the **receipt** will lock rates at creation time).
 
----
+### 3.2 Export CSV
 
-### 2.4 Create a receipt (turn usage into a bill)
-
-1. On `/me`, pick a **cut-off date** (e.g., _before_ today).
-2. Click **Create receipt**.
-3. The system:
-
-   - Re-fetches your usage up to the cut-off.
-   - **Excludes** anything already billed (safety).
-   - Prices each job and **snapshots the tier & per-unit rates** onto the receipt.
-   - Saves the header + line items atomically.
-
-You’ll be redirected to **My receipts**.
-
-> Guardrail: if **any** job in the selection was already billed, the entire creation **fails atomically** (no partial receipts). Adjust the cut-off and retry.
-
----
-
-### 2.5 Pay online (if enabled)
-
-- From a receipt, click **Pay** to open the provider’s **hosted checkout**.
-- The provider sends a **signed webhook** back to us. When verified:
-
-  - Your **payment** becomes `succeeded` (or `failed`/`canceled`).
-  - Your **receipt** becomes `paid` (only when payment `succeeded`).
-
-Revisit `/payments/thanks?rid=<id>` to see the latest status.
-
-> If the provider shows “paid” but the receipt is still `pending`, ask an admin to trigger **webhook re-delivery** from the provider dashboard (or reconcile manually).
-
----
-
-### 2.6 Docs Copilot (in-app help)
-
-- Click the **❓ Help** button (bottom-right).
-- Ask questions about this app (“How are CPU hours computed?”, “What is a receipt?”).
-- Copilot answers **from the built-in docs** and shows **sources** it used.
-- If global CSRF is enabled, the widget sends the token automatically for its requests.
-
-> Rate limited per IP. If you see “Rate limit exceeded”, just try later.
-
----
-
-## 3) For admins/finance
-
-### 3.1 Admin console
-
-Open `/admin`. Sections:
-
-- **Dashboard** — KPIs & charts (last 90 days): daily cost trend, cost by tier, top users, plus node usage and energy/throughput snapshots where available.
-- **Rates** — edit CPU/GPU/MEM hourly rates per tier (`mu`, `gov`, `private`).
-- **Usage** — raw Slurm vs computed costs (QA/triage).
-- **Billing** — receipts list (pending/paid); **mark paid** for offline payments.
-- **My usage** — your own usage (handy for testing flows).
-- **Audit** — recent sensitive actions; CSV export.
-- **Tiers (User Tier Overrides)** — **new** per-user tier selector; searchable list.
-
-All POST actions require **CSRF** (the UI includes this automatically).
-
----
-
-### 3.2 Update rates
-
-- Use **Rates** (form) or the JSON API (`POST /formula`).
-- Changes apply to **future** receipts only; existing receipts are **immutable** because each stores a **pricing snapshot**.
-
-Checklist:
-
-- [ ] Confirm CPU/GPU/MEM rates for each tier.
-- [ ] Save → verify via `GET /formula` (ETag changes).
-- [ ] Create a tiny test receipt to sanity-check totals.
-
----
-
-### 3.3 Mark a receipt “paid” (manual)
-
-For bank transfers or missing webhooks:
-
-1. Open **Billing** and locate the receipt.
-2. Click **Mark as paid**.
-3. Optionally note a reference (`tx_ref`).
-4. The system sets `paid_at`, updates status, and logs an **audit** event.
-
----
-
-### 3.4 User Tier Overrides (new)
-
-Path: **Admin → Tiers**
-
-- Use the **filter** box to find a user quickly.
-- Select `MU` / `GOV` / `PRIVATE` for that user.
-- **If you pick the same tier as the natural classifier**, the override is **removed** (clean state).
-- Saving writes an **audit** entry per change (set/clear) and a summary.
-
-Notes:
-
-- Overrides affect **future** pricing only. Existing receipts remain unchanged (they carry their own rate snapshot).
-- If you later remove an override, the user’s next pricing falls back to the **natural** classifier.
-
----
-
-### 3.5 Exports for finance
-
-- **Paid receipts**: `/admin/paid.csv`
-- **Audit log**: `/admin/audit.csv`
-- **Your admin usage**: `/admin/my.csv`
-
-Retain per institutional finance policy.
-
----
-
-## 4) Payments—what “good” looks like
-
-- Webhooks may arrive more than once; we dedupe by **(provider, external_event_id)** → **idempotent**.
-- We only mark a payment succeeded if **signature** validates **and** **amount/currency** match the local payment row.
-- Upon success we flip:
-
-  - `payments.status → succeeded`
-  - `receipts.status → paid` and set `paid_at` (in one transaction)
-
-If a receipt is stuck in `pending`, check the webhook secret/URL; request a **re-delivery** from the provider; as a last resort, **mark paid** manually (with notes).
-
----
-
-## 5) Common tasks (copy/paste)
-
-### 5.1 Scripted CSV pull
-
-```bash
-# After logging in via browser (or using the curl login flow)
-curl -b cookies.txt \
-  "http://localhost:8000/me.csv?start=2025-09-01&end=2025-09-13" \
-  -o my_usage.csv
-```
-
-### 5.2 Admin: change rates via JSON
-
-```bash
-# Get a CSRF token from /login or /admin first
-curl -b cookies.txt -X POST http://localhost:8000/formula \
-  -H "Content-Type: application/json" \
-  -H "X-CSRFToken: <token>" \
-  -d '{"type":"mu","cpu":2.5,"gpu":12.0,"mem":0.9}'
-```
-
-### 5.3 Health checks
-
-```bash
-curl -s http://localhost:8000/healthz
-curl -si http://localhost:8000/readyz
-```
-
-### 5.4 (Dev) Simulate a successful payment
-
-```bash
-curl -b cookies.txt \
-  "http://localhost:8000/payments/simulate?rid=123&external_payment_id=dev_123&amount_cents=1000&currency=THB" \
-  -L
-```
-
----
-
-## 6) Tips & guardrails
-
-- **No double billing**: a **globally unique job key** prevents the same job appearing on multiple receipts.
-- **Receipts are immutable totals**: each stores `pricing_tier`, `rate_*`, and `rates_locked_at`.
-- **Webhooks aren’t CSRF-protected**: by design; they rely on **signatures + idempotency**.
-- **Docs Copilot**: answers only from docs; shows sources; subject to a per-IP rate limit.
-- **Minimal PII**: we store usernames + usage metadata—no card data.
-
----
-
-## 7) Troubleshooting quickies
-
-- **No jobs appear** → Extend the date window; ensure Slurm is reachable. In dev, set a valid `FALLBACK_CSV`.
-- **Receipt failed to create** → Some jobs were already billed; pick an earlier cut-off.
-- **Payment succeeded but UI shows pending** → webhook not received/verified; re-deliver from provider or mark paid with an audit note.
-- **CSRF error on POST** → session expired or missing token; reload the page and retry.
-- **Admin Dashboard empty charts** → very new deployment or metrics disabled; widen the window.
-- **Copilot says “disabled” or rate limited** → check `COPILOT_ENABLED`, per-IP rate limit, or rebuild the index via `/copilot/reindex` (admin-only).
-
----
-
-## 8) Glossary (mini)
-
-- **Usage** — Slurm job metrics (CPU/GPU/MEM hours) used for pricing.
-- **Receipt** — Priced usage for a window, with immutable line items & **pricing snapshot**.
-- **Paid** — A receipt settled by online payment or manual reconciliation.
-- **Webhook** — Signed callback from the payment provider confirming outcome.
-- **Audit** — Append-only, hash-chained log of sensitive actions.
-- **Tier** — Pricing category (`mu`, `gov`, `private`) applied per user.
-- **Tier override** — Admin-set per-user tier that supersedes the natural classifier; choosing the same as natural **clears** the override.
-- **Docs Copilot** — In-app docs assistant (Ollama-backed) that retrieves from Markdown and cites sources.
-
----
-
-## 9) Appendix: minimal “how pricing works”
-
-For each job:
+Click **Export CSV** or visit:
 
 ```
-cost = cpu_core_hours * rate.cpu
-     + gpu_hours      * rate.gpu
-     + mem_gb_hours   * rate.mem
+/me.csv?before=YYYY-MM-DD
 ```
 
-At receipt creation, the **current tier & per-unit rates are snapshotted** onto the receipt (`pricing_tier`, `rate_*`, `rates_locked_at`). The receipt total is the **sum of item costs**. Changing rates later **does not** change past receipts.
+**Included columns**: job id (display), walltime, CPU core‑hours, GPU hours, Mem GB‑hours, cost, node, state, start/end times, and other useful Slurm fields.
+
+> Tip: Set a past **Before** date to export a month’s worth of usage.
 
 ---
+
+## 4) My Receipts (Invoices)
+
+This page lists invoices created for you by an administrator during monthly billing.
+
+- **Statuses**: `Pending` (not yet paid) or `Paid`.
+- Click an invoice to view details (header + line items).
+- Download **PDF**: English (`.pdf`) or Thai (`.th.pdf`).
+- CSV/GL exports are maintained by admins; you do not need to submit anything.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as You
+  participant App as App
+  U->>App: Open My Receipts
+  App-->>U: List (status, total, date)
+  U->>App: Open a receipt
+  App-->>U: Details + PDF links
+  U->>App: Download PDF (EN/TH)
+```
+
+> If a job you expect is **missing** from a receipt, check **My Usage** for that period first. Jobs appear on receipts only when an admin runs the monthly billing for that window.
+
+---
+
+## 5) How costs are computed (summary)
+
+- **Parent vs Steps**: All step rows like `12345.batch` roll up to the parent job `12345`.
+- **CPU core‑hours**: prefer **step CPU used** (sum of step `TotalCPU` hours). If absent, fall back to parent **TotalCPU** hours → **CPUTimeRAW** hours → **AllocCPUs × Elapsed**.
+- **GPU hours**: **Alloc GPUs × Elapsed**.
+- **Mem GB‑hours**: prefer summed **step AveRSS × step elapsed**; fall back to **allocated mem × elapsed**.
+- **Rates**: set by your **effective tier** (e.g., MU/Gov/Private). Actual invoices **copy** the per‑unit rates at creation time so future changes don’t back‑edit totals.
+
+---
+
+## 6) Troubleshooting & FAQs
+
+**No jobs showing?**
+
+- Check the **Before** date (jobs after that date are excluded).
+- Ask your admin if your cluster’s usage import ran for that period (the app can still open without Slurm).
+
+**My CSV totals don’t match my invoice total. Why?**
+
+- CSV uses **current** rates; invoices lock rates at creation time.
+- CSV may include **unbilled** jobs; invoices include only the jobs chosen for that receipt.
+
+**Can I create or edit my own invoice?**
+
+- No. Admins create invoices in monthly batches. You can always view/download them.
+
+**Why does my job show 0 GPU hours?**
+
+- GPU hours are allocation‑based; if none were allocated, the value is 0 even if the job ran on a GPU‑capable node without requesting GPUs.
+
+**Thai text not rendering in PDF?**
+
+- Tell your admin; the server image must include Thai fonts (it does in the standard build).
+
+---
+
+## 7) Privacy
+
+- The app stores **only your username** for core flows (no email/address by default).
+- PDFs contain your username and job metadata required for billing.
+
+---
+
+## 8) Optional: Copilot (in‑app help)
+
+If your admin enabled the Copilot bubble:
+
+- Click the bubble (bottom‑right).
+- Ask questions like “How do I read my invoice?” or “What does CPU core‑hours mean?”
+- The assistant uses these docs as context and respects a per‑minute rate limit.
+
+---
+
+## 9) Supported browsers
+
+Recent versions of Chrome, Firefox, and Edge are supported. If something looks off, try a hard refresh (Ctrl/Cmd+Shift+R) or a different browser.
+
+---
+
+## 10) Getting help
+
+If numbers look off or you believe a job is missing from your invoice:
+
+1. Note the **receipt number** and **date**.
+2. Compare with **My Usage** for the same period.
+3. Contact your cluster admin/finance contact with the details.

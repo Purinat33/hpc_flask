@@ -28,27 +28,28 @@ nav:
       - Architecture: 02-architecture.md
       - Data Model (ERD): 03-data-model.md
       - Costing & Pricing Model: 03b-pricing.md
+      - Usage & Payment Flows: 05-flows.md
       - Accounting & Compliance (IFRS/TFRS, VAT, ECL): 03c-accounting.md
       - Security & Audit (HMAC chain): 06-security.md
-      - Privacy: 11-privacy.md
+      # - Privacy: 11-privacy.md
   - Guides:
       - User Guide: 17-usage.md
       - Admin Guide: 17b-admin-guide.md
       - API (OpenAPI + Swagger): 04-api.md
-      - LLM Copilot (in-app help/RAG): 04b-copilot.md
-  - Operations:
-      - Deployment: 07-deployment.md
-      - Configuration Reference (env & flags): 07b-config.md
-      - Operations (jobs, billing runs): 08-ops.md
-      - Backup & Restore: 08b-backup.md
-      - Upgrades & Migrations: 08c-migrations.md
-  - Testing & Quality:
-      - Testing: 09-testing.md
-      - Performance: 10-performance.md
-      - Metrics: 13-metrics.md
-  - Integrations & Exports:
-      - Slurm Data Sources: 05-flows.md
-      - e-Tax / GL Export: 12-etax-export.md
+      # - LLM Copilot (in-app help/RAG): 04b-copilot.md
+  # - Operations:
+  #     - Deployment: 07-deployment.md
+  #     - Configuration Reference (env & flags): 07b-config.md
+  #     - Operations (jobs, billing runs): 08-ops.md
+  #     - Backup & Restore: 08b-backup.md
+  #     - Upgrades & Migrations: 08c-migrations.md
+  # - Testing & Quality:
+  #     - Testing: 09-testing.md
+  #     - Performance: 10-performance.md
+  #     - Metrics: 13-metrics.md
+  # - Integrations & Exports:
+  #     - Slurm Data Sources: 05-flows.md
+  #     - e-Tax / GL Export: 12-etax-export.md
   - Troubleshooting: 15-trouble.md
   - Glossary: 16-glossary.md
   - Roadmap: 14-roadmap.md
