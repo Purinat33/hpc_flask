@@ -1,5 +1,9 @@
 # tests/test_billing_store.py
+from models.schema import Receipt, ReceiptItem, AuditLog
+from datetime import datetime, timezone, timedelta
+from decimal import Decimal as D
 from models import billing_store as bs
+from models.audit_store import list_audit
 from models.schema import Receipt
 from models.base import session_scope
 import pytest
@@ -197,3 +201,150 @@ def test_build_etax_payload_shapes_and_totals(monkeypatch):
     has_amount = "amount" in first or (
         "line_total" in first or "total" in first)
     assert has_desc and has_qty and has_price and has_amount
+
+
+def _dt(y, m, d, hh=12, mm=0, ss=0):
+    return datetime(y, m, d, hh, mm, ss, tzinfo=timezone.utc)
+
+
+@pytest.mark.db
+def test_list_billed_items_for_user_rounding_filtering_and_ordering():
+    """
+    Covers:
+    - money rounding to 2dp and conversion to float
+    - filtering by status ("pending"/"paid")
+    - ordering by Receipt.id DESC then job_id_display
+    """
+    with session_scope() as s:
+        # Older receipt (pending) with two items
+        r1 = Receipt(
+            username="alice", pricing_tier="mu",
+            rate_cpu=0.10, rate_gpu=2.00, rate_mem=0.01,
+            rates_locked_at=_dt(2025, 1, 1),
+            start=_dt(2025, 1, 1), end=_dt(2025, 1, 31),
+            created_at=_dt(2025, 2, 1),
+            total=11.11, status="pending",
+        )
+        s.add(r1)
+        s.flush()
+
+        # Cost values crafted to exercise 2dp rounding:
+        # 1.005 -> 1.01 ; 2.004 -> 2.00
+        i1a = ReceiptItem(
+            receipt_id=r1.id,
+            job_id_display="J001", job_key="k1",
+            cost=D("1.005"),
+            cpu_core_hours=D("1.0"), gpu_hours=D("0.0"), mem_gb_hours=D("0.0"),
+        )
+        i1b = ReceiptItem(
+            receipt_id=r1.id,
+            job_id_display="J010", job_key="k2",
+            cost=D("2.004"),
+            cpu_core_hours=D("0.0"), gpu_hours=D("1.0"), mem_gb_hours=D("0.0"),
+        )
+        s.add_all([i1a, i1b])
+
+        # Newer receipt (paid) with one item
+        r2 = Receipt(
+            username="alice", pricing_tier="mu",
+            rate_cpu=0.10, rate_gpu=2.00, rate_mem=0.01,
+            rates_locked_at=_dt(2025, 2, 1),
+            start=_dt(2025, 2, 1), end=_dt(2025, 2, 28),
+            created_at=_dt(2025, 3, 1),
+            total=22.22, status="paid", paid_at=_dt(2025, 3, 5),
+        )
+        s.add(r2)
+        s.flush()
+
+        i2a = ReceiptItem(
+            receipt_id=r2.id,
+            job_id_display="J005", job_key="k3",
+            cost=D("3.999"),
+            cpu_core_hours=D("0.0"), gpu_hours=D("0.0"), mem_gb_hours=D("1.0"),
+        )
+        s.add(i2a)
+        s.flush()
+
+    # No status filter: should include items from both receipts; order by receipt_id DESC then job_id_display
+    all_items = bs.list_billed_items_for_user("alice")
+    assert [x["receipt_id"] for x in all_items] == [r2.id, r1.id, r1.id]
+    # within newest receipt r2, only "J005"; within r1 items should be ordered by job_id_display: J001 then J010
+    assert [x["job_id_display"] for x in all_items] == ["J005", "J001", "J010"]
+
+    # Rounding and type checks
+    # r1/J001 cost 1.005 -> 1.01 ; r1/J010 cost 2.004 -> 2.00 ; r2/J005 cost 3.999 -> 4.00
+    by_job = {x["job_id_display"]: x for x in all_items}
+    assert isinstance(by_job["J001"]["cost"],
+                      float) and by_job["J001"]["cost"] == 1.01
+    assert by_job["J010"]["cost"] == 2.00
+    assert by_job["J005"]["cost"] == 4.00
+
+    # Numeric fields surfaced as float
+    assert isinstance(by_job["J001"]["cpu_core_hours"], float)
+    assert isinstance(by_job["J001"]["gpu_hours"], float)
+    assert isinstance(by_job["J001"]["mem_gb_hours"], float)
+
+    # Status filter: pending only -> two items from r1
+    pending_only = bs.list_billed_items_for_user("alice", status="pending")
+    assert {x["receipt_id"] for x in pending_only} == {r1.id}
+    assert len(pending_only) == 2
+    assert all(x["status"] == "pending" for x in pending_only)
+
+    # Status filter: paid only -> one item from r2
+    paid_only = bs.list_billed_items_for_user("alice", status="paid")
+    assert len(paid_only) == 1 and paid_only[0]["receipt_id"] == r2.id
+    assert paid_only[0]["status"] == "paid"
+    # Dates and paid_at carried through
+    assert paid_only[0]["start"] == _dt(2025, 2, 1)
+    assert paid_only[0]["end"] == _dt(2025, 2, 28)
+    assert paid_only[0]["created_at"] == _dt(2025, 3, 1)
+    assert paid_only[0]["paid_at"] == _dt(2025, 3, 5)
+
+
+@pytest.mark.db
+def test_list_audit_orders_desc_and_builds_target_field_and_limit():
+    """
+    Covers:
+    - DESC ordering by id
+    - 'target' synthesis from (target_type, target_id) if present
+    - limiting via 'limit' arg
+    - optional fields outcome/error_code/actor_role included safely
+    """
+    with session_scope() as s:
+        # Older audit row without target
+        a1 = AuditLog(
+            ts=_dt(2025, 1, 1),
+            actor="alice", actor_role="user",
+            ip="127.0.0.1", method="GET", path="/ping",
+            action="view", status=200,
+            outcome="success",
+        )
+        s.add(a1)
+        s.flush()
+
+        # Newer audit row with target fields
+        a2 = AuditLog(
+            ts=_dt(2025, 1, 2),
+            actor="admin", actor_role="admin",
+            ip="127.0.0.1", method="POST", path="/admin/invoices/revert",
+            action="revert", status=200,
+            target_type="receipt", target_id=42,
+            outcome="success", error_code=None,
+        )
+        s.add(a2)
+        s.flush()
+
+    # Default limit (500) -> both rows, ordered by id DESC => [a2, a1]
+    rows = list_audit()
+    assert [row["id"] for row in rows][:2] == [a2.id, a1.id]
+    # Target formatting
+    assert rows[0]["target"] == "receipt:42"
+    assert rows[1]["target"] is None
+    # Optional fields present
+    assert rows[0]["actor_role"] == "admin"
+    assert rows[0]["outcome"] == "success"
+    assert "error_code" in rows[0]
+
+    # Limit=1 returns only the newest
+    rows_lim1 = list_audit(limit=1)
+    assert len(rows_lim1) == 1 and rows_lim1[0]["id"] == a2.id
