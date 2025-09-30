@@ -342,3 +342,86 @@ def test_export_ledger_pdf_preview_mode(client, admin_user, monkeypatch):
         "/admin/export/ledger.pdf?mode=derived&start=2025-01-01&end=2025-01-31")
     assert r.status_code == 200
     assert "application/pdf" in r.headers.get("Content-Type", "").lower()
+
+
+# ----------------------------- admin_form (myusage) -----------------------------
+
+@pytest.mark.db
+def test_admin_form_myusage_default_page(client, admin_user, monkeypatch):
+    """
+    Covers /admin?section=myusage for the current user (admin).
+    Verifies page renders and shows something usage-related.
+    """
+    import pandas as pd
+    from datetime import datetime, timezone
+
+    df = pd.DataFrame([
+        {"User": "admin", "JobID": "MU1",
+         "End": pd.Timestamp("2025-01-10T08:00:00Z"),
+         "CPU_Core_Hours": 3.0, "GPU_Hours": 0.0, "Mem_GB_Hours_Used": 30.0,
+         "tier": "mu", "State": "COMPLETED", "ExitCode": "0:0", "NodeList": "n01"},
+        {"User": "admin", "JobID": "MU2",
+         "End": pd.Timestamp("2025-01-15T08:00:00Z"),
+         "CPU_Core_Hours": 4.0, "GPU_Hours": 1.0, "Mem_GB_Hours_Used": 40.0,
+         "tier": "mu", "State": "COMPLETED", "ExitCode": "0:0", "NodeList": "n02"},
+    ])
+
+    def fake_fetch(start, end, username=None):
+        # myusage should request the current user; we return only admin rows
+        return df.copy(), "test_source", []
+
+    monkeypatch.setattr(
+        "controllers.admin.fetch_jobs_with_fallbacks", fake_fetch)
+
+    # Default myusage page (no extra filters required)
+    r = client.get("/admin?section=myusage&year=2025&month=1")
+    assert r.status_code == 200
+    # Keep the assertion tolerant of template wording
+    body = r.data.lower()
+    assert b"usage" in body or b"my usage" in body or b"your usage" in body
+    # A couple of job IDs or fields should show up
+    assert b"mu1" in body or b"mu2" in body
+
+
+@pytest.mark.db
+def test_admin_form_myusage_trend_and_empty(client, admin_user, monkeypatch):
+    """
+    Covers /admin?section=myusage&view=trend and also the empty-data case.
+    """
+    import pandas as pd
+
+    # First, non-empty set for trend
+    df_trend = pd.DataFrame([
+        {"User": "admin", "JobID": "T1", "End": pd.Timestamp("2025-02-05T00:00:00Z"),
+         "CPU_Core_Hours": 2.0, "GPU_Hours": 0.0, "Mem_GB_Hours_Used": 20.0,
+         "tier": "mu", "State": "COMPLETED", "ExitCode": "0:0", "NodeList": "n01"},
+    ])
+
+    def fake_fetch_nonempty(start, end, username=None):
+        return df_trend.copy(), "test_source", []
+
+    monkeypatch.setattr("controllers.admin.fetch_jobs_with_fallbacks",
+                        fake_fetch_nonempty)
+
+    r = client.get("/admin?section=myusage&view=trend&year=2025&month=2")
+    assert r.status_code == 200
+    body = r.data.lower()
+    assert b"usage" in body  # tolerant check like your other tests
+    # Optional: something from the trend dataset appears
+    assert b"t1" in body or b"trend" in body or b"cpu" in body
+
+    # Now, simulate empty-data edge case (should still render gracefully)
+    def fake_fetch_empty(start, end, username=None):
+        return pd.DataFrame([], columns=[
+            "User", "JobID", "End", "CPU_Core_Hours", "GPU_Hours",
+            "Mem_GB_Hours_Used", "tier", "State", "ExitCode", "NodeList"
+        ]), "test_source", []
+
+    monkeypatch.setattr("controllers.admin.fetch_jobs_with_fallbacks",
+                        fake_fetch_empty)
+
+    r2 = client.get("/admin?section=myusage&view=trend&year=2025&month=3")
+    assert r2.status_code == 200
+    body2 = r2.data.lower()
+    # Page should still mention usage (or an empty-state message your UI shows)
+    assert b"usage" in body2 or b"no jobs" in body2 or b"no data" in body2
