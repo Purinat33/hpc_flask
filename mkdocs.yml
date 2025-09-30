@@ -22,9 +22,7 @@ plugins:
 
 nav:
   - Overview: index.md
-  - Quickstart:
-      - Dev & Demo (Docker): getting-started.md
-      - Live Docs (MkDocs Container): docs-live.md
+  - Quickstart: getting-started.md
   - Requirements (SRS): 01-srs.md
   - Concepts:
       - Architecture: 02-architecture.md
