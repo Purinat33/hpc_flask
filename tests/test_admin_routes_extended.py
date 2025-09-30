@@ -425,3 +425,97 @@ def test_admin_form_myusage_trend_and_empty(client, admin_user, monkeypatch):
     body2 = r2.data.lower()
     # Page should still mention usage (or an empty-state message your UI shows)
     assert b"usage" in body2 or b"no jobs" in body2 or b"no data" in body2
+
+
+# ----------------------------- admin_form (tier section) -----------------------------
+
+@pytest.mark.db
+def test_admin_form_tier_section_renders_and_has_fields(client, admin_user):
+    """
+    Ensures /admin?section=tier renders and exposes CPU/GPU/Mem rate
+    controls or labels, without assuming specific input names.
+    """
+    # Exercise the POST handler to keep that codepath covered
+    r_post = client.post(
+        "/admin",
+        data={"type": "mu", "cpu": "0.11", "gpu": "2.22", "mem": "0.33"},
+    )
+    assert r_post.status_code in (302, 303)
+
+    # Visit the tier section page
+    r_get = client.get("/admin?section=tier")
+    assert r_get.status_code == 200
+    body = r_get.data.lower()
+
+    # Tolerant heading/section check
+    assert any(k in body for k in (b"tier", b"tiers", b"pricing", b"rates"))
+
+    # There should be *some* UI wrapper (form or table)
+    assert b"<form" in body or b"<table" in body
+
+    # Look for CPU/GPU/Mem references (labels, headers, etc.)
+    # Be generous: 'mem' or 'memory'
+    assert b"cpu" in body
+    assert b"gpu" in body
+    assert (b"mem" in body) or (b"memory" in body)
+
+    # Still expect a way to save/update (button text or submit input)
+    assert (
+        b"type=submit" in body
+        or b">save<" in body
+        or b">update<" in body
+        or b"submit" in body
+    )
+
+    # And the tier key we touched should be present somewhere
+    assert b"mu" in body
+
+
+# ----------------------------- export_ledger_csv (preview/derived) -----------------------------
+@pytest.mark.db
+def test_export_ledger_csv_preview_mode(client, admin_user, monkeypatch):
+    """
+    Hits /admin/export/ledger.csv in preview mode by stubbing derive_journal
+    to return a tiny, valid dataframe. Be tolerant of implementations that
+    emit header-only CSVs.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame([
+        {"date": "2025-01-15", "ref": "R1", "memo": "alpha",
+         "account_id": "1100", "account_name": "Accounts Receivable",
+         "account_type": "ASSET", "debit": 100.0, "credit": 0.0},
+        {"date": "2025-01-15", "ref": "R1", "memo": "alpha",
+         "account_id": "4000", "account_name": "Service Revenue",
+         "account_type": "INCOME", "debit": 0.0, "credit": 100.0},
+    ])
+
+    # If the controller uses derive_journal in derived mode, this keeps the path covered.
+    monkeypatch.setattr("controllers.admin.derive_journal",
+                        lambda s, e: df.copy())
+
+    r = client.get(
+        "/admin/export/ledger.csv?mode=derived&start=2025-01-01&end=2025-01-31")
+    assert r.status_code == 200
+
+    # Content-Type sanity
+    ct = r.headers.get("Content-Type", "").lower()
+    assert "csv" in ct
+
+    text = r.data.decode("utf-8", errors="ignore").strip().lower()
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+
+    # Must have at least a header line
+    assert len(lines) >= 1
+
+    header = lines[0]
+    expected_cols = ["date", "ref", "memo", "account_id",
+                     "account_name", "account_type", "debit", "credit"]
+    for col in expected_cols:
+        assert col in header, f"missing {col} in CSV header: {header}"
+
+    # If rows exist, do a light content check (don’t require them to exist)
+    if len(lines) > 1:
+        body_text = "\n".join(lines[1:])
+        assert ("accounts receivable" in body_text) or (
+            "service revenue" in body_text)
