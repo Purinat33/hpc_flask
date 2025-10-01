@@ -1,16 +1,16 @@
 # Data Dictionary & Glossary
 
-> Canonical reference for tables, columns, enums, keys, and invariants used by the **HPC Billing Platform**. Use this when writing reports, debugging, or evolving the schema.
+> Canonical reference for tables, columns, enums, keys, and invariants used by the **HPC Billing Platform**.
 
 ---
 
 ## 0) Conventions
 
-- DB: **PostgreSQL** (via SQLAlchemy).
-- Types are **PostgreSQL-ish** and map 1:1 to our models where noted.
-- `PK` = primary key, `FK` = foreign key, `UQ` = unique.
-- Timestamps are UTC unless stated. Where we store a `timestamp` for a “date window”, treat it with **date-level semantics** (inclusive start/end).
-- **KPI** = Key Performance Indicator.
+* DB: **PostgreSQL** (SQLAlchemy ORM).
+* Types are PostgreSQL‑ish; timestamps are **UTC** unless stated.
+* `PK` = primary key, `FK` = foreign key, `UQ` = unique.
+* "Date window" columns stored as timestamps are used with **date‑level semantics** (inclusive start/end).
+* Monetary values use **DECIMAL/NUMERIC** in DB; UI rounds to 2 dp.
 
 ---
 
@@ -21,217 +21,198 @@
 | Column          | Type          | Notes                                  |
 | --------------- | ------------- | -------------------------------------- |
 | `username`      | `text`        | **PK**. Login identifier; minimal PII. |
-| `password_hash` | `text`        | Strong salted hash (Werkzeug/Argon2…). |
-| `role`          | `text`        | Enum: `user` \| `admin`.               |
+| `password_hash` | `text`        | Strong salted hash.                    |
+| `role`          | `text`        | Enum: `user` | `admin`.                |
 | `created_at`    | `timestamptz` | Default `now()`.                       |
 
-**Indexes**: `PK(username)`
-**Checks**: `role ∈ {user, admin}`
+**Indexes**: `PK(username)`  •  **Checks**: `role ∈ {user, admin}`
 
 ---
 
 ### 1.2 `rates`
 
-Current tiered pricing used **at the time of receipt creation**.
+Current tiered pricing; **receipts snapshot** rates at creation.
 
-| Column       | Type            | Notes                                 |
-| ------------ | --------------- | ------------------------------------- |
-| `tier`       | `text`          | **PK**. Enum: `mu`, `gov`, `private`. |
-| `cpu`        | `numeric(12,6)` | Price per CPU core-hour.              |
-| `gpu`        | `numeric(12,6)` | Price per GPU-hour.                   |
-| `mem`        | `numeric(12,6)` | Price per GB-hour.                    |
-| `updated_at` | `timestamptz`   | For cache/ETag.                       |
+| Column       | Type          | Notes                                 |
+| ------------ | ------------- | ------------------------------------- |
+| `tier`       | `text`        | **PK**. Enum: `mu`, `gov`, `private`. |
+| `cpu`        | `numeric`     | Price per CPU core‑hour.              |
+| `gpu`        | `numeric`     | Price per GPU‑hour.                   |
+| `mem`        | `numeric`     | Price per GB‑hour.                    |
+| `updated_at` | `timestamptz` | For cache/ETag.                       |
 
 **Indexes**: `PK(tier)`
 
-> When versioning rates by time, introduce `rates_versioned(tier, effective_at)` and keep `rates` as the latest snapshot.
+---
+
+### 1.3 `user_tier_overrides`
+
+Per‑user effective tier override (admin‑managed).
+
+| Column       | Type          | Notes                           |
+| ------------ | ------------- | ------------------------------- |
+| `username`   | `text`        | **PK**; applies to this user.   |
+| `tier`       | `text`        | Enum: `mu` | `gov` | `private`. |
+| `updated_at` | `timestamptz` | Last change timestamp.          |
+
+**Checks**: `tier ∈ {mu, gov, private}`  •  **Behavior**: Selecting the natural tier **removes** the override. Actions are **audited**.
 
 ---
 
-### 1.3 `receipts`
+### 1.4 `receipts`
 
-Header rows for priced bundles of jobs (with pricing **snapshot**).
+Header rows for priced bundles of jobs; contains a **pricing & tax snapshot**.
 
-| Column            | Type            | Notes                                                                |
-| ----------------- | --------------- | -------------------------------------------------------------------- |
-| `id`              | `serial`        | **PK**.                                                              |
-| `username`        | `text`          | **FK** → `users.username`.                                           |
-| `start`           | `timestamp`     | Usage window start (**date semantics**, inclusive).                  |
-| `end`             | `timestamp`     | Usage window end (**date semantics**, inclusive).                    |
-| `total`           | `numeric(14,2)` | Sum of items’ `cost`.                                                |
-| `pricing_tier`    | `text`          | Snapshot of tier at creation (`mu`/`gov`/`private`).                 |
-| `rate_cpu`        | `numeric(12,6)` | Snapshot: THB per CPU core-hour.                                     |
-| `rate_gpu`        | `numeric(12,6)` | Snapshot: THB per GPU-hour.                                          |
-| `rate_mem`        | `numeric(12,6)` | Snapshot: THB per GB-hour.                                           |
-| `rates_locked_at` | `timestamptz`   | When the above rates were snapped.                                   |
-| `status`          | `text`          | Enum: `pending` \| `paid` \| `void` _(UI currently uses first two)_. |
-| `method`          | `text`          | Free text (e.g., `online`, `manual`).                                |
-| `tx_ref`          | `text`          | Provider reference or rationale.                                     |
-| `paid_at`         | `timestamptz`   | Null until settled.                                                  |
-| `created_at`      | `timestamptz`   | Default `now()`.                                                     |
+| Column            | Type          | Notes                                                                     |
+| ----------------- | ------------- | ------------------------------------------------------------------------- |
+| `id`              | `serial`      | **PK**.                                                                   |
+| `username`        | `text`        | **FK** → `users.username`.                                                |
+| `start`           | `timestamp`   | Usage window start (**date semantics**, inclusive).                       |
+| `end`             | `timestamp`   | Usage window end (**date semantics**, inclusive).                         |
+| `currency`        | `text(3)`     | ISO‑4217 (e.g., `THB`).                                                   |
+| `subtotal`        | `numeric`     | Sum of line item costs before tax.                                        |
+| `tax_label`       | `text`        | e.g., `VAT`.                                                              |
+| `tax_rate`        | `numeric`     | Percentage value (e.g., `7` = 7%).                                        |
+| `tax_amount`      | `numeric`     | Computed.                                                                 |
+| `tax_inclusive`   | `boolean`     | If true, `total = subtotal` and `tax_amount` is derived out of the total. |
+| `total`           | `numeric`     | Grand total.                                                              |
+| `status`          | `text`        | Enum: `pending` | `paid` | `void` *(UI uses first two)*.                  |
+| `pricing_tier`    | `text`        | Snapshot tier: `mu` | `gov` | `private`.                                  |
+| `rate_cpu`        | `numeric`     | Snapshot THB per CPU core‑hour.                                           |
+| `rate_gpu`        | `numeric`     | Snapshot THB per GPU‑hour.                                                |
+| `rate_mem`        | `numeric`     | Snapshot THB per GB‑hour.                                                 |
+| `rates_locked_at` | `timestamptz` | When snapshot was taken.                                                  |
+| `invoice_no`      | `text`        | Optional human invoice no. (unique if used).                              |
+| `approved_by`     | `text`        | Optional approver.                                                        |
+| `approved_at`     | `timestamptz` | Optional approval timestamp.                                              |
+| `method`          | `text`        | Free text (e.g., `manual`).                                               |
+| `tx_ref`          | `text`        | Reference / rationale.                                                    |
+| `paid_at`         | `timestamptz` | Null until settled.                                                       |
+| `created_at`      | `timestamptz` | Default `now()`.                                                          |
 
-**Indexes**
-
-- `IDX_receipts_user_date (username, created_at DESC)`
-- `IDX_receipts_status_date (status, created_at DESC)`
-
-**Checks**
-
-- `status ∈ {pending, paid, void}`
-- `pricing_tier ∈ {mu, gov, private}`
-- `total ≥ 0`
-
-**Why a snapshot?** Guarantees historical reproducibility even if `rates` change later.
-
----
-
-### 1.4 `receipt_items`
-
-Line items (one row per **parent job**). Enforces **no double billing**.
-
-| Column           | Type            | Notes                                                              |
-| ---------------- | --------------- | ------------------------------------------------------------------ |
-| `receipt_id`     | `int`           | **FK** → `receipts.id`.                                            |
-| `job_key`        | `text`          | **UQ**. Canonical unique job identifier (parent key, not step id). |
-| `job_id_display` | `text`          | Human-friendly JobID for UI.                                       |
-| `cpu_core_hours` | `numeric(14,4)` | Derived.                                                           |
-| `gpu_hours`      | `numeric(14,4)` | Derived.                                                           |
-| `mem_gb_hours`   | `numeric(14,4)` | Derived.                                                           |
-| `cost`           | `numeric(14,2)` | Priced via **receipt snapshot** (`rate_*`).                        |
-
-**Keys/Indexes**
-
-- `PK(receipt_id, job_key)` (locality)
-- `UQ(job_key)` (global de-dup)
-- `IDX_items_receipt (receipt_id)`
-
-**Invariant**: Any duplicate `job_key` → insert error → the whole receipt creation tx **rolls back**.
+**Indexes**: `(username, created_at DESC)` • `(status, created_at DESC)`
+**Checks**: `status ∈ {pending, paid, void}`, `pricing_tier ∈ {mu, gov, private}`, `total ≥ 0`
 
 ---
 
-### 1.5 `payments`
+### 1.5 `receipt_items`
 
-One per checkout attempt for a receipt.
+One row per **parent job** (steps rolled up). Enforces **no double billing**.
 
-| Column                | Type          | Notes                                                                 |
-| --------------------- | ------------- | --------------------------------------------------------------------- |
-| `id`                  | `serial`      | **PK**.                                                               |
-| `provider`            | `text`        | e.g., `dummy`, `stripe`, `omise`.                                     |
-| `receipt_id`          | `int`         | **FK** → `receipts.id` (CASCADE on delete).                           |
-| `username`            | `text`        | **FK** → `users.username`.                                            |
-| `status`              | `text`        | Enum: `pending` \| `succeeded` \| `failed` \| `canceled`.             |
-| `currency`            | `text(3)`     | ISO code (e.g., `THB`).                                               |
-| `amount_cents`        | `int`         | Expected amount (integer cents).                                      |
-| `external_payment_id` | `text`        | Provider payment/intent id. **UQ** per DB row (provider-side unique). |
-| `checkout_url`        | `text`        | Hosted checkout URL (if applicable).                                  |
-| `idempotency_key`     | `text`        | Optional; dedupe checkout initiations (partial UQ recommended).       |
-| `created_at`          | `timestamptz` | Timestamp.                                                            |
-| `updated_at`          | `timestamptz` | Timestamp.                                                            |
+| Column           | Type      | Notes                                                          |
+| ---------------- | --------- | -------------------------------------------------------------- |
+| `receipt_id`     | `int`     | **FK** → `receipts.id`.                                        |
+| `job_key`        | `text`    | **UQ**. Canonical unique job identifier (parent, not step id). |
+| `job_id_display` | `text`    | Human‑friendly JobID.                                          |
+| `cpu_core_hours` | `numeric` | Derived.                                                       |
+| `gpu_hours`      | `numeric` | Derived.                                                       |
+| `mem_gb_hours`   | `numeric` | Derived.                                                       |
+| `cost`           | `numeric` | Priced via **receipt snapshot** (`rate_*`).                    |
 
-**Indexes**
-
-- `IDX_payments_receipt (receipt_id)`
-- `IDX_payments_status (status)`
-- `UQ(external_payment_id)`
-- _(Recommended)_ partial UQ: `(provider, idempotency_key) WHERE idempotency_key IS NOT NULL`
-
-**Checks**
-
-- `amount_cents ≥ 0`
-- `status ∈ {pending, succeeded, failed, canceled}`
+**Keys/Indexes**: `PK(receipt_id, job_key)` • `UQ(job_key)` • `IDX(receipt_id)`
+**Invariant**: Duplicate `job_key` causes receipt creation to **fail atomically**.
 
 ---
 
-### 1.6 `payment_events`
+### 1.6 *(optional, disabled by default)* `payments`
 
-All webhook calls for a payment. Powers idempotency.
+Present for future online‑payment integrations; not used in the default stack.
 
-| Column              | Type          | Notes                                                                  |
-| ------------------- | ------------- | ---------------------------------------------------------------------- |
-| `id`                | `serial`      | **PK**.                                                                |
-| `provider`          | `text`        | Stored redundantly for convenience.                                    |
-| `external_event_id` | `text`        | **UQ with `provider`**; provider’s event id (replay guard).            |
-| `payment_id`        | `int`         | **FK** → `payments.id` (nullable for early events / lookups).          |
-| `event_type`        | `text`        | e.g., `payment.succeeded`.                                             |
-| `raw`               | `text`        | Raw payload (redacted if needed).                                      |
-| `signature_ok`      | `boolean*`    | Signature verdict. _Stored as `int` 0/1 with a DB CHECK in our model._ |
-| `received_at`       | `timestamptz` | Default `now()`.                                                       |
+| Column                | Type          | Notes                                                  |
+| --------------------- | ------------- | ------------------------------------------------------ |
+| `id`                  | `serial`      | **PK**.                                                |
+| `provider`            | `text`        | e.g., `dummy`, `omise`.                                |
+| `receipt_id`          | `int`         | **FK** → `receipts.id`.                                |
+| `username`            | `text`        | **FK** → `users.username`.                             |
+| `status`              | `text`        | Enum: `pending` | `succeeded` | `failed` | `canceled`. |
+| `currency`            | `text(3)`     | ISO code.                                              |
+| `amount_cents`        | `int`         | Integer cents.                                         |
+| `external_payment_id` | `text`        | Provider payment id.                                   |
+| `created_at`          | `timestamptz` | Timestamp.                                             |
+| `updated_at`          | `timestamptz` | Timestamp.                                             |
 
-**Indexes**
-
-- `UQ(provider, external_event_id)`
-- `IDX_events_payment (payment_id)`
-
-**Invariant**: Duplicate `(provider, external_event_id)` is a safe no-op; webhook handler is **idempotent**.
+**Indexes**: `(receipt_id)` • `(status)` • `UQ(external_payment_id)`
+**Checks**: `amount_cents ≥ 0`
 
 ---
 
-### 1.7 `audit_log`
+### 1.7 *(optional)* `payment_events`
 
-Tamper-evident, append-only log of sensitive actions.
+Webhook calls for a payment; powers idempotency.
 
-| Column      | Type          | Notes                                                         |     |                                  |
-| ----------- | ------------- | ------------------------------------------------------------- | --- | -------------------------------- |
-| `id`        | `serial`      | **PK**.                                                       |     |                                  |
-| `ts`        | `timestamptz` | Default `now()`.                                              |     |                                  |
-| `actor`     | `text`        | Username or `system`.                                         |     |                                  |
-| `ip`        | `text`        | Remote IP (as logged).                                        |     |                                  |
-| `ua`        | `text`        | User-Agent (optional).                                        |     |                                  |
-| `method`    | `text`        | HTTP verb (optional).                                         |     |                                  |
-| `path`      | `text`        | Request path (optional).                                      |     |                                  |
-| `action`    | `text`        | e.g., `login_success`, `receipt_create`, `payment_finalized`. |     |                                  |
-| `target`    | `text`        | Optional (receipt id, username…).                             |     |                                  |
-| `status`    | `int`         | Optional HTTP/status code.                                    |     |                                  |
-| `extra`     | `jsonb`       | Arbitrary structured data.                                    |     |                                  |
-| `prev_hash` | `text`        | Previous record’s hash.                                       |     |                                  |
-| `hash`      | `text`        | \`H(prev_hash                                                 |     | canonical_row_without_hashes)\`. |
+| Column              | Type          | Notes                                        |
+| ------------------- | ------------- | -------------------------------------------- |
+| `id`                | `serial`      | **PK**.                                      |
+| `provider`          | `text`        | Redundant for convenience.                   |
+| `external_event_id` | `text`        | **UQ with provider**; provider’s event id.   |
+| `payment_id`        | `int`         | **FK** → `payments.id` (nullable initially). |
+| `event_type`        | `text`        | e.g., `payment.succeeded`.                   |
+| `signature_ok`      | `boolean`     | Signature verdict.                           |
+| `raw`               | `jsonb`       | Raw payload (redacted if needed).            |
+| `received_at`       | `timestamptz` | Default `now()`.                             |
 
-**Indexes**: `IDX_audit_ts (ts DESC)`
-**Invariant**: a broken hash chain indicates tampering.
+**Indexes**: `UQ(provider, external_event_id)` • `(payment_id)`
 
 ---
 
-### 1.8 `auth_throttle`
+### 1.8 `audit_log`
 
-Per `(username, ip)` counters to rate-limit logins.
+Tamper‑evident, append‑only log of sensitive actions; **HMAC‑chained**.
 
-| Column         | Type          | Notes                            |
-| -------------- | ------------- | -------------------------------- |
-| `id`           | `serial`      | **PK**.                          |
-| `username`     | `text`        | Throttled subject.               |
-| `ip`           | `text`        | Source IP (stringified).         |
-| `window_start` | `timestamptz` | Current rolling window.          |
-| `fail_count`   | `int`         | Attempts in window.              |
-| `locked_until` | `timestamptz` | If set → deny logins until then. |
+| Column           | Type          | Notes                                    |   |                    |
+| ---------------- | ------------- | ---------------------------------------- | - | ------------------ |
+| `id`             | `serial`      | **PK**.                                  |   |                    |
+| `ts`             | `timestamptz` | Default `now()`.                         |   |                    |
+| `actor`          | `text`        | Username or `system`.                    |   |                    |
+| `action`         | `text`        | e.g., `login_success`, `receipt_create`. |   |                    |
+| `status`         | `text`        | Optional status text/code.               |   |                    |
+| `target_type`    | `text`        | e.g., `receipt`, `rates`, `user`.        |   |                    |
+| `target_id`      | `text`        | ID in the target domain.                 |   |                    |
+| `prev_hash`      | `text`        | Previous record’s hash.                  |   |                    |
+| `hash`           | `text`        | HMAC(prev_hash                           |   | canonical_fields). |
+| `key_id`         | `text`        | Which key signed this record.            |   |                    |
+| `ip_fingerprint` | `text`        | May be anonymized (see env flags).       |   |                    |
+| `ua_fingerprint` | `text`        | May be anonymized or omitted.            |   |                    |
+| `request_id`     | `text`        | Correlates to request logs.              |   |                    |
+| `extra`          | `jsonb`       | Whitelisted structured extras.           |   |                    |
 
-**Indexes**: `UQ(username, ip)`
+**Indexes**: `(ts DESC)`  •  **Verification**: `/admin/audit.verify.json`
 
 ---
 
-### 1.9 `user_tier_overrides`
+### 1.9 `auth_throttle`
 
-Per-user **effective tier** override (admin-managed).
+Per `(username, ip)` counters to rate‑limit logins.
 
-| Column       | Type          | Notes                                  |
-| ------------ | ------------- | -------------------------------------- |
-| `username`   | `text`        | **PK**; user this override applies to. |
-| `tier`       | `text`        | Enum: `mu` \| `gov` \| `private`.      |
-| `updated_at` | `timestamptz` | Last change timestamp.                 |
+| Column         | Type          | Notes                   |
+| -------------- | ------------- | ----------------------- |
+| `username`     | `text`        | **PK part**.            |
+| `ip`           | `text`        | **PK part**.            |
+| `window_start` | `timestamptz` | Current rolling window. |
+| `fail_count`   | `int`         | Attempts in window.     |
+| `locked_until` | `timestamptz` | If set → deny logins.   |
 
-**Checks**: `tier ∈ {mu, gov, private}`
-**Behavior**: If admin selects the **same** tier as the natural classifier, the override row is **removed**. All set/clear actions are **audited**.
+**Keys**: `PK(username, ip)`
+
+---
+
+### 1.10 GL tables
+
+| Table                | Key columns / purpose                                                        |       |         |       |                       |
+| -------------------- | ---------------------------------------------------------------------------- | ----- | ------- | ----- | --------------------- |
+| `accounting_periods` | `(period_year, period_month, status)` with `closed_at`, `closed_by`.         |       |         |       |                       |
+| `journal_batches`    | `id`, `source`, `source_ref`, `kind(accrual                                  | issue | payment | close | reopen)`, `period_*`. |
+| `gl_entries`         | `id`, `batch_id(FK)`, `date`, `ref`, `memo`, `account_*`, `debit`, `credit`. |       |         |       |                       |
 
 ---
 
 ## 2) Enums & controlled vocab
 
-- `users.role` → `{ user, admin }`
-- `rates.tier` → `{ mu, gov, private }`
-- `receipts.status` → `{ pending, paid, void }` _(UI exposes `pending/paid` today)_
-- `payments.status` → `{ pending, succeeded, failed, canceled }`
-- `payments.currency` → **ISO-4217** (e.g., `THB`)
-
-> Enforce via DB CHECKs or application validation (we do both where practical).
+* `users.role` → `{ user, admin }`
+* `rates.tier` → `{ mu, gov, private }`
+* `receipts.status` → `{ pending, paid, void }`
+* `payments.status` *(optional)* → `{ pending, succeeded, failed, canceled }`
+* `payments.currency` → ISO‑4217 (e.g., `THB`)
 
 ---
 
@@ -240,34 +221,36 @@ Per-user **effective tier** override (admin-managed).
 ```mermaid
 erDiagram
   USERS ||--o{ RECEIPTS : has
-  USERS ||--o{ PAYMENTS : initiates
   RECEIPTS ||--o{ RECEIPT_ITEMS : contains
-  RECEIPTS ||--o{ PAYMENTS : settled_by
-  PAYMENTS ||--o{ PAYMENT_EVENTS : emits
+  USERS ||--o| USER_TIER_OVERRIDES : may_have
+  ACCOUNTING_PERIODS ||--o{ JOURNAL_BATCHES : groups
+  JOURNAL_BATCHES ||--o{ GL_ENTRIES : has
   USERS ||--o{ AUDIT_LOG : acts
   USERS ||--o{ AUTH_THROTTLE : throttled_by
-  USERS ||--o{ USER_TIER_OVERRIDES : may_override
+  %% Optional payment tables (disabled by default)
+  RECEIPTS ||--o{ PAYMENTS : may_have
+  PAYMENTS ||--o{ PAYMENT_EVENTS : produces
 ```
 
-Key uniqueness:
+**Key uniqueness**
 
-- `receipt_items.job_key` is **globally unique**.
-- `(payment_events.provider, payment_events.external_event_id)` is **unique**.
+* `receipt_items.job_key` is **globally unique**.
+* `(payment_events.provider, payment_events.external_event_id)` is **unique**.
 
 ---
 
-## 4) Business rules enforced by the schema
+## 4) Business rules (schema‑enforced or invariant)
 
 1. **No double billing**: `receipt_items.job_key` is globally unique.
-2. **Webhook idempotency**: `(provider, external_event_id)` unique.
-3. **Atomic settle**: payment success **and** receipt paid happen in a single DB transaction.
-4. **Minimal PII**: we store usernames; no emails/phones by default.
-5. **Audit integrity**: `prev_hash` + `hash` must form a contiguous chain.
-6. **Pricing immutability**: receipts carry `pricing_tier` and `rate_*` snapshot (`rates_locked_at`).
+2. **Pricing immutability**: receipts carry `pricing_tier` and `rate_*` snapshot.
+3. **Audit integrity**: `prev_hash` + `hash` form a contiguous HMAC chain.
+4. **Auth throttle**: accounts lock after too many failures in a window.
+5. **Period control**: posted GL entries are immutable; close/reopen toggles period state via batches.
+6. **Optional payments**: webhook idempotency via `(provider, external_event_id)` if enabled.
 
 ---
 
-## 5) Reference queries (copy/paste)
+## 5) Reference queries
 
 **A. Latest receipts for a user**
 
@@ -288,64 +271,19 @@ WHERE receipt_id = $1
 ORDER BY job_id_display;
 ```
 
-**C. Paid receipts with most recent payment**
+**C. Audit tail**
 
 ```sql
-SELECT r.id, r.username, r.total, r.paid_at,
-       p.provider, p.status, p.external_payment_id
-FROM receipts r
-LEFT JOIN LATERAL (
-  SELECT provider, status, external_payment_id
-  FROM payments p
-  WHERE p.receipt_id = r.id
-  ORDER BY p.updated_at DESC, p.id DESC
-  LIMIT 1
-) p ON TRUE
-WHERE r.status = 'paid'
-ORDER BY r.paid_at DESC NULLS LAST, r.id DESC;
-```
-
-**D. Webhook replay detector (should be empty)**
-
-```sql
-SELECT provider, external_event_id, COUNT(*)
-FROM payment_events
-GROUP BY provider, external_event_id
-HAVING COUNT(*) > 1;
-```
-
-**E. Jobs already billed (for UI “grey out”)**
-
-```sql
-SELECT job_key FROM receipt_items WHERE job_key = ANY($1::text[]);
-```
-
-**F. Audit tail**
-
-```sql
-SELECT ts, actor, action, target, status
+SELECT ts, actor, action, target_type, target_id, status
 FROM audit_log
 ORDER BY id DESC
 LIMIT 200;
 ```
 
-**G. Latest succeeded/failed/canceled payment per receipt**
+**D. Jobs already billed (for UI “grey out”)**
 
 ```sql
-SELECT DISTINCT ON (receipt_id)
-  receipt_id, id, status, provider, external_payment_id, updated_at
-FROM payments
-WHERE receipt_id = $1
-ORDER BY receipt_id, updated_at DESC, id DESC;
-```
-
-**H. Receipts paid in the last 30 days**
-
-```sql
-SELECT id, username, total, paid_at
-FROM receipts
-WHERE status = 'paid' AND paid_at >= now() - interval '30 days'
-ORDER BY paid_at DESC;
+SELECT job_key FROM receipt_items WHERE job_key = ANY($1::text[]);
 ```
 
 ---
@@ -354,100 +292,75 @@ ORDER BY paid_at DESC;
 
 ```sql
 CREATE VIEW paid_receipts_v AS
-SELECT r.id, r.username, r.start, r."end", r.total, r.paid_at,
-       COALESCE(p.provider,'') AS provider,
-       COALESCE(p.external_payment_id,'') AS ext_id
+SELECT r.id, r.username, r.start, r."end", r.total, r.paid_at
 FROM receipts r
-LEFT JOIN LATERAL (
-  SELECT provider, external_payment_id
-  FROM payments
-  WHERE receipt_id = r.id
-  ORDER BY updated_at DESC, id DESC
-  LIMIT 1
-) p ON TRUE
 WHERE r.status = 'paid';
-```
-
-```sql
-CREATE VIEW payment_health_v AS
-SELECT p.id AS payment_id, r.id AS receipt_id, p.status,
-       SUM(CASE WHEN e.signature_ok THEN 1 ELSE 0 END) AS signed_events,
-       COUNT(*) AS total_events
-FROM payments p
-JOIN receipts r ON r.id = p.receipt_id
-LEFT JOIN payment_events e ON e.payment_id = p.id
-GROUP BY p.id, r.id, p.status;
 ```
 
 ---
 
-## 7) Migrations & evolution hints
+## 7) Migration & evolution hints
 
-- Add columns with defaults; backfill; then enforce `NOT NULL`.
-- **Rates versioning**: add `rates_versioned` and keep `rates` as latest.
-- **Multi-cluster**: add `cluster_id` to `receipt_items` (and into `job_key` derivation).
-- **Soft delete**: prefer status fields over hard deletes in finance tables.
-- **Idempotency**: add partial UQ on `(provider, idempotency_key)`.
+* Add columns with defaults; backfill; then enforce `NOT NULL`.
+* **Rates versioning**: add `rates_versioned` and keep `rates` as latest.
+* **Multi‑cluster**: namespace `job_key` and index appropriately.
+* Prefer status fields over hard deletes in finance tables.
 
 ---
 
 ## 8) Table → module map
 
-| Table                        | Main modules that touch it                               |
-| ---------------------------- | -------------------------------------------------------- |
-| `users`                      | `users_db.py`, `auth.py`                                 |
-| `rates`                      | `rates_store.py`, `api.py`, `admin.py`                   |
-| `receipts`, `receipt_items`  | `billing_store.py`, `billing.py`, `user.py`, `admin.py`  |
-| `payments`, `payment_events` | `payments_store.py`, `payments.py`, `registry.py`        |
-| `audit_log`                  | `audit_store.py` (called from auth/admin/user/payments)  |
-| `auth_throttle`              | `security_throttle.py`, `auth.py`                        |
-| `user_tier_overrides`        | `tiers_store.py`, `admin.py` (tiers page + save handler) |
+| Table                                                 | Main modules that touch it                              |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| `users`                                               | `users_db.py`, `auth.py`                                |
+| `rates`                                               | `rates_store.py`, `api.py`, `admin.py`                  |
+| `user_tier_overrides`                                 | `tiers_store.py`, `admin.py`                            |
+| `receipts`, `receipt_items`                           | `billing_store.py`, `billing.py`, `user.py`, `admin.py` |
+| `audit_log`                                           | `audit_store.py` (called from auth/admin/user)          |
+| `auth_throttle`                                       | `security_throttle.py`, `auth.py`                       |
+| `accounting_periods`, `journal_batches`, `gl_entries` | `gl.py`, `gl_posting.py`, `accounting.py`               |
+| *(optional)* `payments`, `payment_events`             | `payments_*.py` (if enabled)                            |
 
 ---
 
 ## 9) Data retention (defaults; align with policy)
 
-- `receipts`, `receipt_items`, `payments`, `payment_events`: **5–10 years** (finance).
-- `audit_log`: **1–2 years**.
-- `auth_throttle`: **30–90 days** rolling.
-- `rates`: indefinite (operational record).
-- `user_tier_overrides`: keep changes in **audit_log**; the table itself is current state.
+* `receipts`, `receipt_items`: **5–10 years** (finance).
+* `audit_log`: **1–2 years**.
+* `auth_throttle`: **30–90 days** rolling.
+* `rates`: indefinite (operational record).
+* `user_tier_overrides`: managed via audit history.
+* *(Optional)* `payments`, `payment_events`: follow finance retention policy.
 
 ---
 
 ## 10) Validation checklist (for reports/ETL)
 
-- Join cardinalities: `receipts 1..* receipt_items`, `payments 1..* payment_events`.
-- Never sum `receipt_items.cost` across multiple receipts without a time bound.
-- Use **paid receipts** for finance totals; don’t mix `pending`.
-- Ensure `currency` consistency (single-currency today).
-- Respect **snapshot**: recomputing costs from raw usage won’t match historical receipts after rate changes.
+* Join cardinalities: `receipts 1..* receipt_items`.
+* Use **paid receipts** for finance totals; don’t mix `pending`.
+* Respect **snapshot**: recomputing from raw usage won’t match historical receipts after rate changes.
+* Currency is single‑currency today; keep ISO‑4217 in exports.
 
 ---
 
-## 11) Files & caches (non-DB, Copilot)
+## 11) Files & caches (non‑DB, Copilot)
 
-- **Copilot index dir** (`COPILOT_INDEX_DIR`, default `./instance/copilot_index`):
-
-  - `vectors.npy` (float32, L2-normalized)
-  - `meta.json` (chunk metadata)
-  - `signature.txt` (hash of docs tree; prevents unnecessary rebuilds)
-
-- **Docs dir** (`COPILOT_DOCS_DIR`, default `./docs`): Markdown sources indexed for retrieval.
-
-> These are runtime artifacts, not part of the database.
+* **Copilot index dir** (`COPILOT_INDEX_DIR`): vectors and metadata cache.
+* **Docs dir** (`COPILOT_DOCS_DIR`): Markdown sources indexed for retrieval.
 
 ---
 
-## 12) Glossary
+## 12) Glossary (terms)
 
-- **JobKey** — Canonicalized parent JobID used for de-duplication (steps collapsed). Globally unique across all receipts.
-- **Tier** — Pricing category: `mu`, `gov`, `private`.
-- **Tier override** — Admin-set per-user tier that supersedes the natural classifier; choosing the same tier as natural **clears** the override.
-- **Pricing snapshot** — Copy of tier and per-unit rates stored on a receipt at creation (`pricing_tier`, `rate_*`, `rates_locked_at`).
-- **Parent vs Step** — Slurm parents (jobs) can have step rows; we roll steps up to the parent when computing usage.
-- **ETag** — HTTP cache validator for `GET /formula` responses.
-- **Payment event** — A single provider webhook call; deduped by `(provider, external_event_id)`.
-- **Copilot** — In-app docs assistant backed by **Ollama**; answers strictly from indexed Markdown; rate-limited per IP.
-
----
+* **JobKey** — Canonicalized parent JobID used for de‑duplication (steps collapsed). Globally unique across all receipts.
+* **Effective tier** — Resolved pricing tier (`mu|gov|private`) after overrides.
+* **Pricing snapshot** — Copy of tier and per‑unit rates stored on a receipt at creation (`pricing_tier`, `rate_*`, `rates_locked_at`).
+* **Parent vs Step** — Slurm parents (jobs) can have step rows; steps roll up to the parent for billing.
+* **ETag** — HTTP cache validator used by `GET /formula` for conditional requests.
+* **Derived Journal** — On‑the‑fly view from receipts for any window (preview/not posted).
+* **Posted GL** — Immutable entries written by posting batches (authoritative ledger).
+* **Formal GL ZIP** — Export bundle with CSVs + manifest + HMAC signature.
+* **Audit HMAC chain** — Hash chain `{prev_hash, hash, key_id}` proving log integrity.
+* **Contract Asset** — Unbilled A/R used in over‑time revenue recognition.
+* **VAT Output** — Liability for VAT on tax invoice issuance.
+* **Copilot** — In‑app docs assistant backed by **Ollama** (optional; rate‑limited).
