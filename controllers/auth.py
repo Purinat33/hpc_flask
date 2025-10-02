@@ -201,12 +201,11 @@ def change_password_submit():
 
     try:
         update_password(uname, new)
-        # Mark session as freshly re-authenticated since they proved their password
-        confirm_login()
+        # Force logout
         audit("user.password.change", target_type="user", target_id=uname,
               outcome="success", status=200)
-        flash("Password updated.", "success")
-        return redirect(url_for("auth.change_password_form"))
+        logout_user()
+        return redirect(url_for("auth.login"))
     except Exception as e:
         audit("user.password.change", target_type="user", target_id=uname,
               outcome="failure", status=500, extra={"error": str(e)})
