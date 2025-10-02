@@ -656,3 +656,30 @@ td.period {
 .card .table-wrap {
     -webkit-overflow-scrolling: touch;
 }
+
+
+/* Footer layout */
+.site-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .5rem 1rem;
+    border-top: 1px solid var(--border, #e5e7eb);
+    font-size: .875rem;
+}
+
+/* Small button */
+.btn.btn-sm {
+    padding: .25rem .5rem;
+    font-size: .8125rem;
+    line-height: 1;
+}
+
+/* Forum CTA subtle style */
+.footer-cta-forum {
+    text-decoration: none;
+}
+
+.footer-cta-forum:hover {
+    text-decoration: underline;
+}

@@ -3,7 +3,8 @@
 
 {% block content %}
 <h2>{{ thread.title }}</h2>
-<p class="muted">by {{ thread.author_username }} · {{ thread.created_at }}</p>
+<a href="{{ url_for('forum.thread_list') }}"><button>Back</button></a>
+<p class="muted">by {{ thread.author_username }} · {{ thread.created_at|dt_local }}</p>
 <p>{{ thread.body }}</p>
 
 {% if current_user.is_authenticated and not thread.is_locked %}

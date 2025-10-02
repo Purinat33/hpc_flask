@@ -32,6 +32,17 @@
   <div class="breakdown" id="breakdown"></div>
   <div id="error" style="color:#b00020;margin-top:.5rem"></div>
 </div>
+<footer class="site-footer">
+  <div class="footer-left">
+    <!-- optional: ©, links, etc. -->
+  </div>
+  <div class="footer-right">
+  <br>
+    <a class="btn btn-sm footer-cta-forum" href="{{ url_for('forum.thread_list') }}">
+      <button>{{ _('Forum') }}</button>
+    </a>
+  </div>
+</footer>
 <script>
   const $ = id => document.getElementById(id);
   const tierEl = $('tier'), amountEl = $('amount'), unitEl = $('unit'), cpuEl = $('cpu'), gpuEl = $('gpu'), memEl = $('mem');

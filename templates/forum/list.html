@@ -2,13 +2,13 @@
 {% block title %}Forum{% endblock %}
 {% block content %}
 <h2 class="page-title">Forum</h2>
-<p><a class="btn" href="{{ url_for('forum.thread_new_form') }}">New Thread</a></p>
+<p><a class="btn" href="{{ url_for('forum.thread_new_form') }}"><button>New Thread</button></a></p>
 
 <ul class="forum-list">
   {% for t in threads %}
     <li>
       {% if t.is_pinned %}📌{% endif %}
-      <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
+      <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}"><button>{{ t.title }}</button></a>
       <small>by {{ t.author_username }} · {{ t.created_at|dt_local }}</small>
     </li>
   {% else %}

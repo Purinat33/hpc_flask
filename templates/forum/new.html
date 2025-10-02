@@ -2,6 +2,7 @@
 {% block title %}New Thread{% endblock %}
 {% block content %}
 <h2>New Thread</h2>
+<a href="{{ url_for('forum.thread_list') }}"><button>Back</button></a>
 <form method="post" action="{{ url_for('forum.thread_new_submit') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <p><input name="title" placeholder="Title" required></p>
