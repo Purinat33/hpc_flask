@@ -1,5 +1,7 @@
 # models/users_db.py (Postgres / SQLAlchemy)
 from __future__ import annotations
+import re
+from typing import Optional, Iterable
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -49,3 +51,35 @@ def verify_password(username: str, password: str) -> bool:
     with session_scope() as s:
         u = s.get(User, username)
         return bool(u and check_password_hash(u.password_hash, password))
+
+USERNAME_RX = re.compile(r"^[a-z0-9._-]{3,40}$")
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def list_users(limit: int = 1000) -> list[dict]:
+    with session_scope() as s:
+        rows = s.execute(
+            select(User.username, User.role, User.created_at).order_by(
+                User.username).limit(limit)
+        ).all()
+        return [{"username": r.username, "role": r.role, "created_at": r.created_at} for r in rows]
+
+
+def create_user(username: str, password: str, role: str = "user") -> bool:
+    if not username or not password or role not in {"user", "admin"}:
+        return False
+    if not USERNAME_RX.match(username.strip().lower()):
+        return False
+    with session_scope() as s:
+        if s.get(User, username):
+            return False
+        s.add(User(
+            username=username.strip(),
+            password_hash=generate_password_hash(password),
+            role=role,
+            created_at=_now_utc(),    # was ISO string before
+        ))
+    return True

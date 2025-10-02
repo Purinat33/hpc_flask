@@ -1,3 +1,6 @@
+from models.users_db import list_users, create_user
+from flask_login import login_required, current_user, fresh_login_required
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, Response, flash
 from sqlalchemy import select
 from models.gl import AccountingPeriod
 from services.accounting_export import run_formal_gl_export
@@ -2482,3 +2485,42 @@ def export_ledger_th_pdf():
     fname = f"general_ledger_{criteria['mode']}_{start}_to_{end}_{run_id}.pdf"
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@admin_bp.get("/admin/users")
+@login_required
+@admin_required
+def users_page():
+    rows = list_users()
+    return render_template(
+        "admin/users.html",
+        users=rows,
+        section="users",
+    )
+
+
+@admin_bp.post("/admin/users/new")
+@login_required
+@fresh_login_required
+@admin_required
+def users_create():
+    u = (request.form.get("username") or "").strip()
+    p = request.form.get("password") or ""
+    role = (request.form.get("role") or "user").strip().lower()
+    ok = False
+    try:
+        ok = create_user(u, p, role)
+    except Exception as e:
+        ok = False
+    audit(
+        "user.create",
+        target_type="user", target_id=(u or "unknown"),
+        outcome="success" if ok else "failure",
+        status=200 if ok else 400,
+        extra={"role": role}
+    )
+    if not ok:
+        flash("Create failed. Check username/role format or duplicate username.", "error")
+    else:
+        flash(f"User '{u}' created.", "success")
+    return redirect(url_for("admin.users_page"))

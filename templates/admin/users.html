@@ -1,0 +1,66 @@
+<!-- templates/admin/users.html -->
+{% extends "base.html" %}
+{% block title %}Manage Users{% endblock %}
+{% block content %}
+<h1>Manage Users</h1>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+    <a class="slink {{ 'on' if section=='rates' else '' }}"
+        href="{{ url_for('admin.admin_form', section='rates', type=tier) }}">{{ _("Change Rate") }}</a>
+
+    <a class="slink {{ 'on' if section=='usage' else '' }}"
+        href="{{ url_for('admin.admin_form', section='usage', type=tier, start=start, end=end, view=view) }}">{{ _("Usage Tables") }}</a>
+
+    <a class="slink {{ 'on' if section=='myusage' else '' }}"
+        href="{{ url_for('admin.admin_form', section='myusage', before=before, view=view) }}">{{ _("My Usage") }}</a>
+
+    <a class="slink {{ 'on' if section=='billing' else '' }}"
+        href="{{ url_for('admin.admin_form', section='billing') }}">{{ _("Invoices") }}</a>
+
+    <a class="slink {{ 'on' if section=='audit' else '' }}" href="{{ url_for('admin.audit_page') }}">Audit Log</a>
+
+    <a class="slink {{ 'on' if section=='dashboard' else '' }}"
+        href="{{ url_for('admin.admin_form', section='dashboard', before=before) }}">{{ _("Dashboard") }}</a>
+    <a class="slink" href="{{ url_for('admin.ledger_page') }}">Accounting</a>
+
+    <a class="slink {{ 'on' if section=='tiers' else '' }}"
+        href="{{ url_for('admin.admin_form', section='tiers') }}">{{ _("User Tier Overrides") }}</a>
+    <!-- <a class="slink" href="{{ url_for('admin.ledger_page') }}">Accounting</a> -->
+    <a class="slink on" href="{{ url_for('admin.users_page') }}">Manage Users</a>
+</aside>
+
+<div class="card" style="margin-bottom:1rem;">
+  <h3>Create a new user</h3>
+  <form method="post" action="{{ url_for('admin.users_create') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Username</label>
+    <input name="username" required pattern="^[a-z0-9._-]{3,40}$" title="3-40 chars; a-z, 0-9, . _ -">
+    <label>Password</label>
+    <input name="password" type="password" required minlength="8">
+    <label>Role</label>
+    <select name="role">
+      <option value="user">user</option>
+      <option value="admin">admin</option>
+    </select>
+    <button type="submit">Create</button>
+  </form>
+  <p class="hint">Allowed usernames: lowercase letters, numbers, dot, underscore, hyphen.</p>
+</div>
+
+<div class="card">
+  <h3>Existing users</h3>
+  <table>
+    <thead><tr><th>Username</th><th>Role</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td class="nowrap">{{ u.username }}</td>
+        <td class="nowrap">{{ u.role }}</td>
+        <td class="nowrap">{{ u.created_at|dt_local }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
