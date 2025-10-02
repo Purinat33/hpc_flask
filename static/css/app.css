@@ -707,3 +707,20 @@ td.period {
     color: #6b7280;
     margin-top: .25rem;
 }
+
+/* Forum post/comment rendering */
+.post-body,
+.comment-body {
+    white-space: pre-wrap;
+    /* keep user newlines */
+    overflow-wrap: anywhere;
+    /* break long words/URLs when needed */
+    word-break: break-word;
+    /* extra safety for legacy engines */
+}
+
+/* Optional: keep layout safe if someone pastes giant tables/strings */
+.post-body,
+.comment-body {
+    max-width: 100%;
+}
