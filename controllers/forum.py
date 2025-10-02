@@ -8,7 +8,9 @@ from controllers.auth import admin_required  # you already define this
 from sqlalchemy import select, func
 
 forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
-
+COMMENT_MAX = 2000
+THREAD_TITLE_MAX = 200
+THREAD_BODY_MAX = 10000
 # ------------------- Threads -----------------------------------------
 
 
@@ -53,15 +55,15 @@ def thread_new_submit():
     body = (request.form.get("body") or "").strip()
     if not title or not body:
         abort(400, "Title and body required")
+    if len(title) > THREAD_TITLE_MAX or len(body) > THREAD_BODY_MAX:
+        abort(400, "Post too long")
 
     with session_scope() as s:
         t = ForumThread(title=title, body=body,
                         author_username=current_user.id)
         s.add(t)
         s.flush()
-        thread_id = t.id
-    return redirect(url_for("forum.thread_view", thread_id=thread_id))
-
+        return redirect(url_for("forum.thread_view", thread_id=t.id))
 
 @forum_bp.get("/<int:thread_id>")
 def thread_view(thread_id: int):
@@ -97,6 +99,8 @@ def comment_create(thread_id: int):
     parent_id = request.form.get("parent_id", type=int)
     if not body:
         abort(400, "Body required")
+    if len(body) > COMMENT_MAX:
+        abort(400, "Comment too long")
 
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
@@ -104,18 +108,11 @@ def comment_create(thread_id: int):
             abort(404)
         if t.is_locked:
             abort(403, "Thread is locked")
-
-        c = ForumComment(
-            thread_id=thread_id,
-            parent_id=parent_id,
-            body=body,
-            author_username=current_user.id,
-        )
+        c = ForumComment(thread_id=thread_id, parent_id=parent_id,
+                         body=body, author_username=current_user.id)
         s.add(c)
         s.flush()
-        cid = c.id
-    return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{cid}")
-
+        return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{c.id}")
 
 @forum_bp.post("/comment/<int:comment_id>/delete")
 @admin_required

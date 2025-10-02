@@ -11,10 +11,13 @@
 <hr>
 <form method="post" action="{{ url_for('forum.comment_create', thread_id=thread.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <textarea name="body" rows="4" placeholder="Comment..." required></textarea>
+    <textarea id="comment-main" class="textarea-grow" name="body" placeholder="Write a comment..." required
+        maxlength="2000"></textarea>
+    <div class="char-counter" aria-live="polite" data-for="comment-main">0/2000</div>
     <button type="submit">Reply</button>
 </form>
 {% endif %}
+
 
 <hr>
 <h3>Comments</h3>
@@ -27,17 +30,18 @@
 
 {% macro render_comment(c, by_parent) -%}
 <li id="c{{ c.id }}">
-    <div><b>{{ c.author_username }}</b> <small>{{ c.created_at }}</small></div>
+    <div><b>{{ c.author_username }}</b> <small>{{ c.created_at|dt_local }}</small></div>
     <div>{{ c.body }}</div>
 
-    {% if current_user.is_authenticated and not thread.is_locked %}
-    <form method="post" action="{{ url_for('forum.comment_create', thread_id=thread.id) }}" style="margin-top:.5rem;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="parent_id" value="{{ c.id }}">
-        <input name="body" placeholder="Reply..." required>
-        <button type="submit">Reply</button>
-    </form>
-    {% endif %}
+<form method="post" action="{{ url_for('forum.comment_create', thread_id=thread.id) }}" style="margin-top:.5rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="parent_id" value="{{ c.id }}">
+    <textarea id="reply-{{ c.id }}" class="textarea-grow" name="body" placeholder="Reply…" required
+        maxlength="2000"></textarea>
+    <div class="char-counter" aria-live="polite" data-for="reply-{{ c.id }}">0/2000</div>
+    <button type="submit">Reply</button>
+</form>
+
 
     {% if current_user.is_authenticated and current_user.role == 'admin' %}
     <form method="post" action="{{ url_for('forum.comment_delete', comment_id=c.id) }}" style="margin-top:.25rem;">

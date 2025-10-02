@@ -28,6 +28,32 @@
 
     {% block extra_js %}{% endblock %}
     <!-- <script src="{{ url_for('copilot.copilot_widget_js') }}"></script> -->
+<script>
+(function () {
+  function bindComposer(el) {
+    const max = parseInt(el.getAttribute('maxlength') || el.dataset.maxlength || '0', 10) || 0;
+    const counter = el.closest('form')?.querySelector(`.char-counter[data-for="${el.id}"]`);
+
+    const adjust = () => {
+      // Hard cap
+      if (max && el.value.length > max) el.value = el.value.slice(0, max);
+      // Auto-grow
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + 'px';
+      // Counter
+      if (counter) counter.textContent = `${el.value.length}/${max}`;
+    };
+
+    // Initial
+    adjust();
+    el.addEventListener('input', adjust);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('textarea.textarea-grow').forEach(bindComposer);
+  });
+})();
+</script>
 </body>
 
 </html>

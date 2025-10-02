@@ -683,3 +683,27 @@ td.period {
 .footer-cta-forum:hover {
     text-decoration: underline;
 }
+
+
+/* Forum composers */
+.textarea-grow {
+    width: 100%;
+    display: block;
+    box-sizing: border-box;
+    min-height: 3.25rem;
+    /* starts single-line tall */
+    max-height: 40vh;
+    /* stop growing beyond this */
+    overflow-y: auto;
+    /* scroll after max-height */
+    resize: none;
+    /* we handle growth via JS */
+}
+
+/* helper for inline counters */
+.char-counter {
+    display: inline-block;
+    font-size: .8rem;
+    color: #6b7280;
+    margin-top: .25rem;
+}
