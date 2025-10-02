@@ -2,7 +2,24 @@
 {% block title %}{{ thread.title }}{% endblock %}
 
 {% block content %}
-<h2>{{ thread.title }}</h2>
+<h2>
+    {{ thread.title }}
+    {% if thread.is_locked %}
+    <span class="badge-locked" title="Thread is locked">🔒 Locked</span>
+    {% endif %}
+</h2>
+<p class="muted">by {{ thread.author_username }} · {{ thread.created_at }}</p>
+
+{% if current_user.is_authenticated and current_user.role == 'admin' and not thread.is_deleted %}
+<form method="post"
+    action="{{ url_for('forum.thread_unlock' if thread.is_locked else 'forum.thread_lock', thread_id=thread.id) }}"
+    style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">
+        {{ 'Unlock' if thread.is_locked else 'Lock' }}
+    </button>
+</form>
+{% endif %}
 <a href="{{ url_for('forum.thread_list') }}"><button>Back</button></a>
 <p class="muted">by {{ thread.author_username }} · {{ thread.created_at|dt_local }}</p>
 <div class="post-body {{ 'muted' if thread.is_deleted }}">
@@ -34,7 +51,7 @@
 {% macro render_comment(c, by_parent) -%}
 <li id="c{{ c.id }}">
     <div>
-        <b>{{ c.author_username }}</b> <small>{{ c.created_at }}</small>
+        <b>{{ c.author_username }}</b> <small>{{ c.created_at|dt_local }}</small>
         {# replies count for toggle #}
         {% set kids = by_parent.get(c.id, []) %}
         {% if kids|length > 0 %}
@@ -62,12 +79,15 @@
     </form>
     {% endif %}
 
-    {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == c.author_username) and not c.is_deleted %}
+    {% if not thread.is_locked and current_user.is_authenticated
+          and (current_user.role == 'admin' or current_user.id == c.author_username)
+          and not c.is_deleted %}
     <form method="post" action="{{ url_for('forum.comment_delete', comment_id=c.id) }}" style="margin-top:.25rem;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit">Delete</button>
     </form>
     {% endif %}
+
 
     {# CHILDREN: collapsible container. Do NOT access c.children (avoids lazy-load) #}
     {% if kids %}
@@ -89,11 +109,14 @@
     {% endfor %}
 </ul>
 
-{% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.id == thread.author_username) and not thread.is_deleted %}
+{% if current_user.is_authenticated and not thread.is_deleted %}
+{% if (current_user.role == 'admin') or (not thread.is_locked and current_user.id == thread.author_username) %}
 <hr>
 <form method="post" action="{{ url_for('forum.thread_delete', thread_id=thread.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" onclick="return confirm('Mark this thread as deleted?')">Delete thread</button>
 </form>
 {% endif %}
+{% endif %}
+
 {% endblock %}

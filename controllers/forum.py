@@ -56,6 +56,37 @@ def thread_new_form():
     return render_template("forum/new.html")
 
 
+@forum_bp.post("/<int:thread_id>/lock")
+@login_required
+def thread_lock(thread_id: int):
+    if not _is_admin():
+        abort(403)
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        t.is_locked = True
+        s.add(t)
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+
+
+@forum_bp.post("/<int:thread_id>/unlock")
+@login_required
+def thread_unlock(thread_id: int):
+    if not _is_admin():
+        abort(403)
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        # Only unlock if not soft-deleted
+        if t.is_deleted:
+            abort(400, "Cannot unlock a deleted thread")
+        t.is_locked = False
+        s.add(t)
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+
+
 @forum_bp.post("/new")
 @login_required
 def thread_new_submit():
@@ -90,26 +121,28 @@ def thread_view(thread_id: int):
 @forum_bp.post("/<int:thread_id>/delete")
 @login_required
 def thread_delete(thread_id: int):
-    """Soft-delete a thread. Admin can delete any; user can delete own."""
+    """Soft-delete a thread.
+       - When unlocked: owner or admin may delete.
+       - When locked: ONLY admin may delete (per requirement)."""
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
             abort(404)
         is_owner = (t.author_username == current_user.id)
-        if not (is_owner or _is_admin()):
-            abort(403, "Not allowed")
+        if t.is_locked:
+            if not _is_admin():
+                abort(403, "Thread is locked")
+        else:
+            if not (is_owner or _is_admin()):
+                abort(403, "Not allowed")
 
-        # soft-delete
         t.is_deleted = True
         t.deleted_by_admin = _is_admin() and not is_owner
         t.deleted_at = _utcnow()
         t.deleted_by_username = current_user.id
-        # lock thread to prevent new comments
-        t.is_locked = True
+        t.is_locked = True  # deleted threads remain locked
         s.add(t)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
-
-# ------------------- Comments ----------------------------------------
 
 
 @forum_bp.post("/<int:thread_id>/comment")
@@ -128,21 +161,36 @@ def comment_create(thread_id: int):
             abort(404)
         if t.is_locked:
             abort(403, "Thread is locked")
-        c = ForumComment(thread_id=thread_id, parent_id=parent_id,
-                         body=body, author_username=current_user.id)
+
+        c = ForumComment(
+            thread_id=thread_id,
+            parent_id=parent_id,
+            body=body,
+            author_username=current_user.id,
+        )
         s.add(c)
         s.flush()
-        return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{c.id}")
+        cid = c.id
+    return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{cid}")
 
 
 @forum_bp.post("/comment/<int:comment_id>/delete")
 @login_required
 def comment_delete(comment_id: int):
-    """Soft-delete a comment. Admin can delete any; user can delete own."""
+    """Soft-delete a comment.
+       - When thread is locked: nobody can delete comments (even admin).
+       - When unlocked: owner or admin may delete."""
     with session_scope() as s:
         c = s.get(ForumComment, comment_id)
         if not c:
             abort(404)
+        t = s.get(ForumThread, c.thread_id)
+        if t is None:
+            abort(404)
+        if t.is_locked:
+            # disallow comment deletion post-lock
+            abort(403, "Thread is locked")
+
         is_owner = (c.author_username == current_user.id)
         if not (is_owner or _is_admin()):
             abort(403, "Not allowed")
