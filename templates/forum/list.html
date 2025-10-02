@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Forum{% endblock %}
 {% block content %}
+{% macro name_with_admin(name) -%}
+{{ name }}{% if name in page_admin_usernames %} <b>(Admin)</b>{% endif %}
+{%- endmacro %}
 <h2 class="page-title">Forum</h2>
 <p><a class="btn" href="{{ url_for('forum.thread_new_form') }}"><button>New Thread</button></a></p>
 
@@ -9,7 +12,7 @@
     <li>
         {% if t.is_pinned %}📌{% endif %}
         <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
-        <small>by {{ t.author_username }} · {{ t.created_at|dt_local }}</small>
+        <small>by {{ name_with_admin(t.author_username) }} · {{ t.created_at|dt_local }}</small>
 
         {% if current_user.is_authenticated and current_user.role == 'admin' and not t.is_deleted %}
         <form method="post"

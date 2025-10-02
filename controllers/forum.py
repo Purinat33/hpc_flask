@@ -1,4 +1,5 @@
 from __future__ import annotations
+from models.schema import ForumThread, ForumComment, User
 from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import select
@@ -29,7 +30,6 @@ def thread_list():
     per_page = min(max(int(request.args.get("per_page", 20) or 20), 5), 100)
 
     with session_scope() as s:
-        # page items
         q = (
             select(ForumThread)
             .order_by(ForumThread.is_pinned.desc(), ForumThread.created_at.desc())
@@ -38,9 +38,19 @@ def thread_list():
         )
         items = s.execute(q).scalars().all()
 
-        # total rows (SQL COUNT(*))
         total = s.execute(select(func.count()).select_from(
             ForumThread)).scalar_one()
+
+        # Admin labels for authors shown in this page
+        page_authors = {t.author_username for t in items}
+        page_admins = set(
+            s.execute(
+                select(User.username).where(
+                    User.username.in_(list(page_authors)),
+                    User.role == "admin",
+                )
+            ).scalars()
+        )
 
     return render_template(
         "forum/list.html",
@@ -48,6 +58,7 @@ def thread_list():
         page=page,
         per_page=per_page,
         total=total,
+        page_admin_usernames=page_admins,  # for list template
     )
 
 
@@ -112,12 +123,31 @@ def thread_view(thread_id: int):
         t = s.get(ForumThread, thread_id)
         if not t:
             abort(404)
-        # eager load comments (flat), we'll render as a tree in template
         comments = s.execute(
-            select(ForumComment).where(ForumComment.thread_id ==
-                                       thread_id).order_by(ForumComment.created_at.asc())
+            select(ForumComment)
+            .where(ForumComment.thread_id == thread_id)
+            .order_by(ForumComment.created_at.asc())
         ).scalars().all()
-    return render_template("forum/thread.html", thread=t, comments=comments)
+
+        # Build a set of usernames we’ll display on this page
+        usernames = {t.author_username, *[c.author_username for c in comments]}
+        # Find which of them are admins (no lazy relationship access)
+        admin_usernames = set(
+            s.execute(
+                select(User.username).where(
+                    User.username.in_(list(usernames)),
+                    User.role == "admin",
+                )
+            ).scalars()
+        )
+
+    return render_template(
+        "forum/thread.html",
+        thread=t,
+        comments=comments,
+        admin_usernames=admin_usernames,
+        op_username=t.author_username,
+    )
 
 
 @forum_bp.post("/<int:thread_id>/pin")

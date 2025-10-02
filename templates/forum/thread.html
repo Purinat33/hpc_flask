@@ -2,6 +2,12 @@
 {% block title %}{{ thread.title }}{% endblock %}
 
 {% block content %}
+{# --- Helper: render username with (Admin) / (OP) labels --- #}
+{% macro name_with_labels(name) -%}
+{{ name }}
+{% if name in admin_usernames %} <b>(Admin)</b>{% endif %}
+{% if name == op_username %} <u>(OP)</u>{% endif %}
+{%- endmacro %}
 <h2>
 {{ thread.title }}
 {% if thread.is_locked %}
@@ -11,7 +17,7 @@
 <span class="badge-pinned" title="Pinned to top">📌 Pinned</span>
 {% endif %}
 </h2>
-<p class="muted">by {{ thread.author_username }} · {{ thread.created_at|dt_local }}</p>
+<p class="muted">by {{ name_with_labels(thread.author_username) }} · {{ thread.created_at|dt_local }}</p>
 
 {% if current_user.is_authenticated and current_user.role == 'admin' and not thread.is_deleted %}
 <form method="post"
@@ -61,7 +67,7 @@
 {% macro render_comment(c, by_parent) -%}
 <li id="c{{ c.id }}">
     <div>
-        <b>{{ c.author_username }}</b> <small>{{ c.created_at|dt_local }}</small>
+        <b>{{ name_with_labels(c.author_username) }}</b> <small>{{ c.created_at|dt_local }}</small>
         {# replies count for toggle #}
         {% set kids = by_parent.get(c.id, []) %}
         {% if kids|length > 0 %}
