@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ thread.title }}{% endblock %}
+
+{% block content %}
+<h2>{{ thread.title }}</h2>
+<p class="muted">by {{ thread.author_username }} · {{ thread.created_at }}</p>
+<p>{{ thread.body }}</p>
+
+{% if current_user.is_authenticated and not thread.is_locked %}
+<hr>
+<form method="post" action="{{ url_for('forum.comment_create', thread_id=thread.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <textarea name="body" rows="4" placeholder="Comment..." required></textarea>
+    <button type="submit">Reply</button>
+</form>
+{% endif %}
+
+<hr>
+<h3>Comments</h3>
+
+{# Build a parent->children map from the flat list passed by the view #}
+{% set by_parent = {} %}
+{% for c in comments %}
+{% set _ = by_parent.setdefault(c.parent_id, []).append(c) %}
+{% endfor %}
+
+{% macro render_comment(c, by_parent) -%}
+<li id="c{{ c.id }}">
+    <div><b>{{ c.author_username }}</b> <small>{{ c.created_at }}</small></div>
+    <div>{{ c.body }}</div>
+
+    {% if current_user.is_authenticated and not thread.is_locked %}
+    <form method="post" action="{{ url_for('forum.comment_create', thread_id=thread.id) }}" style="margin-top:.5rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="parent_id" value="{{ c.id }}">
+        <input name="body" placeholder="Reply..." required>
+        <button type="submit">Reply</button>
+    </form>
+    {% endif %}
+
+    {% if current_user.is_authenticated and current_user.role == 'admin' %}
+    <form method="post" action="{{ url_for('forum.comment_delete', comment_id=c.id) }}" style="margin-top:.25rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Delete</button>
+    </form>
+    {% endif %}
+
+    {# IMPORTANT: never access c.children; use the prebuilt map #}
+    {% set kids = by_parent.get(c.id, []) %}
+    {% if kids %}
+    <ul>
+        {% for ch in kids %}
+        {{ render_comment(ch, by_parent) }}
+        {% endfor %}
+    </ul>
+    {% endif %}
+</li>
+{%- endmacro %}
+
+<ul class="comments">
+    {% for root in by_parent.get(None, []) %}
+    {{ render_comment(root, by_parent) }}
+    {% else %}
+    <li class="muted">No comments yet.</li>
+    {% endfor %}
+</ul>
+
+{% if current_user.is_authenticated and current_user.role == 'admin' %}
+<hr>
+<form method="post" action="{{ url_for('forum.thread_delete', thread_id=thread.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" onclick="return confirm('Delete this thread and ALL comments?')">Delete thread</button>
+</form>
+{% endif %}
+{% endblock %}

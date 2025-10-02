@@ -8,7 +8,7 @@ from flask import Flask, render_template, request, redirect, url_for, abort, cur
 from flask_babel import Babel, gettext as _, get_locale
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from dotenv import load_dotenv
-
+from controllers.forum import forum_bp
 from controllers.admin import admin_bp
 from controllers.api import api_bp
 from controllers.auth import auth_bp, login_manager
@@ -195,6 +195,7 @@ def create_app(test_config: dict | None = None):
     app.register_blueprint(admin_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(forum_bp)
     # app.register_blueprint(payments_bp)
     app.register_blueprint(copilot_bp)
     register_jinja_tz_filters(app)

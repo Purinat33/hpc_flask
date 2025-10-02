@@ -1,4 +1,7 @@
 # models/schema.py
+from datetime import datetime, timezone
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Text, String, Integer, DateTime, Index
 from decimal import Decimal
 from sqlalchemy import Numeric
 from sqlalchemy.orm import Mapped, mapped_column
@@ -268,4 +271,79 @@ class UserTierOverride(Base):
     __table_args__ = (
         CheckConstraint("tier in ('mu','gov','private')",
                         name="ck_user_tier_overrides_tier"),
+    )
+
+
+# --- FORUM ------------------------------------------------------------
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class ForumThread(Base):
+    __tablename__ = "forum_threads"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+
+    author_username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    is_pinned: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_locked: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    author = relationship("User", lazy="joined")
+    comments = relationship(
+        "ForumComment",
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ForumComment.created_at.asc()",
+    )
+
+    __table_args__ = (
+        Index("ix_forum_threads_created_at", "created_at"),
+        Index("ix_forum_threads_pinned_locked", "is_pinned", "is_locked"),
+    )
+
+
+class ForumComment(Base):
+    __tablename__ = "forum_comments"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("forum_comments.id", ondelete="CASCADE"), nullable=True
+    )
+
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author_username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    # relationships
+    thread = relationship("ForumThread", back_populates="comments")
+    author = relationship("User", lazy="joined")
+    parent = relationship("ForumComment", remote_side="ForumComment.id",
+                          backref="children", passive_deletes=True)
+
+    __table_args__ = (
+        Index("ix_forum_comments_thread_id", "thread_id"),
+        Index("ix_forum_comments_parent_id", "parent_id"),
     )

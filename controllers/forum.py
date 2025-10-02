@@ -1,0 +1,129 @@
+from __future__ import annotations
+from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
+from flask_login import login_required, current_user
+from sqlalchemy import select
+from models.base import session_scope
+from models.schema import ForumThread, ForumComment
+from controllers.auth import admin_required  # you already define this
+from sqlalchemy import select, func
+
+forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
+
+# ------------------- Threads -----------------------------------------
+
+
+@forum_bp.get("/")
+def thread_list():
+    page = max(int(request.args.get("page", 1) or 1), 1)
+    per_page = min(max(int(request.args.get("per_page", 20) or 20), 5), 100)
+
+    with session_scope() as s:
+        # page items
+        q = (
+            select(ForumThread)
+            .order_by(ForumThread.is_pinned.desc(), ForumThread.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        items = s.execute(q).scalars().all()
+
+        # total rows (SQL COUNT(*))
+        total = s.execute(select(func.count()).select_from(
+            ForumThread)).scalar_one()
+
+    return render_template(
+        "forum/list.html",
+        threads=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+    )
+
+
+@forum_bp.get("/new")
+@login_required
+def thread_new_form():
+    return render_template("forum/new.html")
+
+
+@forum_bp.post("/new")
+@login_required
+def thread_new_submit():
+    title = (request.form.get("title") or "").strip()
+    body = (request.form.get("body") or "").strip()
+    if not title or not body:
+        abort(400, "Title and body required")
+
+    with session_scope() as s:
+        t = ForumThread(title=title, body=body,
+                        author_username=current_user.id)
+        s.add(t)
+        s.flush()
+        thread_id = t.id
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+
+
+@forum_bp.get("/<int:thread_id>")
+def thread_view(thread_id: int):
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        # eager load comments (flat), we'll render as a tree in template
+        comments = s.execute(
+            select(ForumComment).where(ForumComment.thread_id ==
+                                       thread_id).order_by(ForumComment.created_at.asc())
+        ).scalars().all()
+    return render_template("forum/thread.html", thread=t, comments=comments)
+
+
+@forum_bp.post("/<int:thread_id>/delete")
+@admin_required
+def thread_delete(thread_id: int):
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        s.delete(t)  # cascades to all comments via DB + ORM
+    return redirect(url_for("forum.thread_list"))
+
+# ------------------- Comments ----------------------------------------
+
+
+@forum_bp.post("/<int:thread_id>/comment")
+@login_required
+def comment_create(thread_id: int):
+    body = (request.form.get("body") or "").strip()
+    parent_id = request.form.get("parent_id", type=int)
+    if not body:
+        abort(400, "Body required")
+
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        if t.is_locked:
+            abort(403, "Thread is locked")
+
+        c = ForumComment(
+            thread_id=thread_id,
+            parent_id=parent_id,
+            body=body,
+            author_username=current_user.id,
+        )
+        s.add(c)
+        s.flush()
+        cid = c.id
+    return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{cid}")
+
+
+@forum_bp.post("/comment/<int:comment_id>/delete")
+@admin_required
+def comment_delete(comment_id: int):
+    with session_scope() as s:
+        c = s.get(ForumComment, comment_id)
+        if not c:
+            abort(404)
+        thread_id = c.thread_id
+        s.delete(c)  # cascades to children
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
