@@ -52,6 +52,7 @@ def verify_password(username: str, password: str) -> bool:
         u = s.get(User, username)
         return bool(u and check_password_hash(u.password_hash, password))
 
+
 USERNAME_RX = re.compile(r"^[a-z0-9._-]{3,40}$")
 
 
@@ -83,3 +84,14 @@ def create_user(username: str, password: str, role: str = "user") -> bool:
             created_at=_now_utc(),    # was ISO string before
         ))
     return True
+
+
+def update_password(username: str, new_password: str) -> None:
+    """Set a new password hash for the given user."""
+    if not new_password or len(new_password) < 8:
+        raise ValueError("Password too short")
+    with session_scope() as s:
+        u = s.get(User, username)
+        if not u:
+            raise LookupError("User not found")
+        u.password_hash = generate_password_hash(new_password)

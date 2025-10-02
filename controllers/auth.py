@@ -1,7 +1,7 @@
 from functools import wraps
-from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from models.users_db import get_user, verify_password
+from flask import Blueprint, flash, render_template, request, redirect, url_for, abort, current_app
+from flask_login import LoginManager, UserMixin, confirm_login, fresh_login_required, login_user, logout_user, login_required, current_user
+from models.users_db import get_user, update_password, verify_password
 from models.audit_store import audit
 from models.security_throttle import is_locked, register_failure, reset, get_status
 from services.metrics import (
@@ -157,3 +157,58 @@ def logout():
     )
     logout_user()
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.get("/account/password")
+@login_required
+def change_password_form():
+    # no sidebar here; this page is for all users
+    return render_template("account/password.html")
+
+
+@auth_bp.post("/account/password")
+@login_required
+@fresh_login_required
+def change_password_submit():
+    old = request.form.get("current_password") or ""
+    new = request.form.get("new_password") or ""
+    new2 = request.form.get("new_password2") or ""
+    uname = getattr(current_user, "username", None)
+
+    # Basic validations
+    if not uname:
+        flash("Not authenticated.", "error")
+        return redirect(url_for("auth.change_password_form"))
+    if not old or not new or not new2:
+        flash("Please fill in all fields.", "error")
+        return redirect(url_for("auth.change_password_form"))
+    if new != new2:
+        flash("New passwords do not match.", "error")
+        return redirect(url_for("auth.change_password_form"))
+    if len(new) < 8:
+        flash("New password must be at least 8 characters.", "error")
+        return redirect(url_for("auth.change_password_form"))
+    if new == old:
+        flash("New password must be different from the current password.", "error")
+        return redirect(url_for("auth.change_password_form"))
+
+    ok = verify_password(uname, old)
+    if not ok:
+        audit("user.password.change", target_type="user", target_id=uname,
+              outcome="failure", status=400, extra={"reason": "bad_current"})
+        flash("Current password is incorrect.", "error")
+        return redirect(url_for("auth.change_password_form"))
+
+    try:
+        update_password(uname, new)
+        # Mark session as freshly re-authenticated since they proved their password
+        confirm_login()
+        audit("user.password.change", target_type="user", target_id=uname,
+              outcome="success", status=200)
+        flash("Password updated.", "success")
+        return redirect(url_for("auth.change_password_form"))
+    except Exception as e:
+        audit("user.password.change", target_type="user", target_id=uname,
+              outcome="failure", status=500, extra={"error": str(e)})
+        flash("Could not update password. Please try again.", "error")
+        return redirect(url_for("auth.change_password_form"))
