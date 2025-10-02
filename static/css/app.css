@@ -759,3 +759,15 @@ td.period {
     vertical-align: middle;
     margin-left: .25rem;
 }
+
+.badge-pinned {
+    display: inline-block;
+    font-size: .75rem;
+    padding: .1rem .4rem;
+    border: 1px solid #f59e0b;
+    border-radius: .25rem;
+    color: #92400e;
+    background: #fef3c7;
+    vertical-align: middle;
+    margin-left: .25rem;
+}

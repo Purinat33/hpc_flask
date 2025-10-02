@@ -5,16 +5,26 @@
 <p><a class="btn" href="{{ url_for('forum.thread_new_form') }}"><button>New Thread</button></a></p>
 
 <ul class="forum-list">
-  {% for t in threads %}
+    {% for t in threads %}
     <li>
-      {% if t.is_pinned %}📌{% endif %}
-      <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
-      <small>by {{ t.author_username }} · {{ t.created_at|dt_local }}</small>
+        {% if t.is_pinned %}📌{% endif %}
+        <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
+        <small>by {{ t.author_username }} · {{ t.created_at|dt_local }}</small>
+
+        {% if current_user.is_authenticated and current_user.role == 'admin' and not t.is_deleted %}
+        <form method="post"
+            action="{{ url_for('forum.thread_unpin' if t.is_pinned else 'forum.thread_pin', thread_id=t.id) }}"
+            style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm">{{ 'Unpin' if t.is_pinned else 'Pin' }}</button>
+        </form>
+        {% endif %}
     </li>
-  {% else %}
+    {% else %}
     <li>No threads yet.</li>
-  {% endfor %}
+    {% endfor %}
 </ul>
+
 
 <!-- (Optional) pagination controls -->
 {% endblock %}

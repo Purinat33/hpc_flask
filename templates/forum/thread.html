@@ -3,12 +3,15 @@
 
 {% block content %}
 <h2>
-    {{ thread.title }}
-    {% if thread.is_locked %}
-    <span class="badge-locked" title="Thread is locked">🔒 Locked</span>
-    {% endif %}
+{{ thread.title }}
+{% if thread.is_locked %}
+<span class="badge-locked" title="Thread is locked">🔒 Locked</span>
+{% endif %}
+{% if thread.is_pinned %}
+<span class="badge-pinned" title="Pinned to top">📌 Pinned</span>
+{% endif %}
 </h2>
-<p class="muted">by {{ thread.author_username }} · {{ thread.created_at }}</p>
+<p class="muted">by {{ thread.author_username }} · {{ thread.created_at|dt_local }}</p>
 
 {% if current_user.is_authenticated and current_user.role == 'admin' and not thread.is_deleted %}
 <form method="post"
@@ -20,8 +23,15 @@
     </button>
 </form>
 {% endif %}
+{% if current_user.is_authenticated and current_user.role == 'admin' and not thread.is_deleted %}
+<form method="post"
+    action="{{ url_for('forum.thread_unpin' if thread.is_pinned else 'forum.thread_pin', thread_id=thread.id) }}"
+    style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">{{ 'Unpin' if thread.is_pinned else 'Pin' }}</button>
+</form>
+{% endif %}
 <a href="{{ url_for('forum.thread_list') }}"><button>Back</button></a>
-<p class="muted">by {{ thread.author_username }} · {{ thread.created_at|dt_local }}</p>
 <div class="post-body {{ 'muted' if thread.is_deleted }}">
     {{ '[Removed by an admin]' if thread.is_deleted and thread.deleted_by_admin else
      ('[Deleted]' if thread.is_deleted else thread.body) }}

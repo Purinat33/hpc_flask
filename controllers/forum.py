@@ -22,6 +22,7 @@ def _utcnow():
 def _is_admin() -> bool:
     return getattr(current_user, "role", None) == "admin"
 
+
 @forum_bp.get("/")
 def thread_list():
     page = max(int(request.args.get("page", 1) or 1), 1)
@@ -104,6 +105,7 @@ def thread_new_submit():
         s.flush()
         return redirect(url_for("forum.thread_view", thread_id=t.id))
 
+
 @forum_bp.get("/<int:thread_id>")
 def thread_view(thread_id: int):
     with session_scope() as s:
@@ -116,6 +118,36 @@ def thread_view(thread_id: int):
                                        thread_id).order_by(ForumComment.created_at.asc())
         ).scalars().all()
     return render_template("forum/thread.html", thread=t, comments=comments)
+
+
+@forum_bp.post("/<int:thread_id>/pin")
+@login_required
+def thread_pin(thread_id: int):
+    if not _is_admin():
+        abort(403)
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        if t.is_deleted:
+            abort(400, "Cannot pin a deleted thread")
+        t.is_pinned = True
+        s.add(t)
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+
+
+@forum_bp.post("/<int:thread_id>/unpin")
+@login_required
+def thread_unpin(thread_id: int):
+    if not _is_admin():
+        abort(403)
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        t.is_pinned = False
+        s.add(t)
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
 @forum_bp.post("/<int:thread_id>/delete")
@@ -140,7 +172,8 @@ def thread_delete(thread_id: int):
         t.deleted_by_admin = _is_admin() and not is_owner
         t.deleted_at = _utcnow()
         t.deleted_by_username = current_user.id
-        t.is_locked = True  # deleted threads remain locked
+        t.is_locked = True
+        t.is_pinned = False  # auto-unpin when deleted
         s.add(t)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
