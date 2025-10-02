@@ -53,6 +53,31 @@
     document.querySelectorAll('textarea.textarea-grow').forEach(bindComposer);
   });
 })();
+
+document.addEventListener('DOMContentLoaded', function () {
+  function toggleReplies(btn){
+    const targetId = btn.getAttribute('data-target');
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    // flip state
+    btn.setAttribute('aria-expanded', String(!expanded));
+    if (expanded) {
+      el.setAttribute('hidden', '');
+      btn.textContent = btn.getAttribute('data-show') || 'Show replies';
+    } else {
+      el.removeAttribute('hidden');
+      btn.textContent = btn.getAttribute('data-hide') || 'Hide replies';
+    }
+  }
+
+  document.body.addEventListener('click', function (e) {
+    const btn = e.target.closest('.comment-toggle');
+    if (!btn) return;
+    e.preventDefault();
+    toggleReplies(btn);
+  });
+});
 </script>
 </body>
 

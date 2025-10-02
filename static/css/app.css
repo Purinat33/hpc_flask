@@ -724,3 +724,25 @@ td.period {
 .comment-body {
     max-width: 100%;
 }
+
+
+/* Collapse UI */
+.comment-toggle {
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-size: .8rem;
+    padding: .1rem .25rem;
+    margin-left: .25rem;
+    color: #2563eb;
+    /* subtle link-ish */
+}
+
+.comment-toggle:hover {
+    text-decoration: underline;
+}
+
+/* When hidden attribute is set, ensure it's fully gone */
+.comment-children[hidden] {
+    display: none !important;
+}
