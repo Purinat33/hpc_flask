@@ -2486,17 +2486,27 @@ def export_ledger_th_pdf():
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
+# controllers/admin.py
+
 
 @admin_bp.get("/admin/users")
 @login_required
 @admin_required
 def users_page():
     rows = list_users()
-    return render_template(
-        "admin/users.html",
-        users=rows,
-        section="users",
-    )
+    code = (request.args.get("msg") or "").lower()
+    err = (request.args.get("err") or "").lower()
+    mapping = {
+        "created": ("User created.", "ok"),
+        "failed": ("Create failed. Check username/role format or duplicate username.", "bad"),
+    }
+    message, tone = ("", "info")
+    if code in mapping:
+        message, tone = mapping[code]
+    elif err in mapping:
+        message, tone = mapping[err]
+    return render_template("admin/users.html", users=rows, section="users",
+                           message=message, tone=tone)
 
 
 @admin_bp.post("/admin/users/new")
@@ -2510,17 +2520,15 @@ def users_create():
     ok = False
     try:
         ok = create_user(u, p, role)
-    except Exception as e:
+    except Exception:
         ok = False
-    audit(
-        "user.create",
-        target_type="user", target_id=(u or "unknown"),
-        outcome="success" if ok else "failure",
-        status=200 if ok else 400,
-        extra={"role": role}
-    )
+
+    audit("user.create",
+          target_type="user", target_id=(u or "unknown"),
+          outcome="success" if ok else "failure",
+          status=200 if ok else 400,
+          extra={"role": role})
+
     if not ok:
-        flash("Create failed. Check username/role format or duplicate username.", "error")
-    else:
-        flash(f"User '{u}' created.", "success")
-    return redirect(url_for("admin.users_page"))
+        return redirect(url_for("admin.users_page", err="failed"))
+    return redirect(url_for("admin.users_page", msg="created"))

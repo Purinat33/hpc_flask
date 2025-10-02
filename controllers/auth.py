@@ -1,6 +1,6 @@
 from functools import wraps
-from flask import Blueprint, flash, render_template, request, redirect, url_for, abort, current_app
-from flask_login import LoginManager, UserMixin, confirm_login, fresh_login_required, login_user, logout_user, login_required, current_user
+from flask import Blueprint, render_template, request, redirect, url_for, current_app
+from flask_login import LoginManager, UserMixin, fresh_login_required, login_user, logout_user, login_required, current_user
 from models.users_db import get_user, update_password, verify_password
 from models.audit_store import audit
 from models.security_throttle import is_locked, register_failure, reset, get_status
@@ -57,7 +57,11 @@ def login():
     # Build a quick inline message (no flash) from query params
     err = (request.args.get("err") or "").lower()
     left = request.args.get("left", type=int)
+    msg = (request.args.get("msg") or "").lower()
     message = ""
+
+    if msg == 'pwdchanged':
+        message = "Password updated. Please login again."
 
     if err == "locked":
         secs = max(left or 0, 0)
@@ -162,8 +166,24 @@ def logout():
 @auth_bp.get("/account/password")
 @login_required
 def change_password_form():
-    # no sidebar here; this page is for all users
-    return render_template("account/password.html")
+    code = (request.args.get("msg") or "").lower()
+    err = (request.args.get("err") or "").lower()
+    mapping = {
+        "ok": ("Password updated.", "ok"),
+        "missing": ("Please fill in all fields.", "bad"),
+        "mismatch": ("New passwords do not match.", "bad"),
+        "too_short": ("New password must be at least 8 characters.", "bad"),
+        "same": ("New password must be different from the current password.", "bad"),
+        "bad_current": ("Current password is incorrect.", "bad"),
+        "notauth": ("Not authenticated.", "bad"),
+        "error": ("Could not update password. Please try again.", "bad"),
+    }
+    message, tone = ("", "info")
+    if code in mapping:
+        message, tone = mapping[code]
+    elif err in mapping:
+        message, tone = mapping[err]
+    return render_template("account/password.html", message=message, tone=tone)
 
 
 @auth_bp.post("/account/password")
@@ -175,29 +195,22 @@ def change_password_submit():
     new2 = request.form.get("new_password2") or ""
     uname = getattr(current_user, "username", None)
 
-    # Basic validations
     if not uname:
-        flash("Not authenticated.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="notauth"))
     if not old or not new or not new2:
-        flash("Please fill in all fields.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="missing"))
     if new != new2:
-        flash("New passwords do not match.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="mismatch"))
     if len(new) < 8:
-        flash("New password must be at least 8 characters.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="too_short"))
     if new == old:
-        flash("New password must be different from the current password.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="same"))
 
     ok = verify_password(uname, old)
     if not ok:
         audit("user.password.change", target_type="user", target_id=uname,
               outcome="failure", status=400, extra={"reason": "bad_current"})
-        flash("Current password is incorrect.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="bad_current"))
 
     try:
         update_password(uname, new)
@@ -205,9 +218,8 @@ def change_password_submit():
         audit("user.password.change", target_type="user", target_id=uname,
               outcome="success", status=200)
         logout_user()
-        return redirect(url_for("auth.login"))
+        return redirect(url_for("auth.login", msg="pwchanged"))
     except Exception as e:
         audit("user.password.change", target_type="user", target_id=uname,
               outcome="failure", status=500, extra={"error": str(e)})
-        flash("Could not update password. Please try again.", "error")
-        return redirect(url_for("auth.change_password_form"))
+        return redirect(url_for("auth.change_password_form", err="error"))

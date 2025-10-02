@@ -47,6 +47,9 @@
                     <option value="admin">admin</option>
                 </select>
                 <button type="submit">Create</button>
+                {% if message %}
+                <span class="{{ tone }}" aria-live="polite">{{ message }}</span>
+                {% endif %}
             </form>
             <p class="hint">Allowed usernames: lowercase letters, numbers, dot, underscore, hyphen.</p>
         </div>
