@@ -19,8 +19,8 @@ services:
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -74,7 +74,7 @@ services:
       - "5433:5432"
     environment:
       POSTGRES_USER: hpc_user
-      POSTGRES_PASSWORD: muict
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} 
       POSTGRES_DB: hpc_app
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -105,17 +105,16 @@ services:
       # - ./instance/test.csv:/app/instance/test.csv:ro
     # The app talks to Postgres over the Docker network (service name "pg")
     environment:
-      DATABASE_URL: postgresql+psycopg2://app_rw:muict@pg:5432/hpc_app
-      AUDIT_DATABASE_URL: postgresql+psycopg2://audit_writer:auditw@pg:5432/hpc_app
-      AUDIT_READER_URL:   postgresql+psycopg2://audit_reader:auditro@pg:5432/hpc_app
-      FLASK_SECRET_KEY: change-me
-      APP_ENV: development
-      # any others you use:
-      ADMIN_PASSWORD: rosebud
+      DATABASE_URL: postgresql+psycopg2://app_rw:${APP_RW}@pg:5432/hpc_app
+      AUDIT_DATABASE_URL: postgresql+psycopg2://audit_writer:${AUDIT_W}@pg:5432/hpc_app
+      AUDIT_READER_URL:   postgresql+psycopg2://audit_reader:${AUDIT_R}@pg:5432/hpc_app
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY}
+      APP_ENV: ${APP_ENV}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       SEED_DEMO_USERS: "1"
       FALLBACK_CSV: /app/instance/test.csv # Set to whatever file you want
       LOG_TO_STDOUT: "1"
-      DEMO_USERS: gable:gable:user,alice:alice:user,bob:bob:user,akara.sup:12345678:user,surapol.gits:12345:user,phakee.tra:54321:user,kanjana.las:12345:user,root:toor:admin
+      DEMO_USERS: ${DEMO_USERS}
       OLLAMA_BASE_URL: http://ollama:11434
       COPILOT_ENABLED: "1"
       COPILOT_LLM: llama3.2
@@ -131,16 +130,15 @@ services:
       BILLING_TAX_INCLUSIVE: "0"    # "1" if your rates already include tax
       # Audit signing
       # active signer (what new rows use)
-      AUDIT_HMAC_KEY_ID: "k2"
-      AUDIT_HMAC_SECRET: "new-super-secret"
+      AUDIT_HMAC_KEY_ID: ${AUDIT_HMAC_KEY_ID}
+      AUDIT_HMAC_SECRET: ${AUDIT_HMAC_SECRET}
 
       # keyring for verification (must include ALL historical keys)
-      # format: kid=secret,kid2=secret2
-      AUDIT_HMAC_KEYRING: "k1=muict,k2=ictmu,k3=muaicenter"
-      # optional behavior flags (keep your current defaults)
+      # format: kid1=secret,kid2=secret2,kid3=...
+      AUDIT_HMAC_KEYRING: ${AUDIT_HMAC_KEYRING}
       AUDIT_ANONYMIZE_IP: "1"
       AUDIT_STORE_RAW_UA: "0"
-      METRICS_ENABLED: 1
+      METRICS_ENABLED: 1 # 0 to disable /metrics route + Grafana
     depends_on:
       pg:
         condition: service_healthy
