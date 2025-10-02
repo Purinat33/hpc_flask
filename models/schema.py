@@ -309,6 +309,21 @@ class ForumThread(Base):
         order_by="ForumComment.created_at.asc()",
     )
 
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    deleted_by_admin: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    deleted_by_username: Mapped[Optional[str]
+                                ] = mapped_column(String, nullable=True)
+
+    # convenience (optional)
+    def display_text(self) -> str:
+        if self.is_deleted:
+            return "[Removed by an admin]" if self.deleted_by_admin else "[Deleted]"
+        return self.body
+
     __table_args__ = (
         Index("ix_forum_threads_created_at", "created_at"),
         Index("ix_forum_threads_pinned_locked", "is_pinned", "is_locked"),
@@ -342,6 +357,20 @@ class ForumComment(Base):
     author = relationship("User", lazy="joined")
     parent = relationship("ForumComment", remote_side="ForumComment.id",
                           backref="children", passive_deletes=True)
+
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    deleted_by_admin: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    deleted_by_username: Mapped[Optional[str]
+                                ] = mapped_column(String, nullable=True)
+
+    def display_text(self) -> str:
+        if self.is_deleted:
+            return "[Removed by an admin]" if self.deleted_by_admin else "[Deleted]"
+        return self.body
 
     __table_args__ = (
         Index("ix_forum_comments_thread_id", "thread_id"),

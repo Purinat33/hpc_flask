@@ -6,6 +6,7 @@ from models.base import session_scope
 from models.schema import ForumThread, ForumComment
 from controllers.auth import admin_required  # you already define this
 from sqlalchemy import select, func
+from datetime import datetime, timezone
 
 forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
 COMMENT_MAX = 2000
@@ -13,6 +14,13 @@ THREAD_TITLE_MAX = 200
 THREAD_BODY_MAX = 10000
 # ------------------- Threads -----------------------------------------
 
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _is_admin() -> bool:
+    return getattr(current_user, "role", None) == "admin"
 
 @forum_bp.get("/")
 def thread_list():
@@ -80,14 +88,26 @@ def thread_view(thread_id: int):
 
 
 @forum_bp.post("/<int:thread_id>/delete")
-@admin_required
+@login_required
 def thread_delete(thread_id: int):
+    """Soft-delete a thread. Admin can delete any; user can delete own."""
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
             abort(404)
-        s.delete(t)  # cascades to all comments via DB + ORM
-    return redirect(url_for("forum.thread_list"))
+        is_owner = (t.author_username == current_user.id)
+        if not (is_owner or _is_admin()):
+            abort(403, "Not allowed")
+
+        # soft-delete
+        t.is_deleted = True
+        t.deleted_by_admin = _is_admin() and not is_owner
+        t.deleted_at = _utcnow()
+        t.deleted_by_username = current_user.id
+        # lock thread to prevent new comments
+        t.is_locked = True
+        s.add(t)
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 # ------------------- Comments ----------------------------------------
 
@@ -114,13 +134,23 @@ def comment_create(thread_id: int):
         s.flush()
         return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{c.id}")
 
+
 @forum_bp.post("/comment/<int:comment_id>/delete")
-@admin_required
+@login_required
 def comment_delete(comment_id: int):
+    """Soft-delete a comment. Admin can delete any; user can delete own."""
     with session_scope() as s:
         c = s.get(ForumComment, comment_id)
         if not c:
             abort(404)
-        thread_id = c.thread_id
-        s.delete(c)  # cascades to children
-    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+        is_owner = (c.author_username == current_user.id)
+        if not (is_owner or _is_admin()):
+            abort(403, "Not allowed")
+
+        c.is_deleted = True
+        c.deleted_by_admin = _is_admin() and not is_owner
+        c.deleted_at = _utcnow()
+        c.deleted_by_username = current_user.id
+        s.add(c)
+        tid = c.thread_id
+    return redirect(url_for("forum.thread_view", thread_id=tid))
