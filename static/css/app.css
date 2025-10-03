@@ -1020,3 +1020,123 @@ td.period {
     word-break: normal;
     overflow-wrap: normal;
 }
+
+/* Tickets list filter bar */
+.ticket-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem .75rem;
+    align-items: center;
+    /* vertical alignment */
+    margin-bottom: 1rem;
+}
+
+/* Inputs share a consistent height */
+.ticket-filter input[type="text"],
+.ticket-filter select,
+.ticket-filter button,
+.ticket-filter .btn {
+    height: 2.25rem;
+    line-height: 2.25rem;
+}
+
+/* Inline labels (e.g., "Sort: [select]") */
+.ticket-filter label {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Checkboxes sit nicely with their text */
+.ticket-filter input[type="checkbox"] {
+    margin: 0;
+    /* remove default offset */
+}
+
+/* Action buttons area can sit inline */
+.ticket-filter .btn {
+    line-height: 2.25rem;
+}
+
+/* Mobile: stack neatly */
+@media (max-width: 720px) {
+    .ticket-filter {
+        align-items: stretch;
+    }
+
+    .ticket-filter label,
+    .ticket-filter input[type="text"],
+    .ticket-filter select,
+    .ticket-filter button,
+    .ticket-filter .btn {
+        flex: 1 1 auto;
+    }
+}
+
+
+/* --- Ticket filter: polish & alignment fixes --- */
+.ticket-filter input[type="text"],
+.ticket-filter select,
+.ticket-filter button,
+.ticket-filter .btn,
+.ticket-filter .btn-sm {
+    box-sizing: border-box;
+    height: 2.25rem;
+    /* uniform control height */
+    line-height: 1;
+    /* avoid text sinking */
+    font-size: 0.95rem;
+    /* make Clear/New ticket match */
+}
+
+/* Center the Apply text perfectly */
+.ticket-filter button,
+.ticket-filter .btn,
+.ticket-filter .btn-sm {
+    display: inline-flex;
+    /* exact centering */
+    align-items: center;
+    justify-content: center;
+    padding: 0 .8rem;
+}
+
+/* Better baseline alignment for checkboxes */
+.ticket-filter input[type="checkbox"] {
+    margin: 0;
+    transform: translateY(1px);
+    /* nudge to align with label text */
+}
+
+/* Select: center text vertically + horizontally */
+.ticket-filter select {
+    padding: 0 .6rem;
+    /* remove tall top/bottom padding */
+    vertical-align: middle;
+    /* Horizontal centering */
+    text-align: center;
+    /* most browsers */
+    text-align-last: center;
+    /* Firefox/Edge */
+    /* Keep native look but reduce odd spacing */
+    appearance: auto;
+    /* or 'none' if you use a custom arrow */
+    -moz-appearance: auto;
+}
+
+/* Keep label and control stuck together nicely */
+.ticket-filter label {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Buttons look consistent next to form controls */
+.ticket-filter .btn-sm {
+    padding: 0 .7rem;
+}
+
+/* optional: slightly narrower */
