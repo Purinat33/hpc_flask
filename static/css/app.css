@@ -999,3 +999,24 @@ td.period {
     display: flex;
     align-items: center;
 }
+
+/* keep checkbox + text on one line */
+.note-toggle {
+    display: inline-flex;
+    /* not column */
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: nowrap;
+    /* don't wrap */
+    white-space: nowrap;
+    /* keep text together */
+}
+
+/* undo any global "block" styles or forced word breaks */
+.note-toggle span,
+.note-toggle small {
+    display: inline;
+    white-space: inherit;
+    word-break: normal;
+    overflow-wrap: normal;
+}
