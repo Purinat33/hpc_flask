@@ -16,6 +16,7 @@
 {% if thread.is_pinned %}
 <span class="badge-pinned" title="Pinned to top">📌 Pinned</span>
 {% endif %}
+{% if thread.is_solved %}<span class="badge-solved" title="Marked solved by OP">Solved</span>{% endif %}
 </h2>
 <p class="muted">by {{ name_with_labels(thread.author_username) }} · {{ thread.created_at|dt_local }}</p>
 
@@ -42,6 +43,32 @@
     {{ '[Removed by an admin]' if thread.is_deleted and thread.deleted_by_admin else
      ('[Deleted]' if thread.is_deleted else thread.body) }}
 </div>
+{% if solved_snippets %}
+<hr>
+<div class="solved-box">
+    <div class="solved-title">Marked Solutions</div>
+    <ol class="solved-list">
+        {% for s in solved_snippets %}
+        <li>
+            <span class="solved-author">{{ s.author }}</span> said:
+            <blockquote class="solved-quote">
+                {{ s.body }}
+            </blockquote>
+            <a href="#c{{ s.comment_id }}">Jump to original ↗</a>
+            {% if current_user.is_authenticated and current_user.id == op_username and not thread.is_locked and not thread.is_deleted %}
+            <form method="post"
+                action="{{ url_for('forum.unmark_solution', thread_id=thread.id, comment_id=s.comment_id) }}"
+                style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-xxs">Unmark</button>
+            </form>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</div>
+{% endif %}
+
 
 {% if current_user.is_authenticated and not thread.is_locked %}
 <hr>
@@ -94,6 +121,27 @@
         <button type="submit">Reply</button>
     </form>
     {% endif %}
+    {% set is_solution_allowed = (current_user.is_authenticated
+                                  and current_user.id == op_username
+                                  and not thread.is_locked and not thread.is_deleted
+                                  and not c.is_deleted) %}
+    {% if is_solution_allowed %}
+    {% set already = solved_snippets | selectattr('comment_id', 'equalto', c.id) | list | length > 0 %}
+    {% if already %}
+    <form method="post" action="{{ url_for('forum.unmark_solution', thread_id=thread.id, comment_id=c.id) }}"
+        style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-xxs">Unmark solution</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('forum.mark_solution', thread_id=thread.id, comment_id=c.id) }}"
+        style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-xxs">Mark as solution</button>
+    </form>
+    {% endif %}
+    {% endif %}
+
 
     {% if not thread.is_locked and current_user.is_authenticated
           and (current_user.role == 'admin' or current_user.id == c.author_username)

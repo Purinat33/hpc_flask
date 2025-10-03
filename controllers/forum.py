@@ -1,5 +1,5 @@
 from __future__ import annotations
-from models.schema import ForumThread, ForumComment, User
+from models.schema import ForumSolution, ForumThread, ForumComment, User
 from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import select
@@ -123,23 +123,40 @@ def thread_view(thread_id: int):
         t = s.get(ForumThread, thread_id)
         if not t:
             abort(404)
+
+        # comments (flat)
         comments = s.execute(
             select(ForumComment)
             .where(ForumComment.thread_id == thread_id)
             .order_by(ForumComment.created_at.asc())
         ).scalars().all()
 
-        # Build a set of usernames we’ll display on this page
+        # admin set for labels
         usernames = {t.author_username, *[c.author_username for c in comments]}
-        # Find which of them are admins (no lazy relationship access)
         admin_usernames = set(
             s.execute(
-                select(User.username).where(
-                    User.username.in_(list(usernames)),
-                    User.role == "admin",
-                )
+                select(User.username).where(User.username.in_(
+                    list(usernames)), User.role == "admin")
             ).scalars()
         )
+
+        # solutions (joined to comments)
+        sols = s.execute(
+            select(ForumSolution)
+            .where(ForumSolution.thread_id == thread_id)
+            .order_by(ForumSolution.created_at.asc())
+        ).scalars().all()
+        # materialize a lightweight list for templates
+        solved_snippets = [
+            {
+                "comment_id": sol.comment_id,
+                "author": sol.comment.author_username,
+                "body": sol.comment.body,
+                "created_at": sol.created_at,
+            }
+            for sol in sols
+            if sol.comment and not sol.comment.is_deleted
+        ]
 
     return render_template(
         "forum/thread.html",
@@ -147,8 +164,8 @@ def thread_view(thread_id: int):
         comments=comments,
         admin_usernames=admin_usernames,
         op_username=t.author_username,
+        solved_snippets=solved_snippets,
     )
-
 
 @forum_bp.post("/<int:thread_id>/pin")
 @login_required
@@ -265,3 +282,78 @@ def comment_delete(comment_id: int):
         s.add(c)
         tid = c.thread_id
     return redirect(url_for("forum.thread_view", thread_id=tid))
+
+
+@forum_bp.post("/<int:thread_id>/solve/<int:comment_id>")
+@login_required
+def mark_solution(thread_id: int, comment_id: int):
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        if t.author_username != current_user.id:
+            abort(403, "Only the OP can mark solutions")
+        if t.is_deleted or t.is_locked:
+            abort(403, "Thread is locked or deleted")
+
+        c = s.get(ForumComment, comment_id)
+        if not c or c.thread_id != thread_id:
+            abort(404)
+
+        # disallow marking deleted comments
+        if c.is_deleted:
+            abort(400, "Cannot mark a deleted comment as solution")
+
+        # enforce max 3
+        count = s.execute(select(func.count()).select_from(ForumSolution).where(
+            ForumSolution.thread_id == thread_id)).scalar_one()
+        if count >= 3:
+            abort(400, "Maximum of 3 solutions per thread")
+
+        # skip if already marked
+        exists = s.execute(
+            select(ForumSolution.id).where(
+                ForumSolution.thread_id == thread_id, ForumSolution.comment_id == comment_id
+            )
+        ).first()
+        if not exists:
+            s.add(ForumSolution(thread_id=thread_id,
+                  comment_id=comment_id, created_by_username=current_user.id))
+
+        # mark thread solved if first one
+        t.is_solved = True
+        s.add(t)
+
+    return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{comment_id}")
+
+
+@forum_bp.post("/<int:thread_id>/unsolve/<int:comment_id>")
+@login_required
+def unmark_solution(thread_id: int, comment_id: int):
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        if t.author_username != current_user.id:
+            abort(403, "Only the OP can unmark solutions")
+        if t.is_deleted or t.is_locked:
+            abort(403, "Thread is locked or deleted")
+
+        sol = s.execute(
+            select(ForumSolution).where(
+                ForumSolution.thread_id == thread_id, ForumSolution.comment_id == comment_id
+            )
+        ).scalars().first()
+        if sol:
+            s.delete(sol)
+
+        # if no solutions left → unset is_solved
+        remaining = s.execute(
+            select(func.count()).select_from(ForumSolution).where(
+                ForumSolution.thread_id == thread_id)
+        ).scalar_one()
+        if remaining == 0:
+            t.is_solved = False
+            s.add(t)
+
+    return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{comment_id}")

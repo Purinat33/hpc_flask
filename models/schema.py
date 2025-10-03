@@ -318,6 +318,16 @@ class ForumThread(Base):
     deleted_by_username: Mapped[Optional[str]
                                 ] = mapped_column(String, nullable=True)
 
+    is_solved: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False)
+    solutions = relationship(
+        "ForumSolution",
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ForumSolution.created_at.asc()",
+    )
+
     # convenience (optional)
     def display_text(self) -> str:
         if self.is_deleted:
@@ -375,4 +385,30 @@ class ForumComment(Base):
     __table_args__ = (
         Index("ix_forum_comments_thread_id", "thread_id"),
         Index("ix_forum_comments_parent_id", "parent_id"),
+    )
+
+
+class ForumSolution(Base):
+    __tablename__ = "forum_solutions"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
+    )
+    comment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("forum_comments.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    created_by_username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False)
+
+    thread = relationship("ForumThread", lazy="joined")
+    comment = relationship("ForumComment", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("thread_id", "comment_id",
+                         name="uq_solution_thread_comment"),
+        Index("ix_forum_solutions_thread", "thread_id"),
     )

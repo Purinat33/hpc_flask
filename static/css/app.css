@@ -771,3 +771,45 @@ td.period {
     vertical-align: middle;
     margin-left: .25rem;
 }
+
+
+.badge-solved {
+    display: inline-block;
+    font-size: .75rem;
+    padding: .1rem .4rem;
+    border: 1px solid #10b981;
+    border-radius: .25rem;
+    color: #065f46;
+    background: #d1fae5;
+    vertical-align: middle;
+    margin-left: .25rem;
+}
+
+.solved-box {
+    border: 1px solid #d1fae5;
+    background: #f0fdf4;
+    border-radius: .5rem;
+    padding: .75rem .9rem;
+}
+
+.solved-title {
+    font-weight: 600;
+    color: #065f46;
+    margin-bottom: .5rem;
+}
+
+.solved-list {
+    margin: .25rem 0 0 1.25rem;
+}
+
+.solved-quote {
+    margin: .25rem 0;
+    padding: .5rem .6rem;
+    background: #ffffff;
+    border-left: 3px solid #10b981;
+}
+
+.btn.btn-xxs {
+    font-size: .7rem;
+    padding: .1rem .35rem;
+}

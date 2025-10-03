@@ -12,6 +12,7 @@
     <li>
         {% if t.is_pinned %}📌{% endif %}
         <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
+        {% if t.is_solved %}<span class="badge-solved">Solved</span>{% endif %}
         <small>by {{ name_with_admin(t.author_username) }} · {{ t.created_at|dt_local }}</small>
 
         {% if current_user.is_authenticated and current_user.role == 'admin' and not t.is_deleted %}
