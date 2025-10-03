@@ -1,4 +1,5 @@
 from __future__ import annotations
+from models.audit_store import audit  # <-- uses the audit() you pasted
 # add ForumThreadVote
 from models.schema import ForumThread, ForumComment, User, ForumThreadVote
 from models.schema import (
@@ -25,6 +26,36 @@ forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
 COMMENT_MAX = 2000
 THREAD_TITLE_MAX = 200
 THREAD_BODY_MAX = 10000
+
+def _audit_ok(action: str, target_type: str, target_id: str | int, **extra):
+    try:
+        audit(
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id),
+            outcome="success",
+            status=200,
+            extra=extra or None,
+        )
+    except Exception:
+        # never break the request on audit failures
+        pass
+
+
+def _audit_blocked(action: str, target_type: str, target_id: str | int, status: int, error: str, **extra):
+    try:
+        audit(
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id),
+            outcome="blocked",
+            status=status,
+            error_code=error,
+            extra=extra or None,
+        )
+    except Exception:
+        pass
+
 # ------------------- Threads -----------------------------------------
 
 
@@ -165,13 +196,18 @@ def thread_new_form():
 @login_required
 def thread_lock(thread_id: int):
     if not _is_admin():
+        _audit_blocked("forum.thread.lock", "thread",
+                       thread_id, 403, "forbidden_not_admin")
         abort(403)
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.lock", "thread",
+                           thread_id, 404, "not_found")
             abort(404)
         t.is_locked = True
         s.add(t)
+        _audit_ok("forum.thread.lock", "thread", thread_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -179,16 +215,23 @@ def thread_lock(thread_id: int):
 @login_required
 def thread_unlock(thread_id: int):
     if not _is_admin():
+        _audit_blocked("forum.thread.unlock", "thread",
+                       thread_id, 403, "forbidden_not_admin")
         abort(403)
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.unlock", "thread",
+                           thread_id, 404, "not_found")
             abort(404)
         # Only unlock if not soft-deleted
         if t.is_deleted:
+            _audit_blocked("forum.thread.unlock", "thread",
+                           thread_id, 400, "unlock_deleted")
             abort(400, "Cannot unlock a deleted thread")
         t.is_locked = False
         s.add(t)
+        _audit_ok("forum.thread.unlock", "thread", thread_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -198,8 +241,12 @@ def thread_new_submit():
     title = (request.form.get("title") or "").strip()
     body = (request.form.get("body") or "").strip()
     if not title or not body:
+        _audit_blocked("forum.thread.create", "thread", "new", 400,
+                       "validation_missing", title_len=len(title), body_len=len(body))
         abort(400, "Title and body required")
     if len(title) > THREAD_TITLE_MAX or len(body) > THREAD_BODY_MAX:
+        _audit_blocked("forum.thread.create", "thread", "new", 400,
+                       "validation_too_long", title_len=len(title), body_len=len(body))
         abort(400, "Post too long")
 
     with session_scope() as s:
@@ -207,6 +254,8 @@ def thread_new_submit():
                         author_username=current_user.id)
         s.add(t)
         s.flush()
+        _audit_ok("forum.thread.create", "thread", t.id,
+                  title_len=len(title), body_len=len(body))
         return redirect(url_for("forum.thread_view", thread_id=t.id))
 
 
@@ -308,15 +357,22 @@ def thread_view(thread_id: int):
 @login_required
 def thread_pin(thread_id: int):
     if not _is_admin():
+        _audit_blocked("forum.thread.pin", "thread",
+                       thread_id, 403, "forbidden_not_admin")
         abort(403)
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.pin", "thread",
+                           thread_id, 404, "not_found")
             abort(404)
         if t.is_deleted:
+            _audit_blocked("forum.thread.pin", "thread",
+                           thread_id, 400, "pin_deleted")
             abort(400, "Cannot pin a deleted thread")
         t.is_pinned = True
         s.add(t)
+        _audit_ok("forum.thread.pin", "thread", thread_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -324,13 +380,18 @@ def thread_pin(thread_id: int):
 @login_required
 def thread_unpin(thread_id: int):
     if not _is_admin():
+        _audit_blocked("forum.thread.unpin", "thread",
+                       thread_id, 403, "forbidden_not_admin")
         abort(403)
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.unpin", "thread",
+                           thread_id, 404, "not_found")
             abort(404)
         t.is_pinned = False
         s.add(t)
+        _audit_ok("forum.thread.unpin", "thread", thread_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -343,13 +404,19 @@ def thread_delete(thread_id: int):
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.delete", "thread",
+                           thread_id, 404, "not_found")
             abort(404)
         is_owner = (t.author_username == current_user.id)
         if t.is_locked:
             if not _is_admin():
+                _audit_blocked("forum.thread.delete", "thread",
+                               thread_id, 403, "locked_not_admin")
                 abort(403, "Thread is locked")
         else:
             if not (is_owner or _is_admin()):
+                _audit_blocked("forum.thread.delete", "thread",
+                               thread_id, 403, "forbidden_not_owner_or_admin")
                 abort(403, "Not allowed")
 
         t.is_deleted = True
@@ -359,6 +426,8 @@ def thread_delete(thread_id: int):
         t.is_locked = True
         t.is_pinned = False  # auto-unpin when deleted
         s.add(t)
+        _audit_ok("forum.thread.delete", "thread", thread_id,
+                  by_admin=bool(t.deleted_by_admin))
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -368,15 +437,23 @@ def comment_create(thread_id: int):
     body = (request.form.get("body") or "").strip()
     parent_id = request.form.get("parent_id", type=int)
     if not body:
+        _audit_blocked("forum.comment.create", "thread", thread_id,
+                       400, "validation_missing_body", parent_id=parent_id)
         abort(400, "Body required")
     if len(body) > COMMENT_MAX:
+        _audit_blocked("forum.comment.create", "thread", thread_id, 400,
+                       "validation_too_long", parent_id=parent_id, body_len=len(body))
         abort(400, "Comment too long")
 
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.comment.create", "thread", thread_id,
+                           404, "thread_not_found", parent_id=parent_id)
             abort(404)
         if t.is_locked:
+            _audit_blocked("forum.comment.create", "thread", thread_id,
+                           403, "locked_no_comments", parent_id=parent_id)
             abort(403, "Thread is locked")
 
         c = ForumComment(
@@ -387,6 +464,8 @@ def comment_create(thread_id: int):
         )
         s.add(c)
         s.flush()
+        _audit_ok("forum.comment.create", "comment", c.id,
+                  thread_id=thread_id, parent_id=parent_id)
         cid = c.id
     return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{cid}")
 
@@ -400,16 +479,24 @@ def comment_delete(comment_id: int):
     with session_scope() as s:
         c = s.get(ForumComment, comment_id)
         if not c:
+            _audit_blocked("forum.comment.delete", "comment",
+                           comment_id, 404, "not_found")
             abort(404)
         t = s.get(ForumThread, c.thread_id)
         if t is None:
+            _audit_blocked("forum.comment.delete", "comment",
+                           comment_id, 404, "thread_not_found")
             abort(404)
         if t.is_locked:
             # disallow comment deletion post-lock
+            _audit_blocked("forum.comment.delete", "comment",
+                           comment_id, 403, "locked_no_delete")
             abort(403, "Thread is locked")
 
         is_owner = (c.author_username == current_user.id)
         if not (is_owner or _is_admin()):
+            _audit_blocked("forum.comment.delete", "comment",
+                           comment_id, 403, "forbidden_not_owner_or_admin")
             abort(403, "Not allowed")
 
         c.is_deleted = True
@@ -417,6 +504,8 @@ def comment_delete(comment_id: int):
         c.deleted_at = _utcnow()
         c.deleted_by_username = current_user.id
         s.add(c)
+        _audit_ok("forum.comment.delete", "comment", comment_id,
+                  by_admin=bool(c.deleted_by_admin), thread_id=c.thread_id)
         tid = c.thread_id
     return redirect(url_for("forum.thread_view", thread_id=tid))
 
@@ -427,24 +516,36 @@ def mark_solution(thread_id: int, comment_id: int):
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           404, "thread_not_found", comment_id=comment_id)
             abort(404)
         if t.author_username != current_user.id:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           403, "forbidden_not_op", comment_id=comment_id)
             abort(403, "Only the OP can mark solutions")
         if t.is_deleted or t.is_locked:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           403, "locked_or_deleted", comment_id=comment_id)
             abort(403, "Thread is locked or deleted")
 
         c = s.get(ForumComment, comment_id)
         if not c or c.thread_id != thread_id:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           404, "comment_not_found", comment_id=comment_id)
             abort(404)
 
         # disallow marking deleted comments
         if c.is_deleted:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           400, "comment_deleted", comment_id=comment_id)
             abort(400, "Cannot mark a deleted comment as solution")
 
         # enforce max 3
         count = s.execute(select(func.count()).select_from(ForumSolution).where(
             ForumSolution.thread_id == thread_id)).scalar_one()
         if count >= 3:
+            _audit_blocked("forum.solution.mark", "thread", thread_id,
+                           400, "max_solutions_reached", comment_id=comment_id)
             abort(400, "Maximum of 3 solutions per thread")
 
         # skip if already marked
@@ -460,7 +561,8 @@ def mark_solution(thread_id: int, comment_id: int):
         # mark thread solved if first one
         t.is_solved = True
         s.add(t)
-
+        _audit_ok("forum.solution.mark", "thread",
+                  thread_id, comment_id=comment_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{comment_id}")
 
 
@@ -470,10 +572,16 @@ def unmark_solution(thread_id: int, comment_id: int):
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.solution.unmark", "thread", thread_id,
+                           404, "thread_not_found", comment_id=comment_id)
             abort(404)
         if t.author_username != current_user.id:
+            _audit_blocked("forum.solution.unmark", "thread", thread_id,
+                           403, "forbidden_not_op", comment_id=comment_id)
             abort(403, "Only the OP can unmark solutions")
         if t.is_deleted or t.is_locked:
+            _audit_blocked("forum.solution.unmark", "thread", thread_id,
+                           403, "locked_or_deleted", comment_id=comment_id)
             abort(403, "Thread is locked or deleted")
 
         sol = s.execute(
@@ -492,7 +600,7 @@ def unmark_solution(thread_id: int, comment_id: int):
         if remaining == 0:
             t.is_solved = False
             s.add(t)
-
+        _audit_ok("forum.solution.unmark", "thread", thread_id, comment_id=comment_id)
     return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{comment_id}")
 
 
@@ -507,11 +615,14 @@ def thread_vote(thread_id: int):
     with session_scope() as s:
         t = s.get(ForumThread, thread_id)
         if not t:
+            _audit_blocked("forum.thread.vote", "thread",
+                           thread_id, 404, "thread_not_found", v=v)
             abort(404)
         if t.is_deleted:
+            _audit_blocked("forum.thread.vote", "thread",
+                           thread_id, 400, "vote_on_deleted", v=v)
             abort(400, "Cannot vote on deleted thread")
 
-        # fetch existing
         existing = s.execute(
             select(ForumThreadVote).where(
                 ForumThreadVote.thread_id == thread_id,
@@ -519,16 +630,21 @@ def thread_vote(thread_id: int):
             )
         ).scalars().first()
 
-        if v == 0:
+        if v == 0 and existing:
+            s.delete(existing)
+            _audit_ok("forum.thread.vote.clear", "thread", thread_id)
+        elif v != 0:
             if existing:
-                s.delete(existing)
-        else:
-            if existing:
+                before = existing.value
                 existing.value = v
                 s.add(existing)
+                _audit_ok("forum.thread.vote.change", "thread",
+                          thread_id, before=before, after=v)
             else:
                 s.add(ForumThreadVote(thread_id=thread_id,
                       username=current_user.id, value=v))
+                _audit_ok("forum.thread.vote.set",
+                          "thread", thread_id, value=v)
     return redirect(url_for("forum.thread_view", thread_id=thread_id))
 
 
@@ -539,9 +655,12 @@ def comment_vote(comment_id: int):
     with session_scope() as s:
         c = s.get(ForumComment, comment_id)
         if not c:
+            _audit_blocked("forum.comment.vote", "comment",
+                           comment_id, 404, "comment_not_found", v=v)
             abort(404)
-        # still disallow voting a deleted comment
         if c.is_deleted:
+            _audit_blocked("forum.comment.vote", "comment",
+                           comment_id, 400, "vote_on_deleted", v=v)
             abort(400, "Cannot vote on deleted comment")
 
         existing = s.execute(
@@ -551,15 +670,20 @@ def comment_vote(comment_id: int):
             )
         ).scalars().first()
 
-        if v == 0:
+        if v == 0 and existing:
+            s.delete(existing)
+            _audit_ok("forum.comment.vote.clear", "comment",
+                      comment_id, thread_id=c.thread_id)
+        elif v != 0:
             if existing:
-                s.delete(existing)
-        else:
-            if existing:
+                before = existing.value
                 existing.value = v
                 s.add(existing)
+                _audit_ok("forum.comment.vote.change", "comment", comment_id,
+                          thread_id=c.thread_id, before=before, after=v)
             else:
                 s.add(ForumCommentVote(comment_id=comment_id,
                       username=current_user.id, value=v))
-    # bounce back to its thread
+                _audit_ok("forum.comment.vote.set", "comment",
+                          comment_id, thread_id=c.thread_id, value=v)
     return redirect(url_for("forum.thread_view", thread_id=c.thread_id) + f"#c{comment_id}")
