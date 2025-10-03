@@ -901,3 +901,27 @@ td.period {
     margin-left: .35rem;
     color: #6b7280;
 }
+
+.forum-filter {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: .5rem 0 1rem;
+}
+
+.forum-filter input[type="text"] {
+    padding: .35rem .5rem;
+    min-width: 14rem;
+}
+
+.pager {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.thread-score {
+    margin-left: .35rem;
+    color: #6b7280;
+}

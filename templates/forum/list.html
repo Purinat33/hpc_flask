@@ -7,9 +7,25 @@
 <h2 class="page-title">Forum</h2>
 <p><a class="btn" href="{{ url_for('forum.thread_new_form') }}"><button>New Thread</button></a></p>
 
+{# helper for signed numbers #}
 {% macro signed(n) -%}
 {%- if n > 0 -%}+{{ n }}{%- else -%}{{ n }}{%- endif -%}
 {%- endmacro %}
+
+<h2>Forum</h2>
+
+<form method="get" action="{{ url_for('forum.thread_list') }}" class="forum-filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search title…" />
+    <input type="text" name="op" value="{{ op }}" placeholder="OP (author)…" />
+    <label style="margin-left:.5rem;">
+        <input type="checkbox" name="solved" value="1" {% if solved_only %}checked{% endif %}>
+        Solved only
+    </label>
+    <button type="submit">Filter</button>
+    {% if q or op or solved_only %}
+    <a href="{{ url_for('forum.thread_list') }}" class="btn btn-sm" style="margin-left:.25rem;">Clear</a>
+    {% endif %}
+</form>
 
 <ul class="forum-list">
     {% for t in threads %}
@@ -30,11 +46,26 @@
         {% endif %}
     </li>
     {% else %}
-    <li>No threads yet.</li>
+    <li>No threads found.</li>
     {% endfor %}
 </ul>
 
+{# Optional: simple prev/next using total/per_page, preserving filters #}
+{% set total_pages = (total // per_page) + (1 if total % per_page else 0) %}
+{% if total_pages > 1 %}
+<nav class="pager">
+    {% if page > 1 %}
+    <a
+        href="{{ url_for('forum.thread_list') }}?page={{ page-1 }}&per_page={{ per_page }}{% if qs %}&{{ qs }}{% endif %}">«
+        Prev</a>
+    {% endif %}
+    <span>Page {{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a
+        href="{{ url_for('forum.thread_list') }}?page={{ page+1 }}&per_page={{ per_page }}{% if qs %}&{{ qs }}{% endif %}">Next
+        »</a>
+    {% endif %}
+</nav>
+{% endif %}
 
-
-<!-- (Optional) pagination controls -->
 {% endblock %}

@@ -1,5 +1,6 @@
 from __future__ import annotations
-from models.schema import ForumThread, ForumComment, User, ForumThreadVote  # add ForumThreadVote
+# add ForumThreadVote
+from models.schema import ForumThread, ForumComment, User, ForumThreadVote
 from models.schema import (
     ForumThread, ForumComment, ForumSolution, User,
     ForumThreadVote, ForumCommentVote
@@ -14,6 +15,8 @@ from models.schema import ForumThread, ForumComment
 from controllers.auth import admin_required  # you already define this
 from sqlalchemy import select, func
 from datetime import datetime, timezone
+from sqlalchemy import select, func, and_
+from urllib.parse import urlencode
 
 forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
 COMMENT_MAX = 2000
@@ -35,19 +38,40 @@ def thread_list():
     page = max(int(request.args.get("page", 1) or 1), 1)
     per_page = min(max(int(request.args.get("per_page", 20) or 20), 5), 100)
 
+    # --- new: read filters ---
+    q_title = (request.args.get("q") or "").strip()
+    q_op = (request.args.get("op") or "").strip()
+    solved_only = request.args.get("solved") in ("1", "true", "on", "yes")
+
+    filters = []
+    if q_title:
+        filters.append(ForumThread.title.ilike(f"%{q_title}%"))
+    if q_op:
+        filters.append(ForumThread.author_username.ilike(f"%{q_op}%"))
+    if solved_only:
+        filters.append(ForumThread.is_solved.is_(True))
+
     with session_scope() as s:
+        base = select(ForumThread)
+        if filters:
+            base = base.where(and_(*filters))
+
+        # order: pinned first, then newest
         q = (
-            select(ForumThread)
-            .order_by(ForumThread.is_pinned.desc(), ForumThread.created_at.desc())
+            base.order_by(ForumThread.is_pinned.desc(),
+                          ForumThread.created_at.desc())
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
         items = s.execute(q).scalars().all()
 
-        total = s.execute(select(func.count()).select_from(
-            ForumThread)).scalar_one()
+        # total for pagination (with same filters)
+        total = s.execute(
+            select(func.count()).select_from(ForumThread).where(and_(*filters)) if filters
+            else select(func.count()).select_from(ForumThread)
+        ).scalar_one()
 
-        # Admin labels for authors shown in this page
+        # admin labels
         page_authors = {t.author_username for t in items}
         page_admins = set(
             s.execute(
@@ -58,7 +82,7 @@ def thread_list():
             ).scalars()
         )
 
-        # Thread scores for this page
+        # scores for current page
         thread_scores = {}
         ids = [t.id for t in items]
         if ids:
@@ -70,6 +94,16 @@ def thread_list():
             ):
                 thread_scores[tid] = score
 
+    # build querystring to preserve filters in pagination links
+    qs_dict = {}
+    if q_title:
+        qs_dict["q"] = q_title
+    if q_op:
+        qs_dict["op"] = q_op
+    if solved_only:
+        qs_dict["solved"] = "1"
+    qs = urlencode(qs_dict)
+
     return render_template(
         "forum/list.html",
         threads=items,
@@ -77,7 +111,11 @@ def thread_list():
         per_page=per_page,
         total=total,
         page_admin_usernames=page_admins,
-        thread_scores=thread_scores,   # <- pass to template
+        thread_scores=thread_scores,
+        q=q_title,
+        op=q_op,
+        solved_only=solved_only,
+        qs=qs,  # e.g. "q=foo&op=bar&solved=1" or ""
     )
 
 
