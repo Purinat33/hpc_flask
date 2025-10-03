@@ -1140,3 +1140,38 @@ td.period {
 }
 
 /* optional: slightly narrower */
+
+
+.tabs {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    /* gap between left-group items */
+}
+
+.tabs-left {
+    display: flex;
+    gap: .5rem;
+}
+
+/* pushes the right group to the far-right */
+.tabs-right {
+    margin-left: auto;
+    display: flex;
+    gap: .5rem;
+    flex-direction: row-reverse;
+    /* render right-group starting from the right */
+}
+
+/* optional: keep wrapping tidy on small screens */
+@media (max-width: 640px) {
+    .tabs {
+        flex-wrap: wrap;
+        row-gap: .5rem;
+    }
+
+    .tabs-right {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}

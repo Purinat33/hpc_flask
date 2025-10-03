@@ -7,6 +7,7 @@
 
 <div class="card">
     <div class="tabs">
+        <div class="tabs-left">
         <a class="{{ 'on' if view=='detail' else '' }}"
             href="{{ url_for('user.my_usage', before=before, view='detail') }}">Detailed</a>
         <a class="{{ 'on' if view=='aggregate' else '' }}"
@@ -15,6 +16,12 @@
             href="{{ url_for('user.my_usage', view='trend', year=year) }}">Trend & Monthly</a>
         <a class="{{ 'on' if view=='billed' else '' }}"
             href="{{ url_for('user.my_usage', view='billed') }}">Invoices</a>
+        </div>
+
+        <div class="tabs-right">
+            <a href="{{ url_for('forum.thread_list') }}">Forum</a>
+            <a href="{{ url_for('tickets.list_tickets') }}">Tickets</a>
+        </div>
     </div>
 </div>
 
