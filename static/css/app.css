@@ -925,3 +925,8 @@ td.period {
     margin-left: .35rem;
     color: #6b7280;
 }
+
+
+.forum-filter select {
+    padding: .35rem .5rem;
+}

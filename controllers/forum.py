@@ -17,6 +17,9 @@ from sqlalchemy import select, func
 from datetime import datetime, timezone
 from sqlalchemy import select, func, and_
 from urllib.parse import urlencode
+from sqlalchemy import select, func, and_
+from urllib.parse import urlencode
+from models.schema import ForumThread, ForumComment, ForumThreadVote, User
 
 forum_bp = Blueprint("forum", __name__, url_prefix="/forum")
 COMMENT_MAX = 2000
@@ -38,10 +41,14 @@ def thread_list():
     page = max(int(request.args.get("page", 1) or 1), 1)
     per_page = min(max(int(request.args.get("per_page", 20) or 20), 5), 100)
 
-    # --- new: read filters ---
+    # --- filters (unchanged) ---
     q_title = (request.args.get("q") or "").strip()
     q_op = (request.args.get("op") or "").strip()
     solved_only = request.args.get("solved") in ("1", "true", "on", "yes")
+
+    # --- new: sort ---
+    sort = (request.args.get("sort") or "latest_post").strip()
+    # allowed: latest_post | latest_comment | most_upvoted | most_downvoted
 
     filters = []
     if q_title:
@@ -51,27 +58,65 @@ def thread_list():
     if solved_only:
         filters.append(ForumThread.is_solved.is_(True))
 
+    # Aggregates for sorting
+    vote_sum_sq = (
+        select(ForumThreadVote.thread_id,
+               func.coalesce(func.sum(ForumThreadVote.value), 0).label("score"))
+        .group_by(ForumThreadVote.thread_id)
+        .subquery()
+    )
+    last_comment_sq = (
+        select(ForumComment.thread_id,
+               func.max(ForumComment.created_at).label("last_comment_at"))
+        .group_by(ForumComment.thread_id)
+        .subquery()
+    )
+
     with session_scope() as s:
-        base = select(ForumThread)
+        base = (
+            select(
+                ForumThread,
+                func.coalesce(vote_sum_sq.c.score, 0).label("score"),
+                func.coalesce(last_comment_sq.c.last_comment_at,
+                              ForumThread.created_at)
+                .label("last_comment_at"),
+            )
+            .join(vote_sum_sq, vote_sum_sq.c.thread_id == ForumThread.id, isouter=True)
+            .join(last_comment_sq, last_comment_sq.c.thread_id == ForumThread.id, isouter=True)
+        )
         if filters:
             base = base.where(and_(*filters))
 
-        # order: pinned first, then newest
-        q = (
-            base.order_by(ForumThread.is_pinned.desc(),
-                          ForumThread.created_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-        )
-        items = s.execute(q).scalars().all()
+        # Order key by sort mode; pinned always first
+        if sort == "latest_comment":
+            order_key = (func.coalesce(
+                last_comment_sq.c.last_comment_at, ForumThread.created_at).desc(),)
+        elif sort == "most_upvoted":
+            order_key = (func.coalesce(vote_sum_sq.c.score,
+                         0).desc(), ForumThread.created_at.desc())
+        elif sort == "most_downvoted":
+            order_key = (func.coalesce(vote_sum_sq.c.score,
+                         0).asc(), ForumThread.created_at.desc())
+        else:  # latest_post (default)
+            order_key = (ForumThread.created_at.desc(),)
 
-        # total for pagination (with same filters)
+        q = (
+            base.order_by(ForumThread.is_pinned.desc(), *order_key)
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+        )
+        rows = s.execute(q).all()
+        # Extract ORM objects & aggregates
+        items = [r[0] for r in rows]
+        thread_scores = {r[0].id: r[1] for r in rows}  # id -> score
+
+        # total count with same filters
         total = s.execute(
-            select(func.count()).select_from(ForumThread).where(and_(*filters)) if filters
-            else select(func.count()).select_from(ForumThread)
+            (select(func.count()).select_from(ForumThread).where(and_(*filters)))
+            if filters else select(func.count()).select_from(ForumThread)
         ).scalar_one()
 
-        # admin labels
+        # admin labels for authors on this page
         page_authors = {t.author_username for t in items}
         page_admins = set(
             s.execute(
@@ -82,19 +127,7 @@ def thread_list():
             ).scalars()
         )
 
-        # scores for current page
-        thread_scores = {}
-        ids = [t.id for t in items]
-        if ids:
-            for tid, score in s.execute(
-                select(ForumThreadVote.thread_id,
-                       func.coalesce(func.sum(ForumThreadVote.value), 0))
-                .where(ForumThreadVote.thread_id.in_(ids))
-                .group_by(ForumThreadVote.thread_id)
-            ):
-                thread_scores[tid] = score
-
-    # build querystring to preserve filters in pagination links
+    # preserve filters in pagination links
     qs_dict = {}
     if q_title:
         qs_dict["q"] = q_title
@@ -102,6 +135,8 @@ def thread_list():
         qs_dict["op"] = q_op
     if solved_only:
         qs_dict["solved"] = "1"
+    if sort and sort != "latest_post":
+        qs_dict["sort"] = sort
     qs = urlencode(qs_dict)
 
     return render_template(
@@ -115,7 +150,8 @@ def thread_list():
         q=q_title,
         op=q_op,
         solved_only=solved_only,
-        qs=qs,  # e.g. "q=foo&op=bar&solved=1" or ""
+        sort=sort,
+        qs=qs,
     )
 
 

@@ -21,11 +21,21 @@
         <input type="checkbox" name="solved" value="1" {% if solved_only %}checked{% endif %}>
         Solved only
     </label>
-    <button type="submit">Filter</button>
-    {% if q or op or solved_only %}
+    <label style="margin-left:.5rem;">
+        Sort:
+        <select name="sort">
+            <option value="latest_post" {% if sort=='latest_post' %}selected{% endif %}>Latest post</option>
+            <option value="latest_comment" {% if sort=='latest_comment' %}selected{% endif %}>Latest comment</option>
+            <option value="most_upvoted" {% if sort=='most_upvoted' %}selected{% endif %}>Most upvoted</option>
+            <option value="most_downvoted" {% if sort=='most_downvoted' %}selected{% endif %}>Most downvoted</option>
+        </select>
+    </label>
+    <button type="submit">Apply</button>
+    {% if q or op or solved_only or (sort and sort!='latest_post') %}
     <a href="{{ url_for('forum.thread_list') }}" class="btn btn-sm" style="margin-left:.25rem;">Clear</a>
     {% endif %}
 </form>
+
 
 <ul class="forum-list">
     {% for t in threads %}
