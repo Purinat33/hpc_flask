@@ -7,14 +7,19 @@
 <h2 class="page-title">Forum</h2>
 <p><a class="btn" href="{{ url_for('forum.thread_new_form') }}"><button>New Thread</button></a></p>
 
+{% macro signed(n) -%}
+{%- if n > 0 -%}+{{ n }}{%- else -%}{{ n }}{%- endif -%}
+{%- endmacro %}
+
 <ul class="forum-list">
     {% for t in threads %}
+    {% set s = thread_scores.get(t.id, 0) %}
     <li>
         {% if t.is_pinned %}📌{% endif %}
         <a href="{{ url_for('forum.thread_view', thread_id=t.id) }}">{{ t.title }}</a>
         {% if t.is_solved %}<span class="badge-solved">Solved</span>{% endif %}
+        <span class="thread-score">({{ signed(s) }})</span>
         <small>by {{ name_with_admin(t.author_username) }} · {{ t.created_at|dt_local }}</small>
-
         {% if current_user.is_authenticated and current_user.role == 'admin' and not t.is_deleted %}
         <form method="post"
             action="{{ url_for('forum.thread_unpin' if t.is_pinned else 'forum.thread_pin', thread_id=t.id) }}"
@@ -28,6 +33,7 @@
     <li>No threads yet.</li>
     {% endfor %}
 </ul>
+
 
 
 <!-- (Optional) pagination controls -->

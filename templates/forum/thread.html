@@ -43,6 +43,22 @@
     {{ '[Removed by an admin]' if thread.is_deleted and thread.deleted_by_admin else
      ('[Deleted]' if thread.is_deleted else thread.body) }}
 </div>
+
+<div class="vote-bar">
+    <form method="post" action="{{ url_for('forum.thread_vote', thread_id=thread.id) }}" class="vote-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button name="v" value="1" class="vote-btn up {{ 'active' if thread_user_vote == 1 else '' }}"
+            title="Upvote">↑</button>
+        <span class="vote-score">{{ thread_score }}</span>
+        <button name="v" value="-1" class="vote-btn down {{ 'active' if thread_user_vote == -1 else '' }}"
+            title="Downvote">↓</button>
+        {% if current_user.is_authenticated and thread_user_vote %}
+        <button name="v" value="0" class="vote-clear" title="Clear vote">⨯</button>
+        {% endif %}
+    </form>
+</div>
+
+
 {% if solved_snippets %}
 <hr>
 <div class="solved-box">
@@ -95,6 +111,17 @@
 <li id="c{{ c.id }}">
     <div>
         <b>{{ name_with_labels(c.author_username) }}</b> <small>{{ c.created_at|dt_local }}</small>
+        {% set score = comment_scores.get(c.id, 0) %}
+        {% set myv = comment_user_votes.get(c.id, 0) %}
+        <form method="post" action="{{ url_for('forum.comment_vote', comment_id=c.id) }}" class="vote-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button name="v" value="1" class="vote-btn up {{ 'active' if myv == 1 else '' }}" title="Upvote">↑</button>
+            <span class="vote-score">{{ score }}</span>
+            <button name="v" value="-1" class="vote-btn down {{ 'active' if myv == -1 else '' }}" title="Downvote">↓</button>
+            {% if current_user.is_authenticated and myv %}
+            <button name="v" value="0" class="vote-clear" title="Clear vote">⨯</button>
+            {% endif %}
+        </form>
         {# replies count for toggle #}
         {% set kids = by_parent.get(c.id, []) %}
         {% if kids|length > 0 %}

@@ -1,4 +1,10 @@
 from __future__ import annotations
+from models.schema import ForumThread, ForumComment, User, ForumThreadVote  # add ForumThreadVote
+from models.schema import (
+    ForumThread, ForumComment, ForumSolution, User,
+    ForumThreadVote, ForumCommentVote
+)
+from sqlalchemy import select, func, and_
 from models.schema import ForumSolution, ForumThread, ForumComment, User
 from flask import Blueprint, render_template, request, redirect, url_for, abort, current_app
 from flask_login import login_required, current_user
@@ -52,13 +58,26 @@ def thread_list():
             ).scalars()
         )
 
+        # Thread scores for this page
+        thread_scores = {}
+        ids = [t.id for t in items]
+        if ids:
+            for tid, score in s.execute(
+                select(ForumThreadVote.thread_id,
+                       func.coalesce(func.sum(ForumThreadVote.value), 0))
+                .where(ForumThreadVote.thread_id.in_(ids))
+                .group_by(ForumThreadVote.thread_id)
+            ):
+                thread_scores[tid] = score
+
     return render_template(
         "forum/list.html",
         threads=items,
         page=page,
         per_page=per_page,
         total=total,
-        page_admin_usernames=page_admins,  # for list template
+        page_admin_usernames=page_admins,
+        thread_scores=thread_scores,   # <- pass to template
     )
 
 
@@ -158,6 +177,45 @@ def thread_view(thread_id: int):
             if sol.comment and not sol.comment.is_deleted
         ]
 
+    # after you’ve loaded `comments`
+    comment_ids = [c.id for c in comments]
+
+    with session_scope() as s2:
+        # thread score + my vote
+        thread_score = s2.execute(
+            select(func.coalesce(func.sum(ForumThreadVote.value), 0))
+            .where(ForumThreadVote.thread_id == thread_id)
+        ).scalar_one()
+
+        my_thread_vote = 0
+        if current_user.is_authenticated:
+            mv = s2.execute(
+                select(ForumThreadVote.value)
+                .where(ForumThreadVote.thread_id == thread_id, ForumThreadVote.username == current_user.id)
+            ).scalar_one_or_none()
+            my_thread_vote = mv or 0
+
+        # comment scores
+        comment_scores = {}
+        if comment_ids:
+            for cid, score in s2.execute(
+                select(ForumCommentVote.comment_id,
+                       func.coalesce(func.sum(ForumCommentVote.value), 0))
+                .where(ForumCommentVote.comment_id.in_(comment_ids))
+                .group_by(ForumCommentVote.comment_id)
+            ):
+                comment_scores[cid] = score
+
+        # my votes on these comments
+        my_comment_votes = {}
+        if current_user.is_authenticated and comment_ids:
+            for cid, val in s2.execute(
+                select(ForumCommentVote.comment_id, ForumCommentVote.value)
+                .where(ForumCommentVote.comment_id.in_(comment_ids),
+                       ForumCommentVote.username == current_user.id)
+            ):
+                my_comment_votes[cid] = val
+
     return render_template(
         "forum/thread.html",
         thread=t,
@@ -165,7 +223,12 @@ def thread_view(thread_id: int):
         admin_usernames=admin_usernames,
         op_username=t.author_username,
         solved_snippets=solved_snippets,
+        thread_score=thread_score,
+        thread_user_vote=my_thread_vote,
+        comment_scores=comment_scores,
+        comment_user_votes=my_comment_votes,
     )
+
 
 @forum_bp.post("/<int:thread_id>/pin")
 @login_required
@@ -357,3 +420,72 @@ def unmark_solution(thread_id: int, comment_id: int):
             s.add(t)
 
     return redirect(url_for("forum.thread_view", thread_id=thread_id) + f"#c{comment_id}")
+
+
+def _clamp_vote(v: int) -> int:
+    return 1 if v > 0 else (-1 if v < 0 else 0)
+
+
+@forum_bp.post("/<int:thread_id>/vote")
+@login_required
+def thread_vote(thread_id: int):
+    v = _clamp_vote(request.form.get("v", type=int) or 0)
+    with session_scope() as s:
+        t = s.get(ForumThread, thread_id)
+        if not t:
+            abort(404)
+        if t.is_deleted:
+            abort(400, "Cannot vote on deleted thread")
+
+        # fetch existing
+        existing = s.execute(
+            select(ForumThreadVote).where(
+                ForumThreadVote.thread_id == thread_id,
+                ForumThreadVote.username == current_user.id
+            )
+        ).scalars().first()
+
+        if v == 0:
+            if existing:
+                s.delete(existing)
+        else:
+            if existing:
+                existing.value = v
+                s.add(existing)
+            else:
+                s.add(ForumThreadVote(thread_id=thread_id,
+                      username=current_user.id, value=v))
+    return redirect(url_for("forum.thread_view", thread_id=thread_id))
+
+
+@forum_bp.post("/comment/<int:comment_id>/vote")
+@login_required
+def comment_vote(comment_id: int):
+    v = _clamp_vote(request.form.get("v", type=int) or 0)
+    with session_scope() as s:
+        c = s.get(ForumComment, comment_id)
+        if not c:
+            abort(404)
+        # still disallow voting a deleted comment
+        if c.is_deleted:
+            abort(400, "Cannot vote on deleted comment")
+
+        existing = s.execute(
+            select(ForumCommentVote).where(
+                ForumCommentVote.comment_id == comment_id,
+                ForumCommentVote.username == current_user.id
+            )
+        ).scalars().first()
+
+        if v == 0:
+            if existing:
+                s.delete(existing)
+        else:
+            if existing:
+                existing.value = v
+                s.add(existing)
+            else:
+                s.add(ForumCommentVote(comment_id=comment_id,
+                      username=current_user.id, value=v))
+    # bounce back to its thread
+    return redirect(url_for("forum.thread_view", thread_id=c.thread_id) + f"#c{comment_id}")

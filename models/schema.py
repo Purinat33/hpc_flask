@@ -1,4 +1,5 @@
 # models/schema.py
+from sqlalchemy import SmallInteger
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, Text, String, Integer, DateTime, Index
@@ -411,4 +412,54 @@ class ForumSolution(Base):
         UniqueConstraint("thread_id", "comment_id",
                          name="uq_solution_thread_comment"),
         Index("ix_forum_solutions_thread", "thread_id"),
+    )
+
+class ForumThreadVote(Base):
+    __tablename__ = "forum_thread_votes"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False
+    )
+    username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+    value: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0)  # -1 or +1
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("thread_id", "username", name="uq_thread_vote_user"),
+        Index("ix_thread_votes_thread", "thread_id"),
+        CheckConstraint("value in (-1, 1)", name="ck_thread_vote_value"),
+    )
+
+
+class ForumCommentVote(Base):
+    __tablename__ = "forum_comment_votes"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True)
+    comment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("forum_comments.id", ondelete="CASCADE"), nullable=False
+    )
+    username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+    value: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0)  # -1 or +1
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("comment_id", "username",
+                         name="uq_comment_vote_user"),
+        Index("ix_comment_votes_comment", "comment_id"),
+        CheckConstraint("value in (-1, 1)", name="ck_comment_vote_value"),
     )

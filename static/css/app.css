@@ -813,3 +813,91 @@ td.period {
     font-size: .7rem;
     padding: .1rem .35rem;
 }
+/* Voting UI — make sure icons show up even with aggressive resets */
+.vote-form {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    margin: .25rem 0;
+}
+
+.vote-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.4rem;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    color: inherit !important;
+    /* beat transparent text resets */
+    font-size: 1rem !important;
+    /* beat font-size:0 resets */
+    line-height: 1;
+    opacity: .8;
+}
+
+.vote-btn:hover {
+    opacity: 1;
+}
+
+.vote-btn.up.active {
+    color: #16a34a !important;
+    font-weight: 700;
+}
+
+.vote-btn.down.active {
+    color: #ef4444 !important;
+    font-weight: 700;
+}
+
+.vote-icon {
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+    display: block;
+}
+
+.vote-text {
+    font-size: 1em;
+    line-height: 1;
+    margin-left: .1rem;
+}
+
+@supports (aspect-ratio: 1) {
+    .vote-text {
+        display: none;
+    }
+
+    /* if SVG works, hide fallback glyph */
+}
+
+.vote-score {
+    min-width: 1.6rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.vote-clear {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font-size: .9rem;
+    opacity: .6;
+    line-height: 1;
+}
+
+.vote-clear:hover {
+    opacity: .95;
+}
+
+.vote-bar {
+    margin: .5rem 0 .5rem;
+}
+
+
+.thread-score {
+    margin-left: .35rem;
+    color: #6b7280;
+}
