@@ -930,3 +930,72 @@ td.period {
 .forum-filter select {
     padding: .35rem .5rem;
 }
+
+
+.ticket-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+    margin: .5rem 0 1rem;
+}
+
+.ticket-list li {
+    margin: .4rem 0;
+}
+
+.badge {
+    display: inline-block;
+    padding: .1rem .4rem;
+    border: 1px solid #e5e7eb;
+    border-radius: .25rem;
+    margin-left: .35rem;
+    font-size: .75rem;
+    color: #374151;
+    background: #f9fafb;
+}
+
+.badge-internal {
+    border-color: #f59e0b;
+    color: #92400e;
+    background: #fffbeb;
+}
+
+.ticket-body,
+.comment-body {
+    overflow-wrap: anywhere;
+}
+
+.inline-form {
+    display: inline-flex;
+    gap: .4rem;
+    align-items: center;
+    margin-right: .5rem;
+}
+
+
+/* Inline alignment for the checkbox + label */
+.note-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    font-weight: 600;
+    margin-bottom: .25rem;
+    /* keeps it close to the textarea */
+}
+
+/* Normalize checkbox positioning (overrides any global float/top tweaks) */
+.note-toggle input[type="checkbox"] {
+    margin: 0;
+    position: static;
+    float: none;
+    vertical-align: middle;
+    /* optional: brand color for supported browsers */
+    /* accent-color: #f59e0b; */
+}
+
+/* Optional: make the row align with other controls if you have a toolbar */
+.form-row {
+    display: flex;
+    align-items: center;
+}

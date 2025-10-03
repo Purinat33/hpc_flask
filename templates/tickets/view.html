@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Ticket #{{ t.id }}{% endblock %}
+{% block content %}
+
+<h2>#{{ t.id }} · {{ t.title }}</h2>
+<p class="muted">Requester: {{ t.requester_username }}{% if t.assignee_username %} · Assignee: {{ t.assignee_username }}{% endif %}</p>
+<p class="muted">Status: <b>{{ t.status }}</b> · Priority: <b>{{ t.priority }}</b> · Created: {{ t.created_at|dt_local }} · Updated: {{ t.updated_at|dt_local }}</p>
+
+<div class="ticket-body">
+  {{ t.body }}
+</div>
+
+<hr>
+
+{% if is_admin %}
+<form method="post" action="{{ url_for('tickets.assign_ticket', ticket_id=t.id) }}" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="text" name="assignee" value="{{ t.assignee_username or '' }}" placeholder="Assignee username (blank to unassign)">
+  <button type="submit">Assign</button>
+</form>
+
+<form method="post" action="{{ url_for('tickets.update_priority', ticket_id=t.id) }}" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <select name="priority">
+    {% for p in ['low','normal','high','urgent'] %}
+      <option value="{{ p }}" {% if t.priority==p %}selected{% endif %}>{{ p|title }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Set priority</button>
+</form>
+{% endif %}
+
+<form method="post" action="{{ url_for('tickets.update_status', ticket_id=t.id) }}" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <select name="status">
+    {% for s in ['open','in_progress','pending_user','resolved','closed'] %}
+      <option value="{{ s }}" {% if t.status==s %}selected{% endif %}>{{ s.replace('_',' ')|title }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Update status</button>
+</form>
+
+<hr>
+
+<h3>Discussion</h3>
+<ul class="ticket-comments">
+  {% for c in comments %}
+    <li>
+      <div><b>{{ c.author_username }}</b> <small>{{ c.created_at|dt_local }}</small>
+        {% if is_admin and c.is_internal %}<span class="badge badge-internal">Internal</span>{% endif %}
+      </div>
+      <div class="comment-body">{{ c.body }}</div>
+    </li>
+  {% else %}
+    <li class="muted">No comments yet.</li>
+  {% endfor %}
+</ul>
+
+<form method="post" action="{{ url_for('tickets.comment_ticket', ticket_id=t.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if is_admin %}
+    <div class="form-row">
+        <label class="note-toggle" for="is_internal">
+            <input type="checkbox" id="is_internal" name="is_internal" value="1">
+            <span>Internal note <small>(staff only)</small></span>
+        </label>
+    </div>
+  {% endif %}
+  <textarea name="body" class="textarea-grow" maxlength="5000" placeholder="Write a comment…" required></textarea>
+  <button type="submit">Add comment</button>
+</form>
+
+{% endblock %}

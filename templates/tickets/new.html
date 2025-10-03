@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}New Ticket{% endblock %}
+{% block content %}
+<h2>New Ticket</h2>
+<form method="post" action="{{ url_for('tickets.new_ticket_submit') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="text" name="title" maxlength="200" placeholder="Short title" required style="width:100%; margin:.25rem 0;">
+  <textarea name="body" class="textarea-grow" maxlength="10000" placeholder="Describe the issue…" required></textarea>
+  <div class="char-counter" aria-live="polite"> </div>
+  <button type="submit">Create</button>
+  <a class="btn" href="{{ url_for('tickets.list_tickets') }}">Cancel</a>
+</form>
+{% endblock %}

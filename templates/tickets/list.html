@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block content %}
+
+<h2>Tickets</h2>
+
+<form method="get" action="{{ url_for('tickets.list_tickets') }}" class="ticket-filter">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search title…" />
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for s in ['open','in_progress','pending_user','resolved','closed'] %}
+      <option value="{{ s }}" {% if status_f==s %}selected{% endif %}>{{ s.replace('_',' ')|title }}</option>
+    {% endfor %}
+  </select>
+  {% if is_admin %}
+    <label><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> My requests</label>
+    <label><input type="checkbox" name="assigned" value="1" {% if assigned_to_me %}checked{% endif %}> Assigned to me</label>
+  {% endif %}
+  <label>Sort:
+    <select name="sort">
+      <option value="latest" {% if sort=='latest' %}selected{% endif %}>Latest created</option>
+      <option value="updated" {% if sort=='updated' %}selected{% endif %}>Recently updated</option>
+    </select>
+  </label>
+  <button type="submit">Apply</button>
+  <a class="btn btn-sm" href="{{ url_for('tickets.list_tickets') }}">Clear</a>
+  <a class="btn" style="margin-left:.5rem" href="{{ url_for('tickets.new_ticket_form') }}">New ticket</a>
+</form>
+
+<ul class="ticket-list">
+  {% for t in tickets %}
+    <li>
+      <a href="{{ url_for('tickets.view_ticket', ticket_id=t.id) }}"><b>#{{ t.id }}</b> {{ t.title }}</a>
+      <span class="badge">Status: {{ t.status }}</span>
+      <span class="badge">Priority: {{ t.priority }}</span>
+      <small>Requester: {{ t.requester_username }}{% if t.assignee_username %} · Assignee: {{ t.assignee_username }}{% endif %}</small>
+      <small>Created: {{ t.created_at|dt_local }} · Updated: {{ t.updated_at|dt_local }}</small>
+    </li>
+  {% else %}
+    <li>No tickets found.</li>
+  {% endfor %}
+</ul>
+
+{% set total_pages = (total // per_page) + (1 if total % per_page else 0) %}
+{% if total_pages > 1 %}
+<nav class="pager">
+  {% if page > 1 %}
+    <a href="{{ url_for('tickets.list_tickets', page=page-1, per_page=per_page, q=q, status=status_f, mine=1 if mine else None, assigned=1 if assigned_to_me else None, sort=sort) }}">« Prev</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="{{ url_for('tickets.list_tickets', page=page+1, per_page=per_page, q=q, status=status_f, mine=1 if mine else None, assigned=1 if assigned_to_me else None, sort=sort) }}">Next »</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% endblock %}

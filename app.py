@@ -20,6 +20,7 @@ from sqlalchemy import text
 from flask import jsonify
 from services.jinja_tz import register_jinja_tz_filters
 from controllers.copilot import copilot_bp
+from controllers.tickets import tickets_bp
 babel = Babel()
 
 # --- Load .env exactly once, here ---
@@ -198,6 +199,7 @@ def create_app(test_config: dict | None = None):
     app.register_blueprint(forum_bp)
     # app.register_blueprint(payments_bp)
     app.register_blueprint(copilot_bp)
+    app.register_blueprint(tickets_bp)
     register_jinja_tz_filters(app)
 
     app.config["COPILOT_ENABLED"] = (

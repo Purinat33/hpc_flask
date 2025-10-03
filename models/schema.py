@@ -463,3 +463,72 @@ class ForumCommentVote(Base):
         Index("ix_comment_votes_comment", "comment_id"),
         CheckConstraint("value in (-1, 1)", name="ck_comment_vote_value"),
     )
+
+# --- TICKETS ----------------------------------------------------------
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # who
+    requester_username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+    assignee_username: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT")
+    )
+
+    # lifecycle
+    status: Mapped[str] = mapped_column(String, nullable=False, default="open")  # open|in_progress|pending_user|resolved|closed
+    priority: Mapped[str] = mapped_column(String, nullable=False, default="normal")  # low|normal|high|urgent
+    category: Mapped[str | None] = mapped_column(String)  # optional: 'billing','technical','account',...
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    closed_at:  Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    requester = relationship("User", foreign_keys=[requester_username], lazy="joined")
+    assignee  = relationship("User", foreign_keys=[assignee_username], lazy="joined")
+    comments  = relationship(
+        "TicketComment",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="TicketComment.created_at.asc()",
+    )
+
+    __table_args__ = (
+        CheckConstraint("status in ('open','in_progress','pending_user','resolved','closed')", name="ck_ticket_status"),
+        CheckConstraint("priority in ('low','normal','high','urgent')", name="ck_ticket_priority"),
+        Index("ix_tickets_created_at", "created_at"),
+        Index("ix_tickets_requester", "requester_username"),
+        Index("ix_tickets_assignee", "assignee_username"),
+        Index("ix_tickets_status_priority", "status", "priority"),
+    )
+
+
+class TicketComment(Base):
+    __tablename__ = "ticket_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False
+    )
+    author_username: Mapped[str] = mapped_column(
+        String, ForeignKey("users.username", ondelete="RESTRICT"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    is_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # staff-only note
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    ticket = relationship("Ticket", back_populates="comments")
+    author = relationship("User", lazy="joined")
+
+    __table_args__ = (
+        Index("ix_ticket_comments_ticket", "ticket_id"),
+    )
