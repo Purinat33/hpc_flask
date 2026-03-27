@@ -8,12 +8,19 @@
     <input name="username" placeholder="username" value="{{ last_username or '' }}" required>
     <input name="password" type="password" placeholder="password" required>
 
-    <!-- Button fills the form width; message is positioned outside the box -->
     <div class="auth-actions">
         <button type="submit" class="auth-login-btn">{{ _("Login") }}</button>
+
         {% if message %}
         <span id="login-msg" aria-live="polite">{{ message }}</span>
         {% endif %}
+
+        <div style="margin-top:.5rem; text-align:center;">
+            <a href="{{ config.get('PORTAL_URL', '#') }}" class="muted"
+                {% if config.get('PORTAL_URL', '#') != '#' %}target="_blank" rel="noopener noreferrer" {% endif %}>
+                {{ _("Register") }}
+            </a>
+        </div>
     </div>
 </form>
 {% endblock %}

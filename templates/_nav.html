@@ -1,20 +1,22 @@
 <header class="site site-header">
+    {% set bp = request.blueprint or '' %}
+    {% set is_en = (locale_code()[:2] == 'en') %}
+    {% set show_admin = current_user.is_authenticated and (current_user.is_admin|default(false)) %}
+    {% set portal_url = config.get("PORTAL_URL", "#") %}
+    {% set portal_label = config.get("PORTAL_LABEL", "User & Project Management") %}
+
     {# LEFT GROUP ----------------------------------------------------------- #}
     <nav class="nav nav-left">
-        {# Home #}
         {% set home_active = (request.endpoint == 'playground') %}
         <a class="{{ 'active' if home_active }}" href="{{ url_for('playground') }}"
-            aria-current="{{ 'page' if home_active }}">{{ _("Home") }}</a>
+            aria-current="{{ 'page' if home_active else 'false' }}">{{ _("Home") }}</a>
 
-        {# Secondary tab: Admin if admin, otherwise My Usage (always visible) #}
-        {% set bp = request.blueprint or '' %}
-        {% set show_admin = current_user.is_authenticated and (current_user.is_admin|default(false)) %}
         {% set target_href = url_for('admin.admin_form') if show_admin else url_for('user.my_usage') %}
         {% set target_label = _("Admin") if show_admin else _("My Usage") %}
         {% set target_active = (bp == 'admin') if show_admin else (bp == 'user') %}
 
         <a class="{{ 'active' if target_active }}" href="{{ target_href }}"
-            aria-current="{{ 'page' if target_active }}">{{ target_label }}</a>
+            aria-current="{{ 'page' if target_active else 'false' }}">{{ target_label }}</a>
     </nav>
 
     {# CENTER LOGO ---------------------------------------------------------- #}
@@ -24,7 +26,11 @@
 
     {# RIGHT GROUP ---------------------------------------------------------- #}
     <nav class="nav nav-right">
-        {% set is_en = (locale_code()[:2] == 'en') %}
+        <a class="nav-placeholder {{ 'is-placeholder' if portal_url == '#' else '' }}" href="{{ portal_url }}"
+            {% if portal_url != '#' %}target="_blank" rel="noopener noreferrer" {% else %}aria-disabled="true"
+            {% endif %}>
+            {{ portal_label }}
+        </a>
 
         {% if current_user.is_authenticated %}
         <form method="post" action="{{ url_for('auth.logout') }}">
@@ -36,7 +42,7 @@
         {% else %}
         {% set login_active = (bp == 'auth') %}
         <a class="{{ 'active' if login_active }}" href="{{ url_for('auth.login') }}"
-            aria-current="{{ 'page' if login_active }}">{{ _("Login") }}</a>
+            aria-current="{{ 'page' if login_active else 'false' }}">{{ _("Login") }}</a>
         {% endif %}
 
         <form class="lang-toggle" method="post" action="{{ url_for('set_locale') }}">

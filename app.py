@@ -104,6 +104,9 @@ def create_app(test_config: dict | None = None):
         BABEL_DEFAULT_LOCALE="en",
         BABEL_TRANSLATION_DIRECTORIES="translations",
         LANGUAGES=["en", "th"],
+
+        PORTAL_URL=os.getenv("PORTAL_URL", "#"),
+        PORTAL_LABEL=os.getenv("PORTAL_LABEL", "User & Project Management"),
     )
     if test_config:
         app.config.update(test_config)
